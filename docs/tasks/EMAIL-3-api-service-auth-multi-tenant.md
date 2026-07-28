@@ -47,6 +47,7 @@ N/A neste ticket — a publicação de eventos acontece no EMAIL-4.
 - [ ] Schema do banco de dados versionado e aplicável via migration.
 - [ ] Testes automatizados cobrindo os quatro critérios de aceite acima.
 - [ ] Conexões com banco e cache são encerradas corretamente quando o serviço é desligado (sem vazamento de conexões, especialmente relevante em ambiente de testes automatizados, onde muitas instâncias do serviço sobem e descem em sequência).
+- [ ] Existe uma forma documentada ou automatizada (script/seed) de criar uma organização, um projeto e uma API key para desenvolvimento e testes locais — como ainda não existe uma API de CRUD para esses dados (ver a nota "Fora de escopo" do README do diretório de tickets), sem isso nenhum ticket seguinte consegue autenticar uma requisição.
 
 ## Referências
 

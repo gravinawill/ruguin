@@ -11,7 +11,7 @@ Cada peça do sistema (API Service, Dispatch Worker) pode estar individualmente 
 
 ## O que precisa ser construído
 
-Um teste automatizado (ou, na ausência de automação, um roteiro de verificação manual documentado) que dispara uma chamada real ao endpoint de envio e comprova, através do sistema real rodando (não substituído por simulações internas), que o email chega até a chamada à AWS SES e que o status final é corretamente refletido de volta no sistema.
+Um teste automatizado (ou, na ausência de automação, um roteiro de verificação manual documentado) que dispara uma chamada real ao endpoint de envio e comprova, através do sistema real rodando (não substituído por simulações internas), que o email chega até a chamada à AWS SES e que o resultado é publicado como um evento de status observável.
 
 ## Endpoints
 
@@ -29,6 +29,8 @@ As mesmas ferramentas dos tickets anteriores, rodando juntas (API Service + Disp
 
 - O teste precisa rodar contra a infraestrutura real definida no EMAIL-1 (banco de dados, cache, backbone de eventos, simulador de SES) — não contra versões simuladas/substituídas dessas dependências, senão a integração real nunca é de fato validada.
 - Este ticket comprova o caminho de sucesso ponta a ponta. Cenários de falha (SES fora do ar, mensagem malformada, limite de taxa estourado, etc.) já têm cobertura própria dentro do EMAIL-5 e não precisam ser repetidos aqui.
+- O registro do email na tabela `emails` do Postgres continua com status `queued` mesmo depois do envio ser concluído com sucesso — atualizar esse registro a partir do evento de status é responsabilidade de um "atualizador de read-model" ainda não construído por nenhum ticket deste conjunto. Não escreva um teste que espera (faz polling) por uma mudança de status na linha do banco: ele nunca vai passar. A prova de sucesso é o evento Kafka, não uma coluna do banco.
+- A API key (e, indiretamente, o projeto e a organização usados no teste) vêm do mecanismo de seed configurado no EMAIL-3, já que não existe uma API de CRUD para criar esses dados — ver a nota "Fora de escopo" do README do diretório de tickets.
 
 ## Critérios de aceite
 

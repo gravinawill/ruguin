@@ -34,6 +34,7 @@ Uma rota que aceita ou uma referência a um template salvo (com variáveis para 
 - **Renderização de template:** variáveis no formato `{{nome}}` dentro do template são substituídas pelos valores informados no pedido. Se o template referenciar uma variável que não foi informada na requisição, o pedido deve falhar de forma explícita — nunca silenciosamente enviar um email com um `{{nome}}` literal no meio do texto.
 - **Isolamento multi-tenant:** um `templateId` só pode ser usado se pertencer ao mesmo projeto dono da API key usada na requisição — não é possível referenciar o template de outro projeto, mesmo sabendo o identificador exato dele.
 - Este endpoint nunca chama a AWS SES diretamente — ele só grava o pedido no banco e publica o evento. Quem efetivamente envia o email é o Dispatch Worker (EMAIL-5), de forma assíncrona e desacoplada.
+- Os templates e as API keys usados para testar este endpoint vêm do mecanismo de seed configurado no EMAIL-3, não de uma API de CRUD — ela ainda não existe (ver a nota "Fora de escopo" do README do diretório de tickets). Isso inclui o template de outro projeto usado no cenário de teste do `404`.
 
 ## Critérios de aceite
 

@@ -32,5 +32,9 @@ Este conjunto de tickets cobre só o núcleo transacional (enviar um email via
 API até ele efetivamente sair pela AWS SES). Não cobre: campanhas de
 marketing, CRUD de gestão de conta (orgs/projetos/API keys/templates via
 API — os tickets assumem esses dados semeados diretamente no banco), anexos,
-verificação de domínio, ou rastreamento de abertura/clique. Ver a seção
-"Fora de escopo" da spec de arquitetura para o raciocínio completo.
+verificação de domínio, ou rastreamento de abertura/clique. Também não cobre
+manter o status do registro de email no Postgres sincronizado com os eventos
+de entrega — um "read-model" que consumisse `email.status.updated` para
+atualizar a tabela `emails` fica para um ticket futuro; a prova de sucesso
+usada por este conjunto de tickets é o evento Kafka, não uma coluna do banco.
+Ver a seção "Fora de escopo" da spec de arquitetura para o raciocínio completo.
