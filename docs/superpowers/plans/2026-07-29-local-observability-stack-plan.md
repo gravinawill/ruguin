@@ -965,7 +965,12 @@ groups:
             datasourceUid: __expr__
             model:
               type: threshold
-              expr: ''
+              # Grafana 13.1.1 (image tag `latest`) rejects a bare `expr: ''` with
+              # "no variable specified to reference for refId C" — the SSE expression
+              # model's field is `expression` (confirmed against Grafana's own file-
+              # provisioning docs example), not `expr`, and it must name the refId being
+              # thresholded.
+              expression: A
               conditions:
                 - evaluator:
                     type: gt
@@ -993,14 +998,20 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: sum(pg_stat_activity_count) / pg_settings_max_connections * 100
+              # A raw `A / B` divides an unlabeled sum() by a labeled series
+              # (pg_settings_max_connections carries instance/job labels), which fails
+              # Prometheus's default one-to-one vector matching and silently returns no
+              # data (confirmed: the rule sat in "Pending (NoData)" with that exact query).
+              # scalar() collapses the single-series denominator so the division works.
+              expr: sum(pg_stat_activity_count) / scalar(pg_settings_max_connections) * 100
               instant: true
               refId: A
           - refId: C
             datasourceUid: __expr__
             model:
               type: threshold
-              expr: ''
+              # See note above (Kafka rule) — the SSE field is `expression`, not `expr`.
+              expression: A
               conditions:
                 - evaluator:
                     type: gt
