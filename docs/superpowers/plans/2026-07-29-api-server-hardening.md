@@ -538,6 +538,10 @@ git commit -m "test(api-server): migrate from Jest to Vitest with SWC transform"
 import swc from 'unplugin-swc'
 import { defineConfig } from 'vitest/config'
 
+/*
+ * Kept in sync with apps/api-server/.swcrc — both the Nest build and the Vitest
+ * transform need decorator metadata enabled, or NestJS DI breaks under test.
+ */
 const swcPlugin = swc.vite({
   module: { type: 'es6' },
   jsc: {
@@ -549,6 +553,13 @@ const swcPlugin = swc.vite({
 })
 
 export default defineConfig({
+  /*
+   * `oxc: false` disables Vite's built-in Rolldown/Oxc TS transform (unplugin-swc only
+   * disables the older `esbuild` option, which Vite 8 no longer honors), so SWC is the
+   * sole TypeScript transform across every project below and decorator metadata isn't
+   * confounded by Oxc's own support.
+   */
+  oxc: false,
   plugins: [swcPlugin],
   test: {
     globals: true,
@@ -556,14 +567,14 @@ export default defineConfig({
     clearMocks: true,
     restoreMocks: true,
     reporters: ['verbose'],
+    passWithNoTests: true,
     projects: [
       {
         extends: true,
         test: {
           name: 'unit',
           include: ['src/**/*.unit.ts'],
-          testTimeout: 5000,
-          passWithNoTests: true
+          testTimeout: 5000
         }
       },
       {
@@ -571,8 +582,7 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['src/**/*.integration.ts'],
-          testTimeout: 15000,
-          passWithNoTests: true
+          testTimeout: 15_000
         }
       },
       {
@@ -580,8 +590,7 @@ export default defineConfig({
         test: {
           name: 'e2e',
           include: ['src/**/*.e2e.ts'],
-          testTimeout: 30000,
-          passWithNoTests: true
+          testTimeout: 30_000
         }
       }
     ]
@@ -589,7 +598,11 @@ export default defineConfig({
 })
 ```
 
-Note: this repo pins `vitest@^4.1.10` at the root; that version's `test.projects` supports inline objects with `extends: true` to merge with the root config (plugins included). If Step 2 below reports an unrecognized-option error instead of running, check the installed `vitest --version` and its Projects documentation — the array shape (glob strings vs. inline objects) is the part that has changed across Vitest 3→4 minor versions.
+Notes on this exact shape, confirmed against the installed `vitest@4.1.10`:
+- `oxc: false` must carry over from Task 4's `vitest.config.ts` — omitting it here would silently regress the decorator-metadata fix (Vite 8's Oxc/Rolldown transform would re-enable itself).
+- `passWithNoTests: true` must live at the **root** `test` config, not inside each project's `test` block — per-project `passWithNoTests` doesn't affect the exit code when running a single `--project` filter (only the root-level flag does).
+- `TypeScript` complains under `tsc --noEmit` if `passWithNoTests` is placed inside a project block (`ProjectConfig` doesn't include that field, only the root `InlineConfig` does) — even though it's a silent no-op at runtime, it fails `check:types`.
+- `15000`/`30000` need numeric-separator underscores (`15_000`/`30_000`) to satisfy this repo's `unicorn/numeric-separators-style` lint rule.
 
 - [ ] **Step 2: Update scripts to target each project**
 
