@@ -19,6 +19,7 @@
     "fix": "turbo fix:lint && pnpm fix:format",
     "fix:format": "prettier --cache --write --list-different --ignore-path .gitignore --ignore-path .prettierignore .",
     "fix:lint": "turbo run fix:lint",
+    "infra:load-test:api-server": "docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.tools.yml run --rm k6 run /scripts/api-server-health.ts",
     "preinstall": "npx --yes only-allow pnpm",
     "postinstall": "pnpm run build",
     "prepare": "husky",
