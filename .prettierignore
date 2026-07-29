@@ -1,0 +1,12 @@
+pnpm-lock.yaml
+packages/db/prisma/migrations/*
+.claude/
+.claude-flow/
+.cursor/
+.agents/
+.mcp.json
+docs/superpowers/
+**/docs/superpowers/
+**/generated/
+AGENTS.md
+CLAUDE.md

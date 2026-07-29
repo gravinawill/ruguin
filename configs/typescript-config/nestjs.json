@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "NestJS",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowJs": false,
+    "checkJs": false,
+    "lib": ["ESNext"],
+    "sourceMap": true,
+    "target": "esnext",
+    "outDir": "./dist",
+    "incremental": true,
+    "types": ["node"],
+    "module": "ESNext",
+    "removeComments": true,
+    "verbatimModuleSyntax": true,
+    "moduleResolution": "Bundler",
+    "exactOptionalPropertyTypes": true
+  }
+}

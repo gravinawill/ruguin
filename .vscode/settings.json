@@ -1,0 +1,16 @@
+{
+  "cSpell.diagnosticLevel": "Warning",
+  "cSpell.enabled": true,
+  "cSpell.ignorePaths": ["**/node_modules", ".git", "bun.lock", "**/.turbo", "**/dist"],
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit",
+    "source.organizeImports": "never"
+  },
+  "editor.formatOnPaste": true,
+  "editor.formatOnSave": true,
+  "eslint.runtime": "node",
+  "eslint.workingDirectories": [{ "mode": "auto" }],
+  "files.associations": {
+    ".env*": "properties"
+  },
+}
