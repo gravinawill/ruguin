@@ -793,6 +793,8 @@ git commit -m "feat(api-server): add Terminus health check at GET /health"
 **Interfaces:**
 - Consumes: `GET /health` from Task 6, reachable on `localhost:3000` when the api-server is running (`pnpm --filter @ruguin/api-server start:dev` or `start:prod`).
 
+**Environment note:** `infrastructure/local/k6/smoke.ts` and the root `infra:load-test` script (the existing pattern this task mirrors) are, as of this plan, still uncommitted work-in-progress on the main checkout from a separate, concurrent workstream (the local observability stack) — they don't exist anywhere in this branch's git history, since this branch/worktree only contains what was committed at the time it was created. Don't try to diff against them; use the content below verbatim, and place the new root script alphabetically on its own merits. Docker is also not available in every environment this plan might run in — if so, Step 3 can't be executed live; say so plainly in the report rather than fabricating output. Once this branch and the observability work both land on `main`, a follow-up should confirm no naming/placement collision with the real `infra:load-test`/`smoke.ts` once they exist alongside this file.
+
 - [ ] **Step 1: Create `infrastructure/local/k6/api-server-health.ts`**
 
 ```ts
@@ -806,7 +808,8 @@ import http from 'k6/http'
  * (`pnpm --filter @ruguin/api-server start:dev`), then `pnpm infra:load-test:api-server`.
  * Override with K6_TARGET_URL to point at a different host/port.
  */
-const TARGET_URL: string = __ENV.K6_TARGET_URL || 'http://host.docker.internal:3000/health'
+// eslint-disable-next-line unicorn/prefer-https -- local Docker network, no TLS available
+const TARGET_URL: string = __ENV.K6_TARGET_URL ?? 'http://host.docker.internal:3000/health'
 
 export const options: Options = {
   vus: 5,
@@ -815,20 +818,22 @@ export const options: Options = {
 
 export default function test(): void {
   const result = http.get(TARGET_URL)
-  check(result, { 'status is 200': (result: unknown) => result.status === 200 })
+  check(result, { 'status is 200': (response: unknown) => response.status === 200 })
   sleep(1)
 }
 ```
 
+(`??` instead of `||`, and the inner callback parameter renamed to `response` instead of shadowing the outer `result`, satisfy this repo's root-level `eslint.config.ts` — it lints `infrastructure/**` directly, unlike `apps/**`/`packages/**`/`configs/**` which carry their own configs.)
+
 - [ ] **Step 2: Add the root script**
 
-In the root `package.json` `scripts` block, add (keep alphabetical order next to `infra:load-test`):
+In the root `package.json` `scripts` block, add in alphabetical order:
 
 ```json
 "infra:load-test:api-server": "docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.tools.yml run --rm k6 run /scripts/api-server-health.ts",
 ```
 
-- [ ] **Step 3: Verify against a running api-server**
+- [ ] **Step 3: Verify against a running api-server (requires Docker)**
 
 In one terminal:
 ```bash
@@ -841,7 +846,7 @@ In another terminal, once the app has logged that it's listening:
 pnpm infra:load-test:api-server
 ```
 
-Expected: k6 summary output with `checks_succeeded: 100.00%` and `http_req_failed: 0.00%`. Stop the `start:dev` process afterward.
+Expected: k6 summary output with `checks_succeeded: 100.00%` and `http_req_failed: 0.00%`. Stop the `start:dev` process afterward. If Docker isn't available in the current environment, skip this step and report it as not executable there rather than fabricating a result — the file/script content is still fully reviewable without it.
 
 - [ ] **Step 4: Commit**
 
