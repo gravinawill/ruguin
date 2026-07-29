@@ -1,0 +1,93 @@
+x-logging: &loki-logging
+  driver: loki
+  options:
+    loki-url: 'http://localhost:3100/loki/api/v1/push'
+    loki-external-labels: 'compose_service={{.Name}}'
+    loki-retries: '5'
+    loki-batch-size: '400'
+
+services:
+  conduktor:
+    image: conduktor/conduktor-console:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - '8080:8080'
+    logging: *loki-logging
+    environment:
+      # Reuses the "postgres" service from docker-compose.yml (database created by
+      # postgres-init/01-create-tooling-databases.sh on first boot) instead of a dedicated
+      # Postgres container just for this tool.
+      CDK_DATABASE_URL: postgresql://ruguin:ruguin@postgres:5432/conduktor-console
+      CDK_ADMIN_EMAIL: admin@ruguin.local
+      # Conduktor rejects weak passwords: min 8 chars, upper+lower+digit+symbol.
+      CDK_ADMIN_PASSWORD: Ruguin#Dev1
+      # Uses the "INTERNAL" listener (see kafka service in docker-compose.yml) — Conduktor
+      # runs as another container on this network, so it can't reach kafka via "localhost".
+      CDK_CLUSTERS_0_ID: local
+      CDK_CLUSTERS_0_NAME: local
+      CDK_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+  sonarqube:
+    # "community" tracks the latest Community Build (continuous releases); "lts-community" is
+    # frozen on the legacy 9.9 LTS line and won't get newer language/analyzer support.
+    image: sonarqube:community
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '9000:9000'
+    environment:
+      # Same shared "postgres" service as Conduktor above — separate database, same instance.
+      SONAR_JDBC_URL: jdbc:postgresql://postgres:5432/sonarqube
+      SONAR_JDBC_USERNAME: ruguin
+      SONAR_JDBC_PASSWORD: ruguin
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
+      nproc: 8192
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:9000/api/system/status | grep -q ''"status":"UP"''']
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    logging: *loki-logging
+
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - '8081:8080'
+    logging: *loki-logging
+
+  # Load testing (k6, scripts in TypeScript — native support since k6 v0.57, no build step).
+  # Not a long-running service — doesn't start with `up`; invoke on demand:
+  #   pnpm infra:load-test
+  # or: docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.tools.yml run --rm k6 run /scripts/<file>.ts
+  k6:
+    image: grafana/k6:latest
+    profiles: ['load-test']
+    volumes:
+      - ./k6:/scripts:ro
+    environment:
+      # Points at LocalStack's health endpoint by default since it's the only endpoint
+      # guaranteed to exist right now — override once the API Service (Task 4+) is up, e.g.
+      # K6_TARGET_URL=http://host.docker.internal:3000/emails pnpm infra:load-test
+      K6_TARGET_URL: http://localstack:4566/_localstack/health
+    logging: *loki-logging
+
+volumes:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
