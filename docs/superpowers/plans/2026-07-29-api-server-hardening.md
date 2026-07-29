@@ -340,6 +340,8 @@ git commit -m "build(api-server): compile with SWC instead of tsc"
 **Files:**
 - Modify: `apps/api-server/vitest.config.ts`
 - Modify: `apps/api-server/package.json` (scripts + devDependencies)
+- Modify: `apps/api-server/nest-cli.json` (SWC builder needs an `ignore` pattern, or it compiles `*.unit.ts` test files straight into `dist/`)
+- Modify: `apps/api-server/tsconfig.build.json` (add `**/*.unit.ts` to `exclude`, alongside the existing `**/*spec.ts` — otherwise the parallel type-check pass tries to compile test files as part of the app build)
 - Create: `apps/api-server/src/decorator-metadata.unit.ts`
 
 **Interfaces:**
@@ -355,6 +357,7 @@ import 'reflect-metadata'
 import { Injectable } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class -- placeholder DI target, only its type identity matters
 class Dependency {}
 
 @Injectable()
@@ -368,19 +371,22 @@ class ServiceUnderTest {
 
 describe('SWC decorator metadata', () => {
   it('emits design:paramtypes for constructor-injected dependencies', () => {
-    const paramTypes = Reflect.getMetadata('design:paramtypes', ServiceUnderTest) as unknown[]
+    // eslint-disable-next-line unicorn/no-nonstandard-builtin-properties -- reflect-metadata polyfill API, not the native Reflect
+    const parameterTypes = Reflect.getMetadata('design:paramtypes', ServiceUnderTest) as unknown[]
 
-    expect(paramTypes).toEqual([Dependency])
+    expect(parameterTypes).toEqual([Dependency])
   })
 })
 ```
 
+The `getDependency()` method exists only so the strict tsconfig's unused-property check (`TS6138`) doesn't flag the parameter property — it's never called by the test. The two `eslint-disable` comments are both real, narrow rule conflicts in this repo's lint config (an empty placeholder class, and `Reflect.getMetadata` being a `reflect-metadata` polyfill method rather than a native `Reflect` API) — not blanket suppressions.
+
 - [ ] **Step 2: Run it under the current default Vitest transform and confirm it fails**
 
 Run: `pnpm --filter @ruguin/api-server exec vitest run src/decorator-metadata.unit.ts`
-Expected: FAIL — `paramTypes` is `undefined` (esbuild's TypeScript transform doesn't implement `emitDecoratorMetadata`).
+Expected: FAIL — `parameterTypes` is `undefined` (esbuild's TypeScript transform doesn't implement `emitDecoratorMetadata`).
 
-**Known deviation (discovered during implementation):** this repo's Vite is "rolldown-vite" (oxc-based, not plain esbuild), and oxc's TS transform already emits decorator metadata — so this step may come back PASS instead of the expected FAIL. If that happens, don't force a failure: proceed to Steps 3+ anyway. The point of `unplugin-swc` was never "make a failing test pass" for its own sake — it's guaranteeing Vitest's transform is deterministically identical to the app's own SWC build config from Task 3, rather than relying on oxc's incidental (and version-fragile) support for the same behavior. Document whichever result actually happened; don't fabricate a FAIL.
+**Known deviation (discovered during implementation):** this repo's Vite is "rolldown-vite" (oxc-based, not plain esbuild), and oxc's TS transform already emits decorator metadata — so this step may come back PASS instead of the expected FAIL. If that happens, don't force a failure: proceed to Steps 3+ anyway. The point of `unplugin-swc` was never "make a failing test pass" for its own sake — it's guaranteeing Vitest's transform is deterministically identical to the app's own SWC build config from Task 3, rather than relying on oxc's incidental (and version-fragile) support for the same behavior. Getting a *real* RED in this repo requires explicitly disabling Vite's built-in transform too (see Step 3's `oxc: false` — `unplugin-swc`'s own `esbuild: false` option only disables the older esbuild path, which Vite 8 no longer uses by default). Document whichever result actually happened; don't fabricate a FAIL.
 
 - [ ] **Step 3: Add `unplugin-swc` and wire it into `vitest.config.ts`**
 
@@ -393,8 +399,14 @@ import swc from 'unplugin-swc'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  // Kept in sync with apps/api-server/.swcrc — both the Nest build and the Vitest
-  // transform need decorator metadata enabled, or NestJS DI breaks under test.
+  /*
+   * Kept in sync with apps/api-server/.swcrc — both the Nest build and the Vitest
+   * transform need decorator metadata enabled, or NestJS DI breaks under test.
+   * `oxc: false` disables Vite's built-in Rolldown/Oxc TS transform (unplugin-swc only
+   * disables the older `esbuild` option, which Vite 8 no longer honors), so SWC is the
+   * sole TypeScript transform and the decorator metadata proof isn't confounded by Oxc's own support.
+   */
+  oxc: false,
   plugins: [
     swc.vite({
       module: { type: 'es6' },
@@ -417,6 +429,39 @@ export default defineConfig({
     passWithNoTests: true
   }
 })
+```
+
+- [ ] **Step 3b: Keep test files out of the app build**
+
+Two config files need a matching exclusion for `*.unit.ts`, or `nest build` tries to compile the new test file into the app:
+
+Rewrite `apps/api-server/nest-cli.json`:
+
+```json
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "builder": {
+      "type": "swc",
+      "options": {
+        "ignore": ["**/*.spec.ts", "**/*.unit.ts"]
+      }
+    },
+    "typeCheck": true
+  }
+}
+```
+
+Rewrite `apps/api-server/tsconfig.build.json`:
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "**/*.unit.ts", "eslint.config.ts", "vitest.config.ts"]
+}
 ```
 
 - [ ] **Step 4: Run the canary test again and confirm it passes**
