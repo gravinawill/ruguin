@@ -1,0 +1,13 @@
+# Schema keys are camelCase and there is no scrape-interval / info-metric.enabled
+# in current kminion (v2.3.3) — metrics are computed on each Prometheus scrape,
+# and infoMetric only accepts `configKeys`. Verified against redpandadata/kminion:latest
+# reference-config.yaml (https://github.com/redpanda-data/kminion).
+kafka:
+  brokers:
+    - 'kafka:29092'
+
+minion:
+  consumerGroups:
+    enabled: true
+  topics:
+    enabled: true
