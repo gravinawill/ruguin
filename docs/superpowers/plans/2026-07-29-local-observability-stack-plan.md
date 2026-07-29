@@ -393,8 +393,16 @@ exporters:
 
 service:
   telemetry:
+    # collector-contrib:latest uses the v0.3.0 telemetry schema, which dropped the flat
+    # `address` key (it silently no-ops) in favor of a readers/pull/exporter list. Same
+    # intent as originally intended: expose the collector's own internal metrics on :8888.
     metrics:
-      address: 0.0.0.0:8888
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
   pipelines:
     metrics:
       receivers: [otlp]
@@ -405,6 +413,8 @@ service:
       processors: [batch]
       exporters: [otlp/tempo, debug]
 ```
+
+> **Schema drift note:** `otel/opentelemetry-collector-contrib:latest` moves fast — the `service.telemetry.metrics` shape above is what the current schema expects. If a future run of this task hits a parsing error against an even newer image, don't silently delete the failing section (that's what happened with Tempo in Task 3 and cost a fix round) — find the renamed/current syntax that preserves the same intent (collector's own metrics exposed on `:8888`) and document the change with a comment, same as here.
 
 - [ ] **Step 2: Add the service to `docker-compose.observability.yml`**
 
@@ -428,10 +438,10 @@ service:
 ```bash
 docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.observability.yml up -d otel-collector
 sleep 5
-curl -s http://localhost:8889/metrics > /dev/null && echo "collector metrics endpoint OK"
+docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.observability.yml exec -T otel-collector wget -qO- http://localhost:8889/metrics > /dev/null && echo "collector metrics endpoint OK"
 docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.observability.yml logs otel-collector --tail 20
 ```
-Since no app is sending OTLP yet, `:8889` responds `200` with no application metrics — what matters here is confirming the process started and the endpoint responds, and that the logs show no errors and that the `metrics`/`traces` pipelines started.
+`:8888`/`:8889` are container-network-only (matches this task's Interfaces section and the plan's global constraint that pure exporters aren't published to the host) — verify from inside the container itself (`exec ... wget`), not via `curl localhost:8889` from the host, which will fail to connect since the port was never published. Since no app is sending OTLP yet, the endpoint responds with no application metrics — what matters here is confirming the process started and the endpoint responds, and that the logs show no errors and that the `metrics`/`traces` pipelines started. Task 5's Prometheus scrapes these same two ports via the service name (`otel-collector:8888`/`:8889`), which works over the compose network regardless of host publishing.
 
 - [ ] **Step 4: Commit**
 
