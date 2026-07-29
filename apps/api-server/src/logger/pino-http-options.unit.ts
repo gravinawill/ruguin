@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createPinoHttpOptions } from './pino-http-options.js'
+import { createPinoHttpOptions } from './pino-http-options'
 
 describe('createPinoHttpOptions', () => {
   it('defaults to info level and pretty-prints outside production', () => {
