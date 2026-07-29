@@ -89,6 +89,12 @@ PGPASSWORD=postgres_exporter docker compose -f infrastructure/local/docker-compo
 ```
 Esperado: a primeira mostra `pg_stat_statements` na lista; a segunda mostra a role `postgres_exporter` com o atributo `pg_monitor` nos memberships; a terceira roda sem erro de permissão (pode retornar `0` linhas, tudo bem, o que importa é não dar erro de acesso negado).
 
+> **Efeito colateral se Conduktor/SonarQube já estiverem rodando:** `ruguin_postgres_data` é o mesmo volume que guarda os bancos `conduktor-console` e `sonarqube` (compartilham esta instância do Postgres — ver `infrastructure/local/postgres-init/01-create-tooling-databases.sh`). Apagar o volume apaga esses schemas também; `01-create-tooling-databases.sh` e `02-observability-setup.sh` recriam os bancos vazios no próximo boot, mas Conduktor/SonarQube ainda não rodaram as próprias migrations de novo, e logam erro `relation "..." does not exist` até rodarem. Se algum dos dois já estava no ar antes desta task, reinicie os dois pra remigrarem contra o banco novo:
+> ```bash
+> docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.tools.yml restart conduktor sonarqube
+> ```
+> Confirmar com `docker compose -f infrastructure/local/docker-compose.yml logs postgres --since 30s | grep ERROR` — esperado nenhuma saída depois que os dois voltarem a `healthy`.
+
 - [ ] **Passo 4: Commit**
 
 ```bash
