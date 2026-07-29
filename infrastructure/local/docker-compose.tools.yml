@@ -1,3 +1,5 @@
+name: ruguin
+
 x-logging: &loki-logging
   driver: loki
   options:

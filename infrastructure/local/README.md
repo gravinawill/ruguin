@@ -29,6 +29,8 @@ pnpm infra:load-test   # roda infrastructure/local/k6/smoke.ts contra o LocalSta
 
 Ou diretamente com `docker compose -f infrastructure/local/docker-compose.yml [-f infrastructure/local/docker-compose.tools.yml] [-f infrastructure/local/docker-compose.observability.yml] <comando>`.
 
+**Atenção com `infra:up` e `infra:tools:up`:** o log driver de todos os containers (runtime e tools) já vem configurado para enviar logs ao Loki (`http://localhost:3100/loki/api/v1/push`), mas o container do Loki só existe em `docker-compose.observability.yml`. Se você subir só `infra:up` ou `infra:tools:up`, os containers funcionam normalmente — o driver apenas fica tentando (e falhando) enviar logs a um Loki que não está rodando, com retry automático (`loki-retries: '5'`) e sem travar nada. Não é um erro para se preocupar, só logs que não chegam a lugar nenhum. Para os logs realmente chegarem ao Loki, suba a stack de observabilidade junto: `pnpm infra:observability:up` ou `pnpm infra:all:up`.
+
 ## Setup obrigatório: token do LocalStack
 
 Desde 2026-03-23 o LocalStack exige um token de autenticação mesmo para os recursos gratuitos (antes era totalmente anônimo). Sem isso, `pnpm infra:up` falha rápido com uma mensagem clara em vez de o container do LocalStack ficar reiniciando em loop.
@@ -36,7 +38,7 @@ Desde 2026-03-23 o LocalStack exige um token de autenticação mesmo para os rec
 1. Crie uma conta grátis em https://app.localstack.cloud e gere um Auth Token.
 2. Copie `infrastructure/local/.env.example` para `infrastructure/local/.env` e cole o token lá (`.env` já está no `.gitignore`).
 
-## Required setup: Loki log plugin
+## Setup obrigatório: plugin de log do Loki
 
 `docker-compose.observability.yml` conecta o log driver do Loki em todos os containers das três compose files. Sem o plugin instalado no host, qualquer `docker compose ... up` falha:
 
