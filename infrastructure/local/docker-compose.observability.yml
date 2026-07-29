@@ -44,6 +44,22 @@ services:
       - tempo
     logging: *loki-logging
 
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - '9090:9090'
+    depends_on:
+      - otel-collector
+    logging: *loki-logging
+
 volumes:
   loki_data:
   tempo_data:
+  prometheus_data:
