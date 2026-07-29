@@ -18,6 +18,7 @@ services:
       - ./observability/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
+    # Loki ships its own container logs to itself too — intentional, not an oversight.
     logging: *loki-logging
 
   tempo:
