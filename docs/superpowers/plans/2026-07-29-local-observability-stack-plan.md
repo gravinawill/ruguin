@@ -820,13 +820,15 @@ git commit -m "feat(observability): add Grafana with provisioned Prometheus/Temp
 **Depends on:** Task 9 (Grafana + dashboard provider), Task 6 (`postgres_exporter`), Task 7 (kminion), Task 8 (`node_exporter`/cAdvisor)
 
 **Files:**
-- Create: `infrastructure/local/observability/grafana/dashboards/fix-datasource-refs.mjs`
+- Create: `infrastructure/local/observability/grafana/dashboards/fix-datasource-references.mjs`
 - Create: `infrastructure/local/observability/grafana/dashboards/*.json` (downloaded, not hand-written)
 
 **Interfaces:**
 - Consumes: Task 9's dashboard provider (reads `/var/lib/grafana/dashboards`, mounted from this folder); datasource `Prometheus` (Task 9); real data exposed by `postgres_exporter` (Task 6), kminion (Task 7), `node_exporter`/cAdvisor (Task 8).
 
-Dashboards exported from `grafana.com` reference the datasource via a template variable (`${DS_PROMETHEUS}`), only resolved automatically in the manual UI *import* flow — file-based provisioning (what we use here, Task 9) doesn't resolve it on its own, so a script post-processes the downloaded JSON, swapping the variable for the literal datasource name (`Prometheus`, `Loki` — the same names defined in `datasources.yaml` in Task 9).
+Dashboards exported from `grafana.com` reference the datasource via a template variable, only resolved automatically in the manual UI *import* flow — file-based provisioning (what we use here, Task 9) doesn't resolve it on its own, so a script post-processes the downloaded JSON, swapping the variable for the literal datasource name (`Prometheus`, `Loki` — the same names defined in `datasources.yaml` in Task 9). Different dashboard authors pick different variable names for the same datasource type (`${DS_PROMETHEUS}`, `${DS_CORTEX}`, `${DS_GRAFANACLOUD-SHIZUN-PROM}`, ...) — the script below derives the actual name per-file from each dashboard's own `__inputs` array instead of hardcoding one name, since 3 of the 6 dashboards below use a non-default name.
+
+> **Known limitation, not a bug:** `postgres-overview.json` (9628) and `docker-monitoring.json` (15798) were built assuming a Kubernetes/Helm deployment — their template-variable chains filter on labels (`kubernetes_namespace`, `release`, `service`, `container`) that a plain docker-compose deployment's exporters never emit, so most panels on those two dashboards will show "No data" even once the datasource resolves correctly and even though the underlying metrics genuinely exist in Prometheus (verified directly). `node-exporter-full.json` (1860) is fully self-consistent and renders real data throughout; the three kminion dashboards (14012/14013/14014) mostly work. This is a limitation of the chosen community dashboards' variable design, not of this task's implementation — swapping in Kubernetes-free alternatives is future work if it matters, not required by this plan.
 
 - [ ] **Step 1: Download the community dashboards**
 
@@ -842,36 +844,54 @@ curl -sL 'https://grafana.com/api/dashboards/14014/revisions/latest/download' -o
 
 - [ ] **Step 2: Create the script that fixes datasource references**
 
-Create `infrastructure/local/observability/grafana/dashboards/fix-datasource-refs.mjs`:
+Create `infrastructure/local/observability/grafana/dashboards/fix-datasource-references.mjs` (named with the full word "references" — this repo's ESLint `unicorn/name-replacements` rule rejects the abbreviation "refs" in identifiers/filenames):
 
 ```javascript
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Dashboards exported from grafana.com reference the datasource via a template
-// variable (${DS_PROMETHEUS}, ${DS_LOKI}), only resolved automatically by the manual
-// UI import flow. In file-based provisioning (Task 9/10) that variable is left
-// unresolved and the dashboard loads with no data -- so we swap it for the literal
-// datasource name, the same one defined in provisioning/datasources/datasources.yaml.
-const REPLACEMENTS = {
+// variable (${DS_PROMETHEUS}, ${DS_LOKI}, or a custom name the original author
+// picked, e.g. ${DS_CORTEX}), only resolved automatically by the manual UI import
+// flow. In file-based provisioning (Task 9/10) that variable is left unresolved and
+// the dashboard loads with no data -- so we swap it for the literal datasource name,
+// the same one defined in provisioning/datasources/datasources.yaml. The custom-name
+// case is handled by reading each dashboard's own `__inputs` array, since exporters
+// don't agree on a fixed variable name for a given datasource type.
+const PLUGIN_TO_DATASOURCE = {
+  prometheus: 'Prometheus',
+  loki: 'Loki',
+};
+
+const BASE_REPLACEMENTS = {
   '${DS_PROMETHEUS}': 'Prometheus',
   '${DS_LOKI}': 'Loki',
 };
 
-const dir = dirname(fileURLToPath(import.meta.url));
+const directory = path.dirname(fileURLToPath(import.meta.url));
 
-for (const file of readdirSync(dir)) {
+for (const file of readdirSync(directory)) {
   if (!file.endsWith('.json')) continue;
 
-  const path = join(dir, file);
-  let content = readFileSync(path, 'utf8');
+  const filePath = path.join(directory, file);
+  let content = readFileSync(filePath, 'utf8');
+  const dashboard = JSON.parse(content);
 
-  for (const [placeholder, replacement] of Object.entries(REPLACEMENTS)) {
-    content = content.replaceAll(placeholder, replacement);
+  const replacements = { ...BASE_REPLACEMENTS };
+  const inputs = dashboard.__inputs ?? [];
+  for (const input of inputs) {
+    const literal = PLUGIN_TO_DATASOURCE[input.pluginId];
+    if (literal && input.type === 'datasource') {
+      replacements[`\${${input.name}}`] = literal;
+    }
   }
 
-  writeFileSync(path, content);
+  for (const [placeholder, replacement] of Object.entries(replacements)) {
+    content = content.replaceAll(placeholder, () => replacement);
+  }
+
+  writeFileSync(filePath, content);
   console.log(`fixed datasource refs: ${file}`);
 }
 ```
@@ -879,7 +899,7 @@ for (const file of readdirSync(dir)) {
 - [ ] **Step 3: Run the script**
 
 ```bash
-node infrastructure/local/observability/grafana/dashboards/fix-datasource-refs.mjs
+node infrastructure/local/observability/grafana/dashboards/fix-datasource-references.mjs
 ```
 Expected: prints one `fixed datasource refs: <file>.json` line for each of the 6 dashboards downloaded in Step 1.
 
@@ -892,7 +912,7 @@ docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/loca
 sleep 10
 curl -s -u admin:admin http://localhost:3000/api/search?folderIds=0 | grep -o '"title":"[^"]*"'
 ```
-Expected: lists the 6 dashboards by `title`. Open `http://localhost:3000` in the browser, go into the "Infra" folder, open "PostgreSQL Database", and confirm the panels show real data (not "No data") — proof that Task 6 (`postgres_exporter`) is actually feeding Prometheus and that the datasource resolution (Step 2/3) worked.
+Expected: lists the 6 dashboards by `title`. Open `http://localhost:3000` in the browser, go into the "Infra" folder, open "Node Exporter Full", and confirm the panels show real data (not "No data") — proof that Task 8 (`node_exporter`) is actually feeding Prometheus and that the datasource resolution (Step 2/3) worked. Per the known-limitation note above, don't expect the same from "PostgreSQL Database" or "Docker monitoring" — verify those two by querying Prometheus directly instead (e.g. `curl -s http://localhost:9090/api/v1/query --data-urlencode 'query=pg_up'` should return real data even though the dashboard panel for it may not, due to the dashboard's own Kubernetes-oriented template variables).
 
 - [ ] **Step 5: Commit**
 
