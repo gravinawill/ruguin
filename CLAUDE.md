@@ -227,3 +227,8 @@ This project is indexed by GitNexus as **ruguin** (478 symbols, 603 relationship
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+## Code Conventions
+
+- Prefer `Either`/`Success`/`Failure` from `@ruguin/utils` for expected/domain failures instead of throwing exceptions or inventing ad-hoc result types.
+- Check `@ruguin/utils` before adding a new dependency for common functional/utility helpers.
