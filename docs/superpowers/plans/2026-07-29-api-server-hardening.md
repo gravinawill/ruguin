@@ -683,8 +683,8 @@ describe('GET /health (e2e)', () => {
   let app: INestApplication
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile()
-    app = moduleRef.createNestApplication()
+    const moduleReference = await Test.createTestingModule({ imports: [AppModule] }).compile()
+    app = moduleReference.createNestApplication()
     await app.init()
   })
 
