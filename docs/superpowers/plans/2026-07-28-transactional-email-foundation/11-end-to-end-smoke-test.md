@@ -179,7 +179,7 @@ git commit -m "test: add end-to-end smoke test covering API Service -> Kafka -> 
 
 ## Verificação manual (opcional, além dos testes automatizados)
 
-1. `docker compose up -d` sobe Postgres, Redis, Kafka e LocalStack (Task 2).
+1. `pnpm infra:up` sobe Postgres, Valkey, Kafka e LocalStack (Task 2).
 2. `pnpm --filter @ruguin/api-service run db:migrate` aplica o schema (Task 5).
 3. `pnpm --filter @ruguin/api-service dev` e `pnpm --filter @ruguin/dispatch-worker dev` rodam os dois serviços localmente.
 4. Um `curl -X POST http://localhost:3000/emails -H "Authorization: Bearer <key>" -H "Content-Type: application/json" -d '{"from":"a@example.com","to":"b@example.com","subject":"Hi","html":"<p>Hi</p>"}'` manual (depois de semear um org/project/api key à mão ou via um script curto) retorna `202` e, em um ou dois segundos, os logs do Dispatch Worker mostram que ele chamou a SES e publicou um evento de status `sent`.

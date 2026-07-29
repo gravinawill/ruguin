@@ -50,4 +50,4 @@ Este conjunto de tasks passou por uma auditoria técnica (3 subagents em paralel
 - Gerenciador de pacotes é **pnpm** (`packageManager: "pnpm@9.12.0"`) — nunca usar comandos de npm/yarn.
 - Cada serviço tem seu próprio schema Postgres; nenhum serviço lê tabelas de outro schema diretamente — comunicação entre serviços é só via eventos Kafka.
 - Tópicos Kafka são sempre as constantes de `@ruguin/event-schemas` (`TOPICS.*`) — nunca strings literais soltas no código.
-- Testes de integração rodam contra a stack `docker-compose` (Postgres/Redis/Kafka/LocalStack) já subida via `docker compose up -d` — não usamos Testcontainers neste plano.
+- Testes de integração rodam contra a stack `docker-compose` (Postgres/Valkey/Kafka/LocalStack, em `infrastructure/local/`) já subida via `pnpm infra:up` — não usamos Testcontainers neste plano.
