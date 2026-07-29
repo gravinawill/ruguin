@@ -10,4 +10,5 @@ blockExoticSubdeps: true
 allowBuilds:
   '@swc/core': true
   esbuild: true
+  protobufjs: true
   unrs-resolver: true
