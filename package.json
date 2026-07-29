@@ -23,7 +23,7 @@
     "preinstall": "npx --yes only-allow pnpm",
     "postinstall": "pnpm run build",
     "prepare": "husky",
-    "test": "vitest run",
+    "test": "turbo run test:all",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "update:deps": "turbo run update:deps && ncu -u && pnpm install",
