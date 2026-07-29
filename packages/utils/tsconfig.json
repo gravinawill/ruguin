@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ruguin/typescript-config/base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*.ts", "vitest.config.ts", "eslint.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}
