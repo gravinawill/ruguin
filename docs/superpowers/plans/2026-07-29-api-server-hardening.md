@@ -1018,15 +1018,18 @@ git commit -m "feat(api-server): structured logging via nestjs-pino"
 - Create: `apps/api-server/src/tracing/create-tracing-sdk.unit.ts`
 - Create: `apps/api-server/src/tracing.ts`
 - Modify: `apps/api-server/package.json` (scripts + dependencies)
+- Modify: `pnpm-workspace.yaml` (approve `protobufjs`'s install script — see Step 1)
 
 **Interfaces:**
-- Produces: `resolveOtlpEndpoint(env): string` and `createTracingSdk(env): NodeSDK`, both pure and unit-tested. `src/tracing.ts` is the side-effecting entrypoint loaded via `node --import` before `main.ts`, so auto-instrumentation can patch modules before the app imports them.
+- Produces: `resolveOtlpEndpoint(environment): string` and `createTracingSdk(environment): NodeSDK`, both pure and unit-tested. `src/tracing.ts` is the side-effecting entrypoint loaded via `node --import` before `main.ts`, so auto-instrumentation can patch modules before the app imports them.
 
 - [ ] **Step 1: Add OpenTelemetry dependencies**
 
 ```bash
 pnpm add --filter @ruguin/api-server @opentelemetry/api @opentelemetry/auto-instrumentations-node @opentelemetry/exporter-trace-otlp-http @opentelemetry/resources @opentelemetry/sdk-node @opentelemetry/semantic-conventions
 ```
+
+`protobufjs` (a transitive OTel dependency) needs its install script approved, same as `@swc/core` in Task 3 — pnpm will otherwise write a placeholder into `pnpm-workspace.yaml`'s `allowBuilds` (`protobufjs: set this to true or false`) that you must resolve to a real boolean, not leave as literal placeholder text. Read the actual `postinstall` script before approving it — in this case it only warns about version-scheme mismatches, no code execution risk. Set `allowBuilds['protobufjs']: true` in `pnpm-workspace.yaml`.
 
 - [ ] **Step 2: Write the failing unit test**
 
@@ -1040,24 +1043,28 @@ import { createTracingSdk, resolveOtlpEndpoint } from './create-tracing-sdk.js'
 
 describe('resolveOtlpEndpoint', () => {
   it('defaults to the local OTel Collector HTTP endpoint', () => {
-    expect(resolveOtlpEndpoint({} as NodeJS.ProcessEnv)).toBe('http://localhost:4318/v1/traces')
+    expect(resolveOtlpEndpoint({})).toBe('http://localhost:4318/v1/traces')
   })
 
   it('respects OTEL_EXPORTER_OTLP_ENDPOINT when set', () => {
-    const env = { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector:4318/v1/traces' } as NodeJS.ProcessEnv
+    // eslint-disable-next-line sonarjs/no-clear-text-protocols -- fixture asserts an operator-supplied endpoint override, not live traffic
+    const environment = { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector:4318/v1/traces' } as NodeJS.ProcessEnv
 
-    expect(resolveOtlpEndpoint(env)).toBe('http://collector:4318/v1/traces')
+    // eslint-disable-next-line sonarjs/no-clear-text-protocols -- fixture asserts an operator-supplied endpoint override, not live traffic
+    expect(resolveOtlpEndpoint(environment)).toBe('http://collector:4318/v1/traces')
   })
 })
 
 describe('createTracingSdk', () => {
   it('returns a NodeSDK instance', () => {
-    const sdk = createTracingSdk({} as NodeJS.ProcessEnv)
+    const sdk = createTracingSdk({})
 
     expect(sdk).toBeInstanceOf(NodeSDK)
   })
 })
 ```
+
+(No `as NodeJS.ProcessEnv` cast on the plain `{}`/environment-variable-name literals that don't need one — only the `http://collector:...` string literal needs `sonarjs/no-clear-text-protocols` disabled, since it looks like a bare HTTP URL to the linter even though it's just a test fixture value, never dispatched over the network.)
 
 - [ ] **Step 3: Run it and confirm it fails**
 
@@ -1075,14 +1082,14 @@ import { resourceFromAttributes } from '@opentelemetry/resources'
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions'
 
-export function resolveOtlpEndpoint(env: NodeJS.ProcessEnv): string {
-  return env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4318/v1/traces'
+export function resolveOtlpEndpoint(environment: NodeJS.ProcessEnv): string {
+  return environment.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4318/v1/traces'
 }
 
-export function createTracingSdk(env: NodeJS.ProcessEnv): NodeSDK {
+export function createTracingSdk(environment: NodeJS.ProcessEnv): NodeSDK {
   return new NodeSDK({
     resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: 'api-server' }),
-    traceExporter: new OTLPTraceExporter({ url: resolveOtlpEndpoint(env) }),
+    traceExporter: new OTLPTraceExporter({ url: resolveOtlpEndpoint(environment) }),
     instrumentations: [getNodeAutoInstrumentations()]
   })
 }
@@ -1141,7 +1148,7 @@ Expected: all pass.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add apps/api-server/src/tracing.ts apps/api-server/src/tracing apps/api-server/package.json pnpm-lock.yaml
+git add apps/api-server/src/tracing.ts apps/api-server/src/tracing apps/api-server/package.json pnpm-lock.yaml pnpm-workspace.yaml
 git commit -m "feat(api-server): OpenTelemetry tracing via auto-instrumentation"
 ```
 
