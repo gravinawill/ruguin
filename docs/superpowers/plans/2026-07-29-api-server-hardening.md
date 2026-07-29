@@ -867,7 +867,7 @@ git commit -m "test(infra): add k6 load test for the api-server health endpoint"
 - Modify: `apps/api-server/package.json` (dependencies/devDependencies)
 
 **Interfaces:**
-- Produces: `createPinoHttpOptions(env: NodeJS.ProcessEnv): Options` (from `pino-http`) — a pure factory, unit-tested in isolation from Nest's DI/HTTP layers.
+- Produces: `createPinoHttpOptions(environment: NodeJS.ProcessEnv): Options` (from `pino-http`) — a pure factory, unit-tested in isolation from Nest's DI/HTTP layers.
 
 - [ ] **Step 1: Add dependencies**
 
@@ -887,26 +887,28 @@ import { createPinoHttpOptions } from './pino-http-options.js'
 
 describe('createPinoHttpOptions', () => {
   it('defaults to info level and pretty-prints outside production', () => {
-    const options = createPinoHttpOptions({ NODE_ENV: 'development' } as NodeJS.ProcessEnv)
+    const options = createPinoHttpOptions({ NODE_ENV: 'development' })
 
     expect(options.level).toBe('info')
     expect(options.transport).toEqual({ target: 'pino-pretty' })
   })
 
   it('respects LOG_LEVEL and disables pretty-print in production', () => {
-    const options = createPinoHttpOptions({ NODE_ENV: 'production', LOG_LEVEL: 'warn' } as NodeJS.ProcessEnv)
+    const options = createPinoHttpOptions({ NODE_ENV: 'production', LOG_LEVEL: 'warn' })
 
     expect(options.level).toBe('warn')
     expect(options.transport).toBeUndefined()
   })
 
   it('redacts the authorization header', () => {
-    const options = createPinoHttpOptions({} as NodeJS.ProcessEnv)
+    const options = createPinoHttpOptions({})
 
     expect(options.redact).toContain('req.headers.authorization')
   })
 })
 ```
+
+No `as NodeJS.ProcessEnv` casts on the test's object literals — `NodeJS.ProcessEnv` is an index-signature type, so plain object literals are already assignable to it, and this repo's `@typescript-eslint/no-unnecessary-type-assertion` rule rejects the redundant cast.
 
 - [ ] **Step 3: Run it and confirm it fails**
 
@@ -920,16 +922,18 @@ Create `apps/api-server/src/logger/pino-http-options.ts`:
 ```ts
 import type { Options } from 'pino-http'
 
-export function createPinoHttpOptions(env: NodeJS.ProcessEnv): Options {
-  const isProduction = env.NODE_ENV === 'production'
+export function createPinoHttpOptions(environment: NodeJS.ProcessEnv): Options {
+  const isProduction = environment.NODE_ENV === 'production'
 
   return {
-    level: env.LOG_LEVEL ?? 'info',
-    transport: isProduction ? undefined : { target: 'pino-pretty' },
+    level: environment.LOG_LEVEL ?? 'info',
+    ...(!isProduction && { transport: { target: 'pino-pretty' } }),
     redact: ['req.headers.authorization']
   }
 }
 ```
+
+Two adaptations from a more obvious first draft, both required by this repo's stricter tooling: the parameter is named `environment`, not `env` (`unicorn/name-replacements` rejects the abbreviation), and the `transport` field is set via a conditional spread rather than `transport: isProduction ? undefined : {...}` — this tsconfig's `exactOptionalPropertyTypes: true` rejects explicitly assigning `undefined` to an optional property (`TS2375`), and `unicorn/consistent-conditional-object-spread` rejects the ternary-spread form too.
 
 - [ ] **Step 5: Run the unit test again and confirm it passes**
 
