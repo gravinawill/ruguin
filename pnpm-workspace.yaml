@@ -1,8 +1,9 @@
 packages:
-  - "apps/*"
-  - "packages/*"
-  - "configs/*"
+  - 'apps/*'
+  - 'packages/*'
+  - 'configs/*'
 onlyBuiltDependencies:
   - esbuild
 blockExoticSubdeps: true
-minimumReleaseAge: 10080
+allowBuilds:
+  esbuild: true
