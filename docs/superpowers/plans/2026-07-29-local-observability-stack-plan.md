@@ -107,6 +107,12 @@ PGPASSWORD=postgres_exporter docker compose -f infrastructure/local/docker-compo
 ```
 Expected: the first shows `pg_stat_statements` in the list; the second shows role `postgres_exporter` with `pg_monitor` membership; the third runs with no permission error (`0` rows is fine — what matters is no access-denied error).
 
+> **Collateral impact if Conduktor/SonarQube are already running:** `ruguin_postgres_data` is the same volume that holds the `conduktor-console` and `sonarqube` databases (they share this Postgres instance — see `infrastructure/local/postgres-init/01-create-tooling-databases.sh`). Deleting the volume wipes those schemas too; `01-create-tooling-databases.sh` and `02-observability-setup.sh` recreate the empty databases on the next boot, but Conduktor/SonarQube themselves won't have re-run their own migrations yet, and log `relation "..." does not exist` errors until they do. If either container was already up before this task, restart them so they re-migrate against the fresh database:
+> ```bash
+> docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.tools.yml restart conduktor sonarqube
+> ```
+> Confirm with `docker compose -f infrastructure/local/docker-compose.yml logs postgres --since 30s | grep ERROR` — expect no output once both are healthy again.
+
 - [ ] **Step 4: Commit**
 
 ```bash
