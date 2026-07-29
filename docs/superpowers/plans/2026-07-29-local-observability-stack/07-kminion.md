@@ -24,19 +24,19 @@ kminion fala o protocolo do Kafka diretamente (usa o listener `INTERNAL` do Kafk
 Criar `infrastructure/local/observability/kminion/kminion-config.yaml`:
 
 ```yaml
+# As chaves do schema são camelCase e não existe scrape-interval / info-metric.enabled
+# no kminion atual (v2.3.3) — as métricas são computadas a cada scrape do Prometheus,
+# e infoMetric só aceita `configKeys`. Verificado contra o reference-config.yaml do
+# redpandadata/kminion:latest (https://github.com/redpanda-data/kminion).
 kafka:
   brokers:
     - 'kafka:29092'
 
 minion:
-  consumer-groups:
+  consumerGroups:
     enabled: true
-    scrape-interval: 30s
   topics:
     enabled: true
-    scrape-interval: 30s
-    info-metric:
-      enabled: true
 ```
 
 - [ ] **Passo 2: Adicionar o serviço em `docker-compose.observability.yml`**
@@ -45,7 +45,10 @@ minion:
   kminion:
     image: redpandadata/kminion:latest
     restart: unless-stopped
-    command: ['-config.filepath=/etc/kminion/config.yaml']
+    # kminion não tem flag de CLI -config.filepath; só carrega o YAML via a variável
+    # de ambiente CONFIG_FILEPATH (verificado contra redpandadata/kminion:latest).
+    environment:
+      CONFIG_FILEPATH: /etc/kminion/config.yaml
     volumes:
       - ./observability/kminion/kminion-config.yaml:/etc/kminion/config.yaml:ro
     depends_on:

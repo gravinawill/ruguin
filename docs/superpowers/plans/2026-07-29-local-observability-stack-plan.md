@@ -601,19 +601,19 @@ git commit -m "feat(observability): add postgres_exporter"
 Create `infrastructure/local/observability/kminion/kminion-config.yaml`:
 
 ```yaml
+# Schema keys are camelCase and there is no scrape-interval / info-metric.enabled
+# in current kminion (v2.3.3) — metrics are computed on each Prometheus scrape,
+# and infoMetric only accepts `configKeys`. Verified against redpandadata/kminion:latest
+# reference-config.yaml (https://github.com/redpanda-data/kminion).
 kafka:
   brokers:
     - 'kafka:29092'
 
 minion:
-  consumer-groups:
+  consumerGroups:
     enabled: true
-    scrape-interval: 30s
   topics:
     enabled: true
-    scrape-interval: 30s
-    info-metric:
-      enabled: true
 ```
 
 - [ ] **Step 2: Add the service to `docker-compose.observability.yml`**
@@ -622,7 +622,10 @@ minion:
   kminion:
     image: redpandadata/kminion:latest
     restart: unless-stopped
-    command: ['-config.filepath=/etc/kminion/config.yaml']
+    # kminion has no -config.filepath CLI flag; it only loads YAML via the
+    # CONFIG_FILEPATH env var (verified against redpandadata/kminion:latest).
+    environment:
+      CONFIG_FILEPATH: /etc/kminion/config.yaml
     volumes:
       - ./observability/kminion/kminion-config.yaml:/etc/kminion/config.yaml:ro
     depends_on:
