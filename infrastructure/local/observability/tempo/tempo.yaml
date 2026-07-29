@@ -10,6 +10,21 @@ distributor:
         http:
           endpoint: 0.0.0.0:4318
 
+# Note: In Tempo 3.0+, ingester and compactor sections were refactored.
+# Their settings are now configured via backend_scheduler and block_builder:
+# - Block retention (was ingester.max_block_duration + compactor.block_retention)
+# - Block rotation cycle (was ingester config)
+# These keys below achieve the same intent as the original brief's settings.
+
+backend_scheduler:
+  provider:
+    compaction:
+      compaction:
+        block_retention: 48h
+
+block_builder:
+  consume_cycle_duration: 5m
+
 storage:
   trace:
     backend: local
