@@ -69,6 +69,20 @@ services:
         condition: service_healthy
     logging: *loki-logging
 
+  kminion:
+    image: redpandadata/kminion:latest
+    restart: unless-stopped
+    # kminion has no -config.filepath CLI flag; it only loads YAML via the
+    # CONFIG_FILEPATH env var (verified against redpandadata/kminion:latest).
+    environment:
+      CONFIG_FILEPATH: /etc/kminion/config.yaml
+    volumes:
+      - ./observability/kminion/kminion-config.yaml:/etc/kminion/config.yaml:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    logging: *loki-logging
+
 volumes:
   loki_data:
   tempo_data:
