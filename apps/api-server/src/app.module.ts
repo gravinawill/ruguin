@@ -1,9 +1,16 @@
 import { Module } from '@nestjs/common'
+import { LoggerModule } from 'nestjs-pino'
 
 import { HealthModule } from './health/health.module.js'
+import { createPinoHttpOptions } from './logger/pino-http-options.js'
 
 @Module({
-  imports: [HealthModule],
+  imports: [
+    LoggerModule.forRootAsync({
+      useFactory: () => ({ pinoHttp: createPinoHttpOptions(process.env) })
+    }),
+    HealthModule
+  ],
   controllers: [],
   providers: []
 })
