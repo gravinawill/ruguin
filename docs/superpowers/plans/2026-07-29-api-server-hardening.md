@@ -360,6 +360,10 @@ class Dependency {}
 @Injectable()
 class ServiceUnderTest {
   constructor(private readonly dependency: Dependency) {}
+
+  getDependency(): Dependency {
+    return this.dependency
+  }
 }
 
 describe('SWC decorator metadata', () => {
@@ -371,10 +375,12 @@ describe('SWC decorator metadata', () => {
 })
 ```
 
-- [ ] **Step 2: Run it under the current (esbuild-based) Vitest transform and confirm it fails**
+- [ ] **Step 2: Run it under the current default Vitest transform and confirm it fails**
 
 Run: `pnpm --filter @ruguin/api-server exec vitest run src/decorator-metadata.unit.ts`
 Expected: FAIL — `paramTypes` is `undefined` (esbuild's TypeScript transform doesn't implement `emitDecoratorMetadata`).
+
+**Known deviation (discovered during implementation):** this repo's Vite is "rolldown-vite" (oxc-based, not plain esbuild), and oxc's TS transform already emits decorator metadata — so this step may come back PASS instead of the expected FAIL. If that happens, don't force a failure: proceed to Steps 3+ anyway. The point of `unplugin-swc` was never "make a failing test pass" for its own sake — it's guaranteeing Vitest's transform is deterministically identical to the app's own SWC build config from Task 3, rather than relying on oxc's incidental (and version-fragile) support for the same behavior. Document whichever result actually happened; don't fabricate a FAIL.
 
 - [ ] **Step 3: Add `unplugin-swc` and wire it into `vitest.config.ts`**
 
