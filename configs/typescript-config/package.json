@@ -1,0 +1,22 @@
+{
+  "name": "@ruguin/typescript-config",
+  "version": "0.0.0",
+  "license": "MIT",
+  "files": [
+    "./base.json",
+    "./nestjs.json",
+    "./nextjs.json",
+    "./react-library.json"
+  ],
+  "scripts": {
+    "clean": "rm -rf .claude-flow .swarm .superpowers .remember .gitnexus .turbo coverage node_modules dist build .next .pnpm-store",
+    "update:deps": "ncu -u"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "npm-check-updates": "22.2.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
