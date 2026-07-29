@@ -135,10 +135,12 @@ git commit -m "chore(api-server): align package.json with workspace conventions"
 
 **Files:**
 - Create: `apps/api-server/src/main.ts` (left untracked and unstaged by Task 1 specifically so this task's already-fixed content is what first gets committed — see Task 1 Step 2)
+- Modify: `apps/api-server/tsconfig.json`
+- Modify: `apps/api-server/tsconfig.build.json`
 
 **Interfaces:**
 - Consumes: `AppModule` from `./app.module.js` (Task 1's app.module.ts, unchanged in this task)
-- Produces: `main.ts` bootstraps the app with a relative import that Node can actually resolve in ESM (`.js` extension), and is lint-clean top-level-await style — later tasks (6, 8) extend this same file.
+- Produces: `main.ts` bootstraps the app with a relative import that Node can actually resolve in ESM (`.js` extension), and is lint-clean top-level-await style — later tasks (6, 8) extend this same file. `dist/main.js` is where the compiled entrypoint actually lands — every later task's boot-check and the `start`/`start:prod` scripts depend on that exact path.
 
 - [ ] **Step 1: Rewrite `src/main.ts`**
 
@@ -156,10 +158,38 @@ await app.listen(process.env.PORT ?? 3000)
 Run: `pnpm --filter @ruguin/api-server check:lint`
 Expected: 0 errors.
 
-- [ ] **Step 3: Build and verify the app actually boots under real ESM resolution**
+- [ ] **Step 3: Fix `tsconfig.json`'s `rootDir` (pre-existing scaffold bug, discovered while verifying this task)**
+
+`apps/api-server/tsconfig.json` currently sets `"rootDir": "."` (the whole `apps/api-server` directory), while all real source lives under `src/`. Combined with `outDir: "./dist"`, this makes `nest build` mirror the full directory into `dist/`, so the compiled entrypoint ends up at `dist/src/main.js` (not `dist/main.js`, which the `start`/`start:prod` scripts and every later boot-check assume) — and it also compiles `vitest.config.ts`/`eslint.config.ts` into `dist/` for no reason (they're dev-only config, not part of the app).
+
+Rewrite `apps/api-server/tsconfig.json`:
+
+```json
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ruguin/typescript-config/nestjs.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  }
+}
+```
+
+Rewrite `apps/api-server/tsconfig.build.json` (exclude the two config files now that they'd otherwise violate the narrower `rootDir`):
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts", "eslint.config.ts", "vitest.config.ts"]
+}
+```
+
+- [ ] **Step 4: Build and verify the app actually boots under real ESM resolution**
 
 ```bash
+rm -rf apps/api-server/dist
 pnpm --filter @ruguin/api-server build
+find apps/api-server/dist -type f
 node apps/api-server/dist/main.js &
 API_PID=$!
 sleep 1
@@ -167,13 +197,13 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000
 kill $API_PID
 ```
 
-Expected: prints `404` (Nest's default "Cannot GET /" for the empty `AppModule` — proves the process started and the ESM import resolved; a broken `.js` extension would instead crash with `ERR_MODULE_NOT_FOUND` and curl would fail to connect).
+Expected: `find` lists only `main.js`/`main.d.ts`/`app.module.js`/`app.module.d.ts` (+ `.map` files) directly under `dist/` — no `dist/src/` nesting, no `vitest.config.js`/`eslint.config.js`. curl prints `404` (Nest's default "Cannot GET /" for the empty `AppModule` — proves the process started and the ESM import resolved; a broken `.js` extension would instead crash with `ERR_MODULE_NOT_FOUND` and curl would fail to connect).
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add apps/api-server/src/main.ts
-git commit -m "fix(api-server): resolve main.ts import under real ESM"
+git add apps/api-server/src/main.ts apps/api-server/tsconfig.json apps/api-server/tsconfig.build.json
+git commit -m "fix(api-server): resolve main.ts import under real ESM; fix dist output layout"
 ```
 
 ---
