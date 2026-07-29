@@ -80,11 +80,8 @@ services:
     profiles: ['load-test']
     volumes:
       - ./k6:/scripts:ro
-    environment:
-      # Points at LocalStack's health endpoint by default since it's the only endpoint
-      # guaranteed to exist right now — override once the API Service (Task 4+) is up, e.g.
-      # K6_TARGET_URL=http://host.docker.internal:3000/emails pnpm infra:load-test
-      K6_TARGET_URL: http://localstack:4566/_localstack/health
+    # Each script under ./k6 declares its own __ENV.K6_TARGET_URL ?? <default> fallback, so
+    # target URLs are owned per-script rather than overridden here at the compose level.
     logging: *loki-logging
 
 volumes:

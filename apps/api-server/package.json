@@ -12,7 +12,7 @@
     "start": "nest start",
     "start:debug": "nest start --debug --watch",
     "start:dev": "nest start --watch",
-    "start:prod": "node --import ./dist/tracing.js dist/main.js",
+    "start:prod": "NODE_ENV=production node --import ./dist/tracing.js dist/main.js",
     "test": "vitest run --project unit",
     "test:all": "vitest run",
     "test:cov": "vitest run --project unit --coverage",
