@@ -3,56 +3,33 @@
   "ui": "tui",
   "tasks": {
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        ".env*"
-      ],
-      "outputs": [
-        "dist/**",
-        "generated/**",
-        "dist-seed/**",
-        ".next/**",
-        "!.next/cache/**",
-        "!.next/dev/**"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": ["dist/**", "generated/**", "dist-seed/**", ".next/**", "!.next/cache/**", "!.next/dev/**"]
     },
     "clean": {
-      "dependsOn": [
-        "^clean"
-      ]
+      "dependsOn": ["^clean"]
     },
     "fix:lint": {
-      "dependsOn": [
-        "^fix:lint"
-      ]
+      "dependsOn": ["^fix:lint"]
     },
     "update:deps": {
-      "dependsOn": [
-        "^update:deps"
-      ]
+      "dependsOn": ["^update:deps"]
     },
     "check:lint": {
-      "dependsOn": [
-        "^check:lint"
-      ]
+      "dependsOn": ["^check:lint"]
     },
     "check:types": {
-      "dependsOn": [
-        "^check:types"
-      ]
+      "dependsOn": ["^check:types"]
     },
     "check:format": {
-      "dependsOn": [
-        "^check:format"
-      ]
+      "dependsOn": ["^check:format"]
+    },
+    "test:all": {
+      "dependsOn": ["^test:all"]
     },
     "fix:format": {
-      "dependsOn": [
-        "^fix:format"
-      ]
+      "dependsOn": ["^fix:format"]
     },
     "dev": {
       "cache": false,
