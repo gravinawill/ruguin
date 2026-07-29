@@ -35,17 +35,19 @@
 Run: `rm -rf apps/api-server/.git`
 Verify: `test -d apps/api-server/.git && echo STILL THERE || echo REMOVED` → expect `REMOVED`.
 
-- [ ] **Step 2: Commit the untouched scaffold baseline**
+- [ ] **Step 2: Commit the untouched scaffold baseline (excluding `main.ts`)**
 
 `apps/api-server` is entirely untracked today. Commit it as-is (before any edits) so every later task's diff is a real diff against a tracked baseline, instead of silently leaving whatever files no later task names by path (`tsconfig.json`, `tsconfig.build.json`, `eslint.config.ts`, `README.md`) untracked forever.
 
+**Exclude `src/main.ts` from this commit.** The repo's pre-commit hook (`lint-staged`) runs `eslint --fix` on every staged `.ts` file. `--fix` can auto-fix formatting (prettier, import order) but not `unicorn/prefer-top-level-await` — one of `main.ts`'s pre-existing errors requires restructuring the code, which is exactly what Task 2 does. Committing `main.ts` here would either fail the hook or force committing known-broken code. Leave it untracked for now; Task 2 adds it fresh, already fixed.
+
 ```bash
-git add apps/api-server
-git status --short  # sanity check: no dist/, node_modules/, or .turbo/ entries (must already be gitignored)
+git add apps/api-server -- ':!apps/api-server/src/main.ts'
+git status --short  # sanity check: no dist/, node_modules/, or .turbo/ entries (must already be gitignored); main.ts must NOT be staged
 git commit -m "chore(api-server): commit nest new scaffold baseline"
 ```
 
-Expected: `git status --short` before the commit shows only source/config files (e.g. `eslint.config.ts`, `nest-cli.json`, `package.json`, `README.md`, `tsconfig.build.json`, `tsconfig.json`, `vitest.config.ts`, `src/app.module.ts`, `src/main.ts`) — no `dist/`, `node_modules/`, or `.turbo/` paths. If any of those three show up, stop and fix the root `.gitignore` before committing.
+Expected: `git status --short` before the commit shows only source/config files staged (e.g. `eslint.config.ts`, `nest-cli.json`, `package.json`, `README.md`, `tsconfig.build.json`, `tsconfig.json`, `vitest.config.ts`, `src/app.module.ts`) — no `dist/`, `node_modules/`, `.turbo/`, and no `src/main.ts`. `src/main.ts` remains listed as untracked (`??`) after the commit — that's correct, Task 2 adds it. If any of `dist/`/`node_modules/`/`.turbo/` show up, stop and fix the root `.gitignore` before committing.
 
 - [ ] **Step 3: Rewrite `apps/api-server/package.json`**
 
@@ -132,7 +134,7 @@ git commit -m "chore(api-server): align package.json with workspace conventions"
 ### Task 2: Real ESM — fix `main.ts` imports and lint
 
 **Files:**
-- Modify: `apps/api-server/src/main.ts`
+- Create: `apps/api-server/src/main.ts` (left untracked and unstaged by Task 1 specifically so this task's already-fixed content is what first gets committed — see Task 1 Step 2)
 
 **Interfaces:**
 - Consumes: `AppModule` from `./app.module.js` (Task 1's app.module.ts, unchanged in this task)
