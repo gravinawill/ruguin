@@ -1,0 +1,35 @@
+{
+  "name": "@ruguin/env",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsdown",
+    "check:lint": "eslint . --max-warnings 0",
+    "check:types": "tsc --noEmit --pretty",
+    "clean": "rm -rf .claude-flow .swarm .superpowers .remember .gitnexus .turbo coverage node_modules dist build docs",
+    "fix:lint": "eslint --fix .",
+    "test:unit": "vitest run",
+    "update:deps": "ncu -u"
+  },
+  "lint-staged": {
+    "*.ts": "eslint --fix"
+  },
+  "dependencies": {
+    "@t3-oss/env-core": "^0.13.11",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@ruguin/eslint-config": "workspace:*",
+    "@ruguin/typescript-config": "workspace:*",
+    "@types/node": "^26.1.1",
+    "npm-check-updates": "22.2.9",
+    "tsdown": "^0.22.4",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
