@@ -213,16 +213,36 @@ git commit -m "fix(api-server): resolve main.ts import under real ESM; fix dist 
 **Files:**
 - Create: `apps/api-server/.swcrc`
 - Modify: `apps/api-server/nest-cli.json`
+- Modify: `apps/api-server/tsconfig.json`
 - Modify: `apps/api-server/package.json` (devDependencies)
+- Modify: `pnpm-workspace.yaml`
 
 **Interfaces:**
-- Produces: `nest build`/`nest start` now compile via SWC instead of `tsc`, with decorator metadata preserved — every later task that adds `@Injectable()`/`@Module()` classes (5, 6, 8, 9) depends on this working correctly.
+- Produces: `nest build`/`nest start` now compile via SWC instead of `tsc`, with decorator metadata preserved — every later task that adds `@Injectable()`/`@Module()` classes (5, 6, 8, 9) depends on this working correctly. `dist/main.js` stays the compiled entrypoint path (same as Task 2) — the SWC builder needs its own fix to keep that true (Step 3 below).
 
-- [ ] **Step 1: Add SWC devDependencies**
+- [ ] **Step 1: Allow `@swc/core`'s install script to run**
+
+`@swc/core` ships a native binding installed via a postinstall script. This pnpm workspace blocks build/postinstall scripts by default (`blockExoticSubdeps`) unless explicitly allow-listed — without this step, `pnpm install` fails with `ERR_PNPM_IGNORED_BUILDS` for `@swc/core` and the build never runs at all.
+
+Rewrite `pnpm-workspace.yaml` (only the `onlyBuiltDependencies` and `allowBuilds` sections change — keep everything else, e.g. `packages`, `blockExoticSubdeps`, as-is):
+
+```yaml
+onlyBuiltDependencies:
+  - '@swc/core'
+  - esbuild
+  - unrs-resolver
+allowBuilds:
+  '@swc/core': true
+  esbuild: true
+  unrs-resolver: true
+```
+
+- [ ] **Step 2: Add SWC devDependencies**
 
 Run: `pnpm add --filter @ruguin/api-server -D @swc/cli @swc/core`
+Expected: completes without `ERR_PNPM_IGNORED_BUILDS` (Step 1 already allow-listed it); `apps/api-server/package.json` and the root `pnpm-lock.yaml` both show the new deps — verify with `git diff --stat` before committing later, this exact gap (deps installed locally but never staged) has bitten this task before.
 
-- [ ] **Step 2: Create `apps/api-server/.swcrc`**
+- [ ] **Step 3: Create `apps/api-server/.swcrc`**
 
 ```json
 {
@@ -246,7 +266,7 @@ Run: `pnpm add --filter @ruguin/api-server -D @swc/cli @swc/core`
 }
 ```
 
-- [ ] **Step 3: Point `nest-cli.json` at the SWC builder**
+- [ ] **Step 4: Point `nest-cli.json` at the SWC builder**
 
 ```json
 {
@@ -263,11 +283,30 @@ Run: `pnpm add --filter @ruguin/api-server -D @swc/cli @swc/core`
 
 `typeCheck: true` keeps a parallel `tsc` type-check running during `nest build`/`nest start --watch` — SWC itself only transpiles, it doesn't catch type errors.
 
-- [ ] **Step 4: Build and boot under SWC — this is also the decorator-metadata runtime proof**
+- [ ] **Step 5: Remove `rootDir` from `tsconfig.json` (Task 2's fix, now in conflict with the SWC builder)**
+
+Task 2 set `"rootDir": "./src"` to make the plain `tsc` build land at `dist/main.js` instead of `dist/src/main.js`. NestJS's SWC builder computes its own `stripLeadingPaths` CLI option as `!tsOptions.rootDir` (see `@nestjs/cli/lib/compiler/defaults/swc-defaults.js`) — so an *explicit* `rootDir` flips that to `false` and SWC stops stripping the `src/` prefix, producing `dist/src/main.js` again, just for a different reason than Task 2 fixed.
+
+The correct fix now that SWC is the builder: remove the explicit `rootDir` entirely. TypeScript still infers the same effective root for the parallel type-check/declaration pass, because `tsconfig.build.json` already excludes `eslint.config.ts`/`vitest.config.ts` (Task 2), leaving only `src/**/*.ts` as input — but with `rootDir` no longer literally present in the resolved compiler options, SWC's `stripLeadingPaths` correctly becomes `true`.
+
+Rewrite `apps/api-server/tsconfig.json`:
+
+```json
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ruguin/typescript-config/nestjs.json",
+  "compilerOptions": {
+    "outDir": "./dist"
+  }
+}
+```
+
+- [ ] **Step 6: Build and boot under SWC — this is also the decorator-metadata runtime proof**
 
 ```bash
 rm -rf apps/api-server/dist
 pnpm --filter @ruguin/api-server build
+find apps/api-server/dist -type f
 node apps/api-server/dist/main.js &
 API_PID=$!
 sleep 1
@@ -275,9 +314,9 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000
 kill $API_PID
 ```
 
-Expected: `404`, same as Task 2 — the build now goes through SWC instead of `tsc`, and the app still boots (if `legacyDecorator`/`decoratorMetadata` were misconfigured, `NestFactory.create` would throw a dependency-resolution error here instead of starting).
+Expected: `find` lists `main.js`/`app.module.js` (+ `.js.map`) directly under `dist/` — no `dist/src/` nesting. curl prints `404`, same as Task 2 — the build now goes through SWC instead of `tsc`, and the app still boots (if `legacyDecorator`/`decoratorMetadata` were misconfigured, `NestFactory.create` would throw a dependency-resolution error here instead of starting).
 
-- [ ] **Step 5: Lint and type-check still pass**
+- [ ] **Step 7: Lint and type-check still pass**
 
 ```bash
 pnpm --filter @ruguin/api-server check:lint
@@ -286,10 +325,11 @@ pnpm --filter @ruguin/api-server check:types
 
 Expected: both exit 0.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add apps/api-server/.swcrc apps/api-server/nest-cli.json apps/api-server/package.json pnpm-lock.yaml
+git add apps/api-server/.swcrc apps/api-server/nest-cli.json apps/api-server/tsconfig.json apps/api-server/package.json pnpm-lock.yaml pnpm-workspace.yaml
+git status --short  # confirm package.json and pnpm-lock.yaml actually show as staged, not just .swcrc/nest-cli.json
 git commit -m "build(api-server): compile with SWC instead of tsc"
 ```
 
