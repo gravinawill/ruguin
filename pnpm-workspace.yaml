@@ -4,6 +4,8 @@ packages:
   - 'configs/*'
 onlyBuiltDependencies:
   - esbuild
+  - unrs-resolver
 blockExoticSubdeps: true
 allowBuilds:
   esbuild: true
+  unrs-resolver: true
