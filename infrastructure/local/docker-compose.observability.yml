@@ -59,6 +59,16 @@ services:
       - otel-collector
     logging: *loki-logging
 
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:latest
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: 'postgresql://postgres_exporter:postgres_exporter@postgres:5432/ruguin?sslmode=disable'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging: *loki-logging
+
 volumes:
   loki_data:
   tempo_data:
