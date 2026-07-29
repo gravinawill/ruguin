@@ -2,8 +2,10 @@ name: Security
 
 on:
   push:
-    branches: [master]
+    branches: [master, develop]
   pull_request:
+    branches: [master, develop]
+    types: [opened, synchronize, reopened]
 
 jobs:
   gitleaks:
