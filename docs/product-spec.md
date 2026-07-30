@@ -32,9 +32,9 @@ Além do objetivo de produto, este projeto é deliberadamente um veículo de apr
 | **Webhook Notifier**     | Entrega webhooks assinados (HMAC-SHA256) para os endpoints configurados pelos clientes, com retry/backoff                 | [Planejado]                                                             |
 | **Read-Model Updater**   | Consome todos os tópicos e mantém as tabelas de leitura no Postgres que alimentam o dashboard                             | [Planejado]                                                             |
 
-> **Nota de implementação:** a spec original especifica Fastify como framework HTTP do API Service. O código real em `apps/api-server` usa **NestJS** sobre o adapter `@nestjs/platform-fastify`, mantendo o alinhamento com a spec. Os imports relativos em `src/` são escritos sem extensão; um passo de pós-build (`scripts/fix-esm-imports.mjs`) reescreve o `dist/` compilado para incluir `.js`, que é o que o Node exige em ESM puro em runtime.
+> **Nota de implementação:** a spec original especifica Fastify como framework HTTP do API Service. O código real em `apps/core-server` usa **NestJS** sobre o adapter `@nestjs/platform-fastify`, mantendo o alinhamento com a spec. Os imports relativos em `src/` são escritos sem extensão; um passo de pós-build (`scripts/fix-esm-imports.mjs`) reescreve o `dist/` compilado para incluir `.js`, que é o que o Node exige em ESM puro em runtime.
 
-Nenhum dos seis serviços tem nome de diretório fixado no monorepo ainda além de `apps/api-server`; `apps/dispatch-worker` e os demais nascem quando os tickets/planejamento correspondentes forem abertos.
+Nenhum dos seis serviços tem nome de diretório fixado no monorepo ainda além de `apps/core-server`; `apps/dispatch-worker` e os demais nascem quando os tickets/planejamento correspondentes forem abertos.
 
 ## 3. Requisitos funcionais
 
