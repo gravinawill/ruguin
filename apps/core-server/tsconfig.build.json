@@ -7,7 +7,7 @@
     "**/*spec.ts",
     "**/*.unit.ts",
     "**/*.e2e.ts",
-    "**/*.integration.ts",
+    "**/*.int.ts",
     "eslint.config.ts",
     "vitest.config.ts"
   ]
