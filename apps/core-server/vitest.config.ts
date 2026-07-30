@@ -2,7 +2,7 @@ import swc from 'unplugin-swc'
 import { defineConfig } from 'vitest/config'
 
 /*
- * Kept in sync with apps/api-server/.swcrc — both the Nest build and the Vitest
+ * Kept in sync with apps/core-server/.swcrc — both the Nest build and the Vitest
  * transform need decorator metadata enabled, or NestJS DI breaks under test.
  */
 const swcPlugin = swc.vite({
