@@ -3,7 +3,6 @@ import 'reflect-metadata'
 import { Injectable } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 
-// eslint-disable-next-line @typescript-eslint/no-extraneous-class -- placeholder DI target, only its type identity matters
 class Dependency {}
 
 @Injectable()
