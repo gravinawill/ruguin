@@ -1,5 +1,5 @@
 {
-  "name": "@ruguin/api-server",
+  "name": "@ruguin/core-server",
   "version": "0.0.1",
   "type": "module",
   "scripts": {

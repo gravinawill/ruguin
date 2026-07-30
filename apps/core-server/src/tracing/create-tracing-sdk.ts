@@ -10,7 +10,7 @@ export function resolveOtlpEndpoint(environment: NodeJS.ProcessEnv): string {
 
 export function createTracingSdk(environment: NodeJS.ProcessEnv): NodeSDK {
   return new NodeSDK({
-    resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: 'api-server' }),
+    resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: 'core-server' }),
     traceExporter: new OTLPTraceExporter({ url: resolveOtlpEndpoint(environment) }),
     instrumentations: [getNodeAutoInstrumentations()]
   })

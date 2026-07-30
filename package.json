@@ -23,7 +23,7 @@
     "infra:all:up": "docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.tools.yml -f infrastructure/local/docker-compose.observability.yml up -d",
     "infra:down": "docker compose -f infrastructure/local/docker-compose.yml down",
     "infra:load-test": "docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.tools.yml run --rm k6 run /scripts/smoke.ts",
-    "infra:load-test:api-server": "docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.tools.yml run --rm k6 run /scripts/api-server-health.ts",
+    "infra:load-test:core-server": "docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.tools.yml run --rm k6 run /scripts/core-server-health.ts",
     "infra:logs": "docker compose -f infrastructure/local/docker-compose.yml logs -f",
     "infra:observability:down": "docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.observability.yml down",
     "infra:observability:up": "docker compose -f infrastructure/local/docker-compose.yml -f infrastructure/local/docker-compose.observability.yml up -d",
