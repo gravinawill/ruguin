@@ -36,7 +36,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit',
-          include: ['src/**/*.unit.ts'],
+          include: ['src/**/__tests__/**/*.unit.ts'],
           testTimeout: 5000
         }
       },
@@ -44,7 +44,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'integration',
-          include: ['src/**/*.integration.ts'],
+          include: ['src/**/__tests__/**/*.int.ts'],
           testTimeout: 15_000
         }
       },
@@ -52,7 +52,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'e2e',
-          include: ['src/**/*.e2e.ts'],
+          include: ['src/**/__tests__/**/*.e2e.ts'],
           testTimeout: 30_000
         }
       }

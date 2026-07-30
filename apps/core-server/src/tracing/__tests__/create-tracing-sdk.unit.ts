@@ -1,7 +1,7 @@
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { describe, expect, it } from 'vitest'
 
-import { createTracingSdk, resolveOtlpEndpoint } from './create-tracing-sdk'
+import { createTracingSdk, resolveOtlpEndpoint } from '../create-tracing-sdk'
 
 describe('resolveOtlpEndpoint', () => {
   it('defaults to the local OTel Collector HTTP endpoint', () => {
