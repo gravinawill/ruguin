@@ -4,7 +4,7 @@ import { type ServerResponse } from 'node:http'
 import basicAuth from '@fastify/basic-auth'
 import compress from '@fastify/compress'
 import helmet from '@fastify/helmet'
-import { VersioningType } from '@nestjs/common'
+import { UnauthorizedException, VersioningType } from '@nestjs/common'
 import { type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import { docsENV } from '@ruguin/env/docs'
@@ -37,13 +37,21 @@ export async function configureApp(app: NestFastifyApplication): Promise<void> {
 
   await app.register(basicAuth, {
     validate: async (username: string, password: string) => {
+      // eslint's require-await needs an await; @fastify/basic-auth only honours an Error return when async.
       await Promise.resolve()
       const candidateHash = crypto.createHash('sha256').update(`${username}:${password}`).digest()
       const expectedHash = crypto
         .createHash('sha256')
         .update(`${docsENV.DOCS_USERNAME}:${docsENV.DOCS_PASSWORD}`)
         .digest()
-      if (!crypto.timingSafeEqual(candidateHash, expectedHash)) throw new Error('Invalid credentials')
+      /*
+       * Returned rather than thrown, and an UnauthorizedException rather than a bare Error: Nest's
+       * ExceptionsHandler logs any non-HttpException at ERROR with a stack, which would let an
+       * anonymous client flood the logs by guessing credentials.
+       */
+      return crypto.timingSafeEqual(candidateHash, expectedHash)
+        ? undefined
+        : new UnauthorizedException('Invalid credentials')
     },
     authenticate: true
   })
