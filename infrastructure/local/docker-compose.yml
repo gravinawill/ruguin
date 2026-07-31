@@ -51,6 +51,24 @@ services:
       retries: 10
     logging: *loki-logging
 
+  redis-replica:
+    image: valkey/valkey:9-alpine
+    restart: unless-stopped
+    # Replica de leitura, para que o roteamento master/replica do @ruguin/cache seja
+    # exercitavel localmente e nao so em producao. Sem volume: o estado dela vem do master.
+    command: ['valkey-server', '--replicaof', 'redis', '6379']
+    ports:
+      - '6380:6379'
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *loki-logging
+
   kafka:
     image: apache/kafka:4.3.1
     restart: unless-stopped

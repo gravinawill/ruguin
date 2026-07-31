@@ -22,8 +22,10 @@
     "*.ts": "eslint --fix"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "@ruguin/ddd-kernel": "workspace:*",
-    "@ruguin/utils": "workspace:*"
+    "@ruguin/utils": "workspace:*",
+    "iovalkey": "^0.4.0"
   },
   "devDependencies": {
     "@ruguin/eslint-config": "workspace:*",
