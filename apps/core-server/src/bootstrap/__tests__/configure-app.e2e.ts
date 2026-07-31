@@ -8,16 +8,16 @@ import { AppModule } from '../../app.module'
 import { configureApp } from '../configure-app'
 
 vi.hoisted(() => {
-  process.env.ENVIRONMENT = 'test'
-  process.env.CACHE_PREFIX = 'test-'
-  process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/test'
-  process.env.KAFKA_BOOTSTRAP_BROKERS = 'localhost:9092'
-  process.env.KAFKA_CONSUMER_GROUP_ID = 'test-group'
-  process.env.JWT_ACCESS_TOKEN_SECRET = 'test-access-secret'
-  process.env.JWT_REFRESH_TOKEN_SECRET = 'test-refresh-secret'
   process.env.DOCS_USERNAME = 'test-docs-user'
   process.env.DOCS_PASSWORD = 'test-docs-pass'
 })
+
+function basicAuthHeader(username: string, password: string): string {
+  const encoded = Buffer.from(`${username}:${password}`).toString('base64')
+  return `Basic ${encoded}`
+}
+
+const VALID_CREDENTIALS = basicAuthHeader('test-docs-user', 'test-docs-pass')
 
 describe('configureApp', () => {
   let app: NestFastifyApplication
@@ -57,7 +57,7 @@ describe('configureApp', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/docs',
-      headers: { authorization: `Basic ${Buffer.from('test-docs-user:test-docs-pass').toString('base64')}` }
+      headers: { authorization: VALID_CREDENTIALS }
     })
 
     expect(response.statusCode).toBe(200)
@@ -73,10 +73,44 @@ describe('configureApp', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/docs-json',
-      headers: { authorization: `Basic ${Buffer.from('test-docs-user:test-docs-pass').toString('base64')}` }
+      headers: { authorization: VALID_CREDENTIALS }
     })
 
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.body)).toMatchObject({ openapi: expect.any(String) })
+  })
+
+  it.each([
+    { credentials: basicAuthHeader('wrong-user', 'test-docs-pass'), label: 'wrong username' },
+    { credentials: basicAuthHeader('test-docs-user', 'wrong-pass'), label: 'wrong password' }
+  ])('rejects /docs with $label', async ({ credentials }) => {
+    const response = await app.inject({ method: 'GET', url: '/docs', headers: { authorization: credentials } })
+
+    expect(response.statusCode).toBe(401)
+  })
+
+  it.each([
+    { credentials: basicAuthHeader('wrong-user', 'test-docs-pass'), label: 'wrong username' },
+    { credentials: basicAuthHeader('test-docs-user', 'wrong-pass'), label: 'wrong password' }
+  ])('rejects /docs-json with $label', async ({ credentials }) => {
+    const response = await app.inject({ method: 'GET', url: '/docs-json', headers: { authorization: credentials } })
+
+    expect(response.statusCode).toBe(401)
+  })
+
+  /*
+   * Fastify's router percent-decodes the path before matching, so `/%64ocs-json` resolves to the
+   * `/docs-json` handler. A guard that string-matched the raw URL let these through unauthenticated.
+   */
+  it.each(['/%64ocs', '/%64ocs-json'])('rejects the percent-encoded path %s without credentials', async (url) => {
+    const response = await app.inject({ method: 'GET', url })
+
+    expect(response.statusCode).toBe(401)
+  })
+
+  it.each(['/docs/', '/DOCS', '/docs-json/'])('never serves %s unauthenticated', async (url) => {
+    const response = await app.inject({ method: 'GET', url })
+
+    expect(response.statusCode).not.toBe(200)
   })
 })
