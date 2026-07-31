@@ -5,12 +5,12 @@ import { KeyBuilder } from '../../../key-builder'
 import { JsonSerializerStrategy } from '../../../serializers'
 import { MemoryCacheDriver } from '../memory-cache.driver'
 
-const buildDriver = (): MemoryCacheDriver =>
+const buildDriver = (input: { jitterRatio?: number } = {}): MemoryCacheDriver =>
   new MemoryCacheDriver({
     keyBuilder: new KeyBuilder({ prefix: 'ruguin:test' }),
     serializer: new JsonSerializerStrategy(),
     defaultTtlInMs: 300_000,
-    jitterRatio: 0
+    jitterRatio: input.jitterRatio ?? 0
   })
 
 describe('MemoryCacheDriver', () => {
@@ -198,5 +198,42 @@ describe('MemoryCacheDriver', () => {
     if (result.isFailure()) throw new Error('expected success')
     expect(result.value.status).toBe(CacheHealthStatus.HEALTHY)
     expect(result.value.driver).toBe(CacheDriver.MEMORY)
+  })
+
+  describe('ttl jitter', () => {
+    it('spreads expiresAt across the +/-jitterRatio window instead of landing exactly on the base ttl', async () => {
+      const jittered = buildDriver({ jitterRatio: 0.5 })
+      await jittered.connect()
+      const now = Date.now()
+
+      vi.spyOn(Math, 'random').mockReturnValue(0)
+      const low = await jittered.set({ key: 'low', namespace: 'user', value: 'v', ttlInMs: 1000 })
+
+      vi.spyOn(Math, 'random').mockReturnValue(1)
+      const high = await jittered.set({ key: 'high', namespace: 'user', value: 'v', ttlInMs: 1000 })
+
+      if (low.isFailure() || high.isFailure()) throw new Error('expected success')
+      // base 1000 +/- 50%: random()=0 bottoms out at 500, random()=1 tops out at 1500.
+      expect(low.value.expiresAt.getTime()).toBe(now + 500)
+      expect(high.value.expiresAt.getTime()).toBe(now + 1500)
+    })
+
+    it('leaves the ttl exact when applyJitter is false, even with a jitterRatio configured', async () => {
+      const jittered = buildDriver({ jitterRatio: 0.5 })
+      await jittered.connect()
+      const now = Date.now()
+
+      vi.spyOn(Math, 'random').mockReturnValue(1)
+      const result = await jittered.set({
+        key: '1',
+        namespace: 'user',
+        value: 'v',
+        ttlInMs: 1000,
+        applyJitter: false
+      })
+
+      if (result.isFailure()) throw new Error('expected success')
+      expect(result.value.expiresAt.getTime()).toBe(now + 1000)
+    })
   })
 })
