@@ -1,3 +1,5 @@
+import crypto from 'node:crypto'
+
 import basicAuth from '@fastify/basic-auth'
 import compress from '@fastify/compress'
 import helmet from '@fastify/helmet'
@@ -16,8 +18,12 @@ export async function configureApp(app: NestFastifyApplication): Promise<void> {
   await app.register(basicAuth, {
     validate: async (username: string, password: string) => {
       await Promise.resolve()
-      if (username === docsENV.DOCS_USERNAME && password === docsENV.DOCS_PASSWORD) return
-      throw new Error('Invalid credentials')
+      const candidateHash = crypto.createHash('sha256').update(`${username}:${password}`).digest()
+      const expectedHash = crypto
+        .createHash('sha256')
+        .update(`${docsENV.DOCS_USERNAME}:${docsENV.DOCS_PASSWORD}`)
+        .digest()
+      if (!crypto.timingSafeEqual(candidateHash, expectedHash)) throw new Error('Invalid credentials')
     },
     authenticate: true
   })
