@@ -1,5 +1,6 @@
 export * from './cache.environment.ts'
 export * from './database.environment.ts'
+export * from './docs.environment.ts'
 export * from './logger.environment.ts'
 export * from './message-broker.environment.ts'
 export * from './token-provider.environment.ts'
