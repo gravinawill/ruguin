@@ -9,7 +9,7 @@
   "scripts": {
     "check:lint": "eslint . --max-warnings 0",
     "check:types": "tsc --noEmit --pretty",
-    "test:unit": "vitest run --project unit"
+    "test:unit": "vitest run"
   },
   "devDependencies": {
     "@ruguin/eslint-config": "workspace:*",
