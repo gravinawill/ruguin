@@ -1,1 +1,1 @@
-export * from './server.environment'
+export * from './server.environment.ts'

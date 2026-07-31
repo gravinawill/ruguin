@@ -22,9 +22,13 @@
     "update:deps": "ncu -u"
   },
   "dependencies": {
+    "@fastify/basic-auth": "6.2.0",
+    "@fastify/compress": "9.1.0",
+    "@fastify/helmet": "13.1.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-fastify": "^11.1.28",
+    "@nestjs/swagger": "11.4.6",
     "@nestjs/terminus": "^11.1.1",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/auto-instrumentations-node": "^0.79.0",
@@ -32,7 +36,9 @@
     "@opentelemetry/resources": "^2.10.0",
     "@opentelemetry/sdk-node": "^0.221.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
+    "@ruguin/env": "workspace:*",
     "@ruguin/utils": "workspace:*",
+    "@scalar/nestjs-api-reference": "1.2.11",
     "nestjs-pino": "^4.6.1",
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.2",
