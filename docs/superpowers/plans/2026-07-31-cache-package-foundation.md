@@ -611,7 +611,7 @@ export class InvalidCacheKeyError extends BaseError {
   readonly name = 'InvalidCacheKeyError'
   readonly status = StatusError.INVALID_INPUT
 
-  constructor(input: { field: 'key' | 'namespace'; value: string; reason: string }) {
+  constructor(input: { field: 'key' | 'namespace' | 'version'; value: string; reason: string }) {
     super({ message: `Invalid cache ${input.field} "${input.value}": ${input.reason}` })
   }
 }
@@ -722,7 +722,7 @@ Contratos são só tipos, então o portão real é o `tsc`. O teste declara stub
 `packages/cache/src/domain/contracts/__tests__/cache-contracts.unit.ts`:
 
 ```ts
-import { type Either, success } from '@ruguin/utils'
+import { type Either, failure, success } from '@ruguin/utils'
 import { describe, expect, it } from 'vitest'
 
 import { CacheSource } from '../../enums'
@@ -753,14 +753,14 @@ class StubProvider implements IGetCacheProvider, ISetCacheProvider, IIncrementCo
 
   public async getOrSet<T, E>(input: GetOrSetCacheProviderDTO.Input<T, E>): GetOrSetCacheProviderDTO.Output<T, E> {
     const loaded: Either<E, T | null> = await input.loader()
-    if (loaded.isFailure()) return { ...loaded } as never
+    if (loaded.isFailure()) return failure(loaded.value)
     return success({ value: loaded.value, source: CacheSource.LOADER })
   }
 }
 
 const jsonStub: ISerializerStrategy = {
   serialize: <T>(_input: { value: T }) => success({ serialized: '{}' }),
-  deserialize: <T>(_input: { raw: string }) => success({ value: null as T })
+  deserialize: <T>(_input: { raw: string }) => success({ value: null as unknown as T })
 }
 
 describe('cache contracts', () => {
@@ -1339,10 +1339,16 @@ export interface IIncrementScoreProvider {
 // packages/cache/src/domain/contracts/score/get-score.provider.ts
 import { type Either } from '@ruguin/utils'
 
+import { type CacheConsistency } from '../../enums'
 import { type CacheOperationError } from '../../errors'
 
 export namespace GetScoreProviderDTO {
-  export type Input = Readonly<{ key: string; namespace: string; member: string }>
+  export type Input = Readonly<{
+    key: string
+    namespace: string
+    member: string
+    consistency?: CacheConsistency
+  }>
 
   export type OutputError = Readonly<CacheOperationError>
   export type OutputSuccess = Readonly<{ score: number | null }>
@@ -1359,10 +1365,16 @@ export interface IGetScoreProvider {
 // packages/cache/src/domain/contracts/score/get-rank.provider.ts
 import { type Either } from '@ruguin/utils'
 
+import { type CacheConsistency } from '../../enums'
 import { type CacheOperationError } from '../../errors'
 
 export namespace GetRankProviderDTO {
-  export type Input = Readonly<{ key: string; namespace: string; member: string }>
+  export type Input = Readonly<{
+    key: string
+    namespace: string
+    member: string
+    consistency?: CacheConsistency
+  }>
 
   export type OutputError = Readonly<CacheOperationError>
   export type OutputSuccess = Readonly<{ rank: number | null; total: number }>
@@ -1381,12 +1393,19 @@ export interface IGetRankProvider {
 // packages/cache/src/domain/contracts/score/get-top-scores.provider.ts
 import { type Either } from '@ruguin/utils'
 
+import { type CacheConsistency } from '../../enums'
 import { type CacheOperationError } from '../../errors'
 
 export namespace GetTopScoresProviderDTO {
   export type Entry = Readonly<{ member: string; score: number }>
 
-  export type Input = Readonly<{ key: string; namespace: string; limit: number; offset?: number }>
+  export type Input = Readonly<{
+    key: string
+    namespace: string
+    limit: number
+    offset?: number
+    consistency?: CacheConsistency
+  }>
 
   export type OutputError = Readonly<CacheOperationError>
   export type OutputSuccess = Readonly<{ entries: ReadonlyArray<Entry> }>
@@ -1423,10 +1442,11 @@ export interface IRemoveScoreProvider {
 // packages/cache/src/domain/contracts/score/count-scores.provider.ts
 import { type Either } from '@ruguin/utils'
 
+import { type CacheConsistency } from '../../enums'
 import { type CacheOperationError } from '../../errors'
 
 export namespace CountScoresProviderDTO {
-  export type Input = Readonly<{ key: string; namespace: string }>
+  export type Input = Readonly<{ key: string; namespace: string; consistency?: CacheConsistency }>
 
   export type OutputError = Readonly<CacheOperationError>
   export type OutputSuccess = Readonly<{ total: number }>
@@ -2006,10 +2026,13 @@ describe('KeyBuilder', () => {
     expect(result.value.message).toContain('namespace')
   })
 
-  it('rejects a non-positive version', () => {
+  it('rejects a non-positive version and blames the version, not the namespace', () => {
     const result = builder.build({ namespace: 'user', version: 0, key: '123' })
 
     expect(result.isFailure()).toBe(true)
+    if (result.isSuccess()) throw new Error('expected failure')
+    expect(result.value.message).toContain('version')
+    expect(result.value.message).not.toContain('namespace')
   })
 })
 ```
@@ -2049,9 +2072,9 @@ export class KeyBuilder {
     if (!Number.isInteger(input.version) || input.version < 1) {
       return failure(
         new InvalidCacheKeyError({
-          field: 'namespace',
-          value: input.namespace,
-          reason: `version must be a positive integer, got ${input.version}`
+          field: 'version',
+          value: String(input.version),
+          reason: 'must be a positive integer'
         })
       )
     }
@@ -2145,6 +2168,8 @@ git commit -m "feat(cache): add key builder with namespace and key validation"
   - `.clearMemo(): void` — chamada na reconexão do subscriber (plano 2)
 
 Este é o componente que a spec §4 inteira descreve. Ele não conhece Valkey: recebe a busca de versão como porta, o que o torna testável sem I/O e reutilizável por qualquer driver.
+
+**Contrato para o plano 2:** o resolver devolve `failure` quando a resolução falha em modo `strong`, mas isso é sinal **interno**. A spec §4.4 exige que a _operação_ devolva **miss**, não falha — então o driver Valkey, ao receber esse `failure`, deve traduzir para `success({ found: false, value: null })` na `get` e nas leituras de score. Assim o `getOrSet` cai no `loader` e quem chama `get()` direto vê um miss honesto, em vez de um erro que sugere indisponibilidade.
 
 **Quem consome:** o driver Valkey, no plano 2 — é lá que resolver a versão custa um round-trip e o memo se paga. O driver `memory` (Task 12) lê `store.getVersion()` direto, porque memoizar um acesso a `Map` na frente de outro acesso a `Map` seria indireção sem ganho. Construí-lo agora, isolado e testado, é o que permite ao plano 2 focar em I/O.
 
@@ -3807,7 +3832,7 @@ git commit -m "feat(cache): add memory driver"
 **Interfaces:**
 
 - Consumes: `IGetCacheProvider`, `ISetCacheProvider`, `IAcquireLockProvider`, `IReleaseLockProvider` — todos por injeção de construtor, nunca um driver concreto.
-- Produces: `class GetOrSetCacheProvider implements IGetOrSetCacheProvider` — `new GetOrSetCacheProvider({ reader, writer, lockAcquirer, lockReleaser, negativeTtlInMs, lockTtlInMs, onCacheError? })`.
+- Produces: `class GetOrSetCacheProvider implements IGetOrSetCacheProvider` — `new GetOrSetCacheProvider({ reader, writer, lockAcquirer, lockReleaser, negativeTtlInMs, lockTtlInMs, onCacheError })` — `onCacheError` é **obrigatório**: o fail-open descarta erros de cache, e descartá-los em silêncio não pode ser o default..
 
 Este é o componente que a spec §6 descreve. Ele não conhece driver algum — o mesmo objeto serve `memory`, `noop` e, no plano 2, `valkey`.
 
@@ -3855,7 +3880,10 @@ const buildProvider = (input: {
   new GetOrSetCacheProvider({
     ...input,
     negativeTtlInMs: 30_000,
-    lockTtlInMs: 5000
+    lockTtlInMs: 5000,
+    // Required by the constructor on purpose: swallowing cache errors has to be a decision
+    // someone makes, not the path of least resistance.
+    onCacheError: input.onCacheError ?? ((): void => undefined)
   })
 
 describe('GetOrSetCacheProvider', () => {
@@ -3996,6 +4024,34 @@ describe('GetOrSetCacheProvider', () => {
     expect(loader).not.toHaveBeenCalled()
   })
 
+  it('waits for the lock by default, so a queued caller can still find a filled cache', async () => {
+    const driver = await buildDriver()
+    const attempts: number[] = []
+    const countingLock: IAcquireLockProvider = {
+      acquire: async (input) => {
+        attempts.push(input.retry?.attempts ?? 1)
+        return failure(new LockNotAcquiredError({ lockKey: input.key, attempts: 1 }))
+      }
+    }
+    const provider = buildProvider({
+      reader: driver,
+      writer: driver,
+      lockAcquirer: countingLock,
+      lockReleaser: driver
+    })
+
+    await provider.getOrSet<string, Error>({
+      key: '1',
+      namespace: 'user',
+      lock: { enabled: true },
+      loader: async () => success('fresh')
+    })
+
+    // Without a wait budget this would be 1, the caller would never queue, and the
+    // post-lock re-read below would never get a chance to fire under contention.
+    expect(attempts[0]).toBeGreaterThan(1)
+  })
+
   it('runs the loader anyway when the lock cannot be taken', async () => {
     const driver = await buildDriver()
     const busyLock: IAcquireLockProvider = {
@@ -4106,7 +4162,7 @@ Expected: FAIL — `Cannot find module '../get-or-set-cache.provider'`.
 
 ```ts
 // packages/cache/src/application/get-or-set-cache.provider.ts
-import { success } from '@ruguin/utils'
+import { failure, success } from '@ruguin/utils'
 
 import {
   CacheSource,
@@ -4119,6 +4175,15 @@ import {
 } from '../domain'
 
 type CacheRead<T> = Readonly<{ found: boolean; value: T | null }>
+
+/*
+ * How long a caller queues for the fill lock before giving up and loading anyway, and how
+ * often it retries within that budget. These have to be named: with no wait at all, whoever
+ * loses the race skips straight to the loader, the post-lock re-read never fires, and the
+ * stampede protection this class exists for is inert under exactly the contention it targets.
+ */
+const DEFAULT_LOCK_WAIT_TIMEOUT_MS: number = 3000
+const LOCK_POLL_INTERVAL_MS: number = 50
 
 export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
   private readonly reader: IGetCacheProvider
@@ -4136,7 +4201,7 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
     lockReleaser: IReleaseLockProvider
     negativeTtlInMs: number
     lockTtlInMs: number
-    onCacheError?: (error: unknown) => void
+    onCacheError: (error: unknown) => void
   }) {
     this.reader = input.reader
     this.writer = input.writer
@@ -4144,7 +4209,7 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
     this.lockReleaser = input.lockReleaser
     this.negativeTtlInMs = input.negativeTtlInMs
     this.lockTtlInMs = input.lockTtlInMs
-    this.onCacheError = input.onCacheError ?? ((): void => undefined)
+    this.onCacheError = input.onCacheError
   }
 
   public async getOrSet<T, E>(input: GetOrSetCacheProviderDTO.Input<T, E>): GetOrSetCacheProviderDTO.Output<T, E> {
@@ -4174,7 +4239,9 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
 
     try {
       const loaded = await input.loader()
-      if (loaded.isFailure()) return loaded
+      // Not `return loaded`: Failure<E, T | null> is not assignable to Failure<E, OutputSuccess<T>>,
+      // because Either carries the success type in its type-guard signatures. Rewrap.
+      if (loaded.isFailure()) return failure(loaded.value)
 
       await this.write({ input, value: loaded.value })
 
@@ -4216,13 +4283,14 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
   }
 
   private async acquire<T, E>(input: GetOrSetCacheProviderDTO.Input<T, E>): Promise<string | null> {
+    const waitTimeoutInMs: number = input.lock?.waitTimeoutInMs ?? DEFAULT_LOCK_WAIT_TIMEOUT_MS
+    const attempts: number = Math.max(1, Math.ceil(waitTimeoutInMs / LOCK_POLL_INTERVAL_MS))
+
     const result = await this.lockAcquirer.acquire({
       key: input.key,
       namespace: input.namespace,
       ttlInMs: this.lockTtlInMs,
-      ...(input.lock?.waitTimeoutInMs === undefined
-        ? {}
-        : { retry: { attempts: 3, delayInMs: Math.max(1, Math.floor(input.lock.waitTimeoutInMs / 3)) } })
+      retry: { attempts, delayInMs: LOCK_POLL_INTERVAL_MS }
     })
 
     // A lock we could not take is not fatal: being slow beats being stuck.
@@ -4285,7 +4353,7 @@ git commit -m "feat(cache): add cache-aside orchestrator with stampede protectio
 **Interfaces:**
 
 - Consumes: `IAcquireLockProvider`, `IReleaseLockProvider`.
-- Produces: `class ExecuteWithLockProvider implements IExecuteWithLockProvider` — `new ExecuteWithLockProvider({ lockAcquirer, lockReleaser, onCacheError? })`.
+- Produces: `class ExecuteWithLockProvider implements IExecuteWithLockProvider` — `new ExecuteWithLockProvider({ lockAcquirer, lockReleaser, onCacheError })` — `onCacheError` obrigatório, mesmo motivo da Task 13..
 
 Ao contrário do `getOrSet`, aqui **não** há fail-open: se o lock não foi obtido, executar a tarefa mesmo assim quebraria a exclusão mútua que o chamador pediu explicitamente.
 
@@ -4313,6 +4381,8 @@ const busyLock: IAcquireLockProvider = {
   acquire: async () => failure(new LockNotAcquiredError({ lockKey: 'job', attempts: 1 }))
 }
 
+const noop = (): void => undefined
+
 const recordingReleaser = (): { releaser: IReleaseLockProvider; tokens: () => string[] } => {
   const tokens: string[] = []
 
@@ -4330,7 +4400,11 @@ const recordingReleaser = (): { releaser: IReleaseLockProvider; tokens: () => st
 describe('ExecuteWithLockProvider', () => {
   it('runs the task under the lock and releases it', async () => {
     const { releaser, tokens } = recordingReleaser()
-    const provider = new ExecuteWithLockProvider({ lockAcquirer: grantingLock, lockReleaser: releaser })
+    const provider = new ExecuteWithLockProvider({
+      lockAcquirer: grantingLock,
+      lockReleaser: releaser,
+      onCacheError: noop
+    })
 
     const result = await provider.executeWithLock<string, Error>({
       key: 'job',
@@ -4346,7 +4420,7 @@ describe('ExecuteWithLockProvider', () => {
 
   it('refuses to run the task when the lock is busy', async () => {
     const { releaser, tokens } = recordingReleaser()
-    const provider = new ExecuteWithLockProvider({ lockAcquirer: busyLock, lockReleaser: releaser })
+    const provider = new ExecuteWithLockProvider({ lockAcquirer: busyLock, lockReleaser: releaser, onCacheError: noop })
     const task = vi.fn(async (): Promise<Either<Error, string>> => success('should not run'))
 
     const result = await provider.executeWithLock<string, Error>({
@@ -4365,7 +4439,11 @@ describe('ExecuteWithLockProvider', () => {
 
   it('releases the lock when the task fails', async () => {
     const { releaser, tokens } = recordingReleaser()
-    const provider = new ExecuteWithLockProvider({ lockAcquirer: grantingLock, lockReleaser: releaser })
+    const provider = new ExecuteWithLockProvider({
+      lockAcquirer: grantingLock,
+      lockReleaser: releaser,
+      onCacheError: noop
+    })
     const boom = new Error('task blew up')
 
     const result = await provider.executeWithLock<string, Error>({
@@ -4383,7 +4461,11 @@ describe('ExecuteWithLockProvider', () => {
 
   it('releases the lock when the task throws', async () => {
     const { releaser, tokens } = recordingReleaser()
-    const provider = new ExecuteWithLockProvider({ lockAcquirer: grantingLock, lockReleaser: releaser })
+    const provider = new ExecuteWithLockProvider({
+      lockAcquirer: grantingLock,
+      lockReleaser: releaser,
+      onCacheError: noop
+    })
 
     await expect(
       provider.executeWithLock<string, Error>({
@@ -4452,11 +4534,11 @@ export class ExecuteWithLockProvider implements IExecuteWithLockProvider {
   constructor(input: {
     lockAcquirer: IAcquireLockProvider
     lockReleaser: IReleaseLockProvider
-    onCacheError?: (error: unknown) => void
+    onCacheError: (error: unknown) => void
   }) {
     this.lockAcquirer = input.lockAcquirer
     this.lockReleaser = input.lockReleaser
-    this.onCacheError = input.onCacheError ?? ((): void => undefined)
+    this.onCacheError = input.onCacheError
   }
 
   public async executeWithLock<T, E>(
@@ -4544,6 +4626,8 @@ import { CacheProviderFacade } from '../cache-provider.facade'
 import { ExecuteWithLockProvider } from '../execute-with-lock.provider'
 import { GetOrSetCacheProvider } from '../get-or-set-cache.provider'
 
+const noop = (): void => undefined
+
 const buildFacade = async (): Promise<CacheProviderFacade> => {
   const driver = new MemoryCacheDriver({
     keyBuilder: new KeyBuilder({ prefix: 'ruguin:test' }),
@@ -4561,9 +4645,14 @@ const buildFacade = async (): Promise<CacheProviderFacade> => {
       lockAcquirer: driver,
       lockReleaser: driver,
       negativeTtlInMs: 30_000,
-      lockTtlInMs: 5000
+      lockTtlInMs: 5000,
+      onCacheError: noop
     }),
-    executeWithLockProvider: new ExecuteWithLockProvider({ lockAcquirer: driver, lockReleaser: driver })
+    executeWithLockProvider: new ExecuteWithLockProvider({
+      lockAcquirer: driver,
+      lockReleaser: driver,
+      onCacheError: noop
+    })
   })
 }
 

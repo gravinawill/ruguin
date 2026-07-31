@@ -44,7 +44,10 @@ O pacote expõe **os dois níveis** de granularidade, apontando para a mesma ins
 
 1. `domain/contracts/` mantém contratos granulares — uma interface por operação, com um método cada, no padrão já usado no monorepo (`IGenerateAccessTokenProvider` + namespace `...DTO`). Isso preserva **ISP**: um repositório que só lê cache injeta `IGetCacheProvider` e o mock do seu teste tem um método, não vinte e cinco.
 2. `ICacheProvider` é uma interface **composta** (`extends` de todas as demais), para quem prefere injetar uma dependência só.
-3. A implementação de cada driver é um **Facade** que delega para objetos de operação agrupados por concern — não uma god class. **SRP** vive nos internos; a conveniência vive no Facade.
+3. Cada driver implementa `ICacheDriver` — apenas os contratos **folha** (chave-valor, contador, lock, score, namespace, conexão, health). Internamente delega para objetos de operação agrupados por concern, não uma god class.
+4. `CacheProviderFacade` compõe um `ICacheDriver` com os dois orquestradores de `application/` e é o que implementa `ICacheProvider`. **SRP** vive nos internos; a conveniência vive no Facade.
+
+A separação entre `ICacheDriver` e `ICacheProvider` existe porque `getOrSet` e `executeWithLock` são orquestração sobre as folhas, idênticas para todo driver. Se fizessem parte do que um driver implementa, `valkey`, `memory` e `noop` reimplementariam cache-aside três vezes — e um quarto driver reimplementaria uma quarta.
 
 ### 1.2 Design patterns
 
@@ -97,7 +100,7 @@ packages/cache/src/
         health-check.provider.ts              IHealthCheckProvider
       serializer/
         serializer.strategy.ts                ISerializerStrategy
-      cache.provider.ts                       ICacheProvider (composição)
+      cache.provider.ts                       ICacheDriver (folhas) + ICacheProvider
       index.ts
     enums/
       cache-driver.enum.ts                    CacheDriver
@@ -117,10 +120,11 @@ packages/cache/src/
   application/
     get-or-set-cache.provider.ts              cache-aside (orquestra contratos)
     execute-with-lock.provider.ts             lock + callback + release no finally
+    cache-provider.facade.ts                  ICacheDriver + orquestradores -> ICacheProvider
   infra/
     drivers/
       valkey/
-        valkey-cache.provider.ts              Facade, implementa ICacheProvider
+        valkey-cache.driver.ts                implementa ICacheDriver
         connection/
           valkey-connection.manager.ts        master + réplicas + subscriber, roteamento
         operations/
@@ -138,9 +142,10 @@ packages/cache/src/
           extend-lock.lua
           get-with-namespace-version.lua      leitura forte em 1 round-trip (§4.2)
       memory/
-        memory-cache.provider.ts              Map + TTL simulado
+        memory-cache.driver.ts                delega ao store
+        memory.store.ts                       Map + TTL simulado
       noop/
-        noop-cache.provider.ts                Null Object
+        noop-cache.driver.ts                  Null Object
     serializers/
       json-serializer.strategy.ts
     decorators/
@@ -182,7 +187,15 @@ O núcleo permanece agnóstico de framework — o `dispatch-worker` futuro pode 
     serviço        (grupo de invalidação)
 ```
 
-`infra/key-builder.ts` é o único lugar que monta essa string. Ele valida a `key` e o `namespace` antes de concatenar: ambos precisam ser não vazios e não conter espaço, quebra de linha ou `:`. Chave inválida retorna `InvalidCacheKeyError` — validação na fronteira do sistema, conforme `CLAUDE.md`.
+Locks usam uma segunda forma, **sem** o segmento de versão:
+
+```text
+{CACHE_PREFIX}:{namespace}:__lock__:{key}
+```
+
+A ausência da versão é deliberada: se um lock carregasse a versão do namespace, um `invalidateNamespace` disparado enquanto o lock está seguro tornaria a chave do lock inalcançável — o dono não conseguiria mais liberá-la, e ela ficaria pendurada até o TTL vencer, bloqueando todo mundo por nada. Locks coordenam processos, não guardam dados; versioná-los não faz sentido.
+
+`infra/key-builder.ts` é o único lugar que monta essas strings. Ele valida a `key` e o `namespace` antes de concatenar: ambos precisam ser não vazios e não conter espaço, quebra de linha ou `:`. Chave inválida retorna `InvalidCacheKeyError` — validação na fronteira do sistema, conforme `CLAUDE.md`.
 
 ## 4. Versionamento de namespace
 
@@ -290,7 +303,7 @@ export namespace GetCacheProviderDTO {
   export type OutputError = Readonly<
     CacheConnectionError | CacheTimeoutError | CacheSerializationError | InvalidCacheKeyError
   >
-  export type OutputSuccess<T> = Readonly<{ value: T | null }>
+  export type OutputSuccess<T> = Readonly<{ found: boolean; value: T | null }>
 
   export type Output<T> = Promise<Either<OutputError, OutputSuccess<T>>>
 }
@@ -299,6 +312,8 @@ export interface IGetCacheProvider {
   get<T>(input: GetCacheProviderDTO.Input): GetCacheProviderDTO.Output<T>
 }
 ```
+
+`found` existe porque `value: null` sozinho é ambíguo entre "não há chave" e "há uma chave cujo valor é `null`". Sem essa distinção o negative caching (§5.3) seria impossível: um `null` gravado de propósito seria relido como miss e o banco consultado de novo, que é justamente o que ele existe para evitar.
 
 `validate` é opcional e resolve um bug silencioso: após um deploy que muda o shape de um tipo, o cache ainda devolve o JSON antigo e o cast para `T` mente. Quando `validate` retorna `false`, o valor é tratado como **miss** (não como erro) e recarregado.
 
@@ -449,8 +464,8 @@ Os três sinais além do `PING` existem para pegar problema antes do incidente: 
 3. leitura, conforme o modo:                                        │
    ├─ eventual → resolve versão (memo local) → GET na réplica       │
    └─ strong   → EVAL no master (versão + GET num round-trip)       │
-      ├─ hit valor      → return { value, 'cache' }                 │
-      ├─ hit sentinela  → return { null,  'cache' }                 │
+      ├─ found, valor   → return { value, 'cache' }                 │
+      ├─ found, null    → return { null,  'cache' }                 │
       ├─ validate falhou → trata como miss ────────────────────────►│
       └─ miss ou erro ─────────────────────────────────────────────►│
 4. adquire lock no master (se lock.enabled)                         │
@@ -468,11 +483,15 @@ A re-leitura do passo 4 é o que faz o lock valer a pena: sem ela, todos os que 
 
 A escrita do passo 5 usa a versão vigente no momento da escrita. Se um `invalidateNamespace` ocorrer entre a leitura e a escrita, o valor é gravado sob a versão antiga e nasce inalcançável — desperdiça uma escrita, mas não serve dado obsoleto, e a chave morre no TTL.
 
-A sentinela do negative cache é um marcador interno reservado, distinguível de um valor legítimo `null` gravado pelo usuário.
+O negative cache não usa marcador reservado. `IGetCacheProvider` devolve `{ found, value }` (§5.1), então "não há chave" (`found: false`) e "há uma chave cujo valor é `null`" (`found: true, value: null`) já são estados distintos no contrato — uma sentinela seria maquinaria redundante em cima de uma distinção que o tipo já faz.
+
+A consequência é deliberada: `set(key, null)` e um negative cache gravado pelo `getOrSet` produzem a mesma leitura. Isso é correto, não colisão — se alguém gravou `null` naquela chave, servir `null` do cache é exatamente o comportamento esperado.
 
 ## 7. Decorators
 
-Ambos implementam `ICacheProvider` e envolvem outro `ICacheProvider` — adicionar qualquer um deles não modifica nenhum driver (OCP). A factory os aplica na ordem `observable(resilient(driver))`, para que o span registre inclusive as chamadas curto-circuitadas pelo breaker.
+Ambos implementam `ICacheDriver` e envolvem outro `ICacheDriver` — adicionar qualquer um deles não modifica nenhum driver (OCP). A factory os aplica na ordem `observable(resilient(driver))` e só então passa o resultado ao `CacheProviderFacade`, para que o span registre inclusive as chamadas curto-circuitadas pelo breaker.
+
+Envolver o **driver**, e não o provider completo, é o que faz `getOrSet` enxergar o breaker: como o cache-aside chama `get`/`set` através da mesma cadeia decorada, um breaker aberto transforma a leitura em miss instantâneo e o orquestrador segue direto ao `loader` — sem pagar timeout.
 
 **`ObservableCacheProvider`** — abre um span por operação via `@opentelemetry/api` (que o `core-server` já configura em `create-tracing-sdk.ts`), com atributos de namespace, operação e resultado (hit/miss/erro).
 
@@ -496,7 +515,7 @@ Escritas viradas no-op com o breaker aberto são seguras: o dado permanece corre
 
 O `memory` não é um substituto de produção e sua limitação é intencionalmente documentada: seu "lock distribuído" só exclui dentro do mesmo processo.
 
-Os três implementam exatamente os mesmos contratos — é isso que prova que a abstração não vazou detalhe do Valkey.
+Os três implementam exatamente o mesmo `ICacheDriver` — é isso que prova que a abstração não vazou detalhe do Valkey. Nenhum dos três implementa `getOrSet` ou `executeWithLock`: essas vêm de `application/` e valem para os três igualmente.
 
 ### 8.1 Roteamento master/réplica (driver `valkey`)
 
@@ -569,15 +588,15 @@ this.health.check([() => this.cacheHealth.isHealthy('cache')])
 
 Todos estendem `BaseError` de `@ruguin/ddd-kernel`, com `name` e `status`:
 
-| Erro                       | `StatusError`    | Origem                                          |
-| -------------------------- | ---------------- | ----------------------------------------------- |
-| `CacheConnectionError`     | `INTERNAL_ERROR` | conexão recusada ou perdida                     |
-| `CacheTimeoutError`        | `INTERNAL_ERROR` | operação excedeu `CACHE_OPERATION_TIMEOUT_MS`   |
-| `CacheSerializationError`  | `INTERNAL_ERROR` | JSON inválido ou estrutura cíclica              |
-| `CacheNotInitializedError` | `INTERNAL_ERROR` | uso antes de `connect()`                        |
-| `InvalidCacheKeyError`     | `INVALID_INPUT`  | chave/namespace vazio ou com caractere proibido |
-| `LockNotAcquiredError`     | `CONFLICT`       | lock ocupado após os retries                    |
-| `LockNotOwnedError`        | `CONFLICT`       | release/extend com token que já não é o dono    |
+| Erro                       | `StatusError`    | Origem                                                                            |
+| -------------------------- | ---------------- | --------------------------------------------------------------------------------- |
+| `CacheConnectionError`     | `INTERNAL_ERROR` | conexão recusada ou perdida                                                       |
+| `CacheTimeoutError`        | `INTERNAL_ERROR` | operação excedeu `CACHE_OPERATION_TIMEOUT_MS`                                     |
+| `CacheSerializationError`  | `INTERNAL_ERROR` | JSON inválido ou estrutura cíclica                                                |
+| `CacheNotInitializedError` | `INTERNAL_ERROR` | uso antes de `connect()`                                                          |
+| `InvalidCacheKeyError`     | `INVALID_INPUT`  | chave/namespace vazio ou com caractere proibido; versão de namespace não positiva |
+| `LockNotAcquiredError`     | `CONFLICT`       | lock ocupado após os retries                                                      |
+| `LockNotOwnedError`        | `CONFLICT`       | release/extend com token que já não é o dono                                      |
 
 Nenhum caminho do pacote lança exceção para falha esperada — tudo retorna `Either`, conforme a convenção do monorepo.
 
