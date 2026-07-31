@@ -7,10 +7,19 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { AppModule } from '../../app.module'
 import { configureApp } from '../configure-app'
 
-describe('configureApp', () => {
-  vi.stubEnv('DOCS_USERNAME', 'test-docs-user')
-  vi.stubEnv('DOCS_PASSWORD', 'test-docs-pass')
+vi.hoisted(() => {
+  process.env.ENVIRONMENT = 'test'
+  process.env.CACHE_PREFIX = 'test-'
+  process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/test'
+  process.env.KAFKA_BOOTSTRAP_BROKERS = 'localhost:9092'
+  process.env.KAFKA_CONSUMER_GROUP_ID = 'test-group'
+  process.env.JWT_ACCESS_TOKEN_SECRET = 'test-access-secret'
+  process.env.JWT_REFRESH_TOKEN_SECRET = 'test-refresh-secret'
+  process.env.DOCS_USERNAME = 'test-docs-user'
+  process.env.DOCS_PASSWORD = 'test-docs-pass'
+})
 
+describe('configureApp', () => {
   let app: NestFastifyApplication
 
   beforeAll(async () => {
@@ -36,5 +45,38 @@ describe('configureApp', () => {
     const response = await app.inject({ method: 'GET', url: '/health' })
 
     expect(response.headers['x-content-type-options']).toBe('nosniff')
+  })
+
+  it('rejects /docs without credentials', async () => {
+    const response = await app.inject({ method: 'GET', url: '/docs' })
+
+    expect(response.statusCode).toBe(401)
+  })
+
+  it('serves /docs with correct credentials', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/docs',
+      headers: { authorization: `Basic ${Buffer.from('test-docs-user:test-docs-pass').toString('base64')}` }
+    })
+
+    expect(response.statusCode).toBe(200)
+  })
+
+  it('rejects /docs-json without credentials', async () => {
+    const response = await app.inject({ method: 'GET', url: '/docs-json' })
+
+    expect(response.statusCode).toBe(401)
+  })
+
+  it('serves the OpenAPI document at /docs-json with correct credentials', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/docs-json',
+      headers: { authorization: `Basic ${Buffer.from('test-docs-user:test-docs-pass').toString('base64')}` }
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({ openapi: expect.any(String) })
   })
 })
