@@ -107,6 +107,7 @@ packages/cache/src/
       cache-health-status.enum.ts             CacheHealthStatus
       cache-source.enum.ts                    CacheSource
       cache-consistency.enum.ts               CacheConsistency ('eventual' | 'strong')
+      cache-lock-outcome.enum.ts              CacheLockOutcome (3 estados, ver §5.3)
       index.ts
     errors/
       cache-connection.error.ts
@@ -121,6 +122,7 @@ packages/cache/src/
     get-or-set-cache.provider.ts              cache-aside (orquestra contratos)
     execute-with-lock.provider.ts             lock + callback + release no finally
     cache-provider.facade.ts                  ICacheDriver + orquestradores -> ICacheProvider
+    on-cache-error.ts                         canal fora de banda dos erros engolidos
   infra/
     drivers/
       valkey/
@@ -173,7 +175,9 @@ packages/cache/src/
 }
 ```
 
-**Dependencies:** `iovalkey`, `@ruguin/utils` (workspace), `@ruguin/ddd-kernel` (workspace), `@ruguin/env` (workspace).
+**Dependencies:** `iovalkey`, `@ruguin/utils` (workspace), `@ruguin/ddd-kernel` (workspace).
+
+O pacote **não** depende de `@ruguin/env`. Toda configuração entra por construtor, e é quem compõe (a `CacheFactory`, ou o `CacheModule` do NestJS) que decide de onde tira os valores. Isso mantém o núcleo testável sem tocar em `process.env` — a suíte inteira roda sem nenhuma variável de ambiente definida.
 **PeerDependencies (opcionais, só para `./nestjs`):** `@nestjs/common`, `@nestjs/terminus`, `@opentelemetry/api`.
 
 O núcleo permanece agnóstico de framework — o `dispatch-worker` futuro pode consumir `@ruguin/cache` sem arrastar NestJS.
@@ -203,8 +207,12 @@ Invalidar um grupo de chaves não apaga nada:
 
 ```text
 SET  ruguin:iam:user:v7:123        → grava
-INCR ruguin:iam:user:__version__   → 7 vira 8
+bump ruguin:iam:user:__version__   → 7 vira 8
 ```
+
+O bump **não** pode ser um `INCR` cru, e o motivo é um caso de borda que o exemplo acima esconde. A convenção é que chave de versão ausente significa versão 1 — é o que o resolver assume e o que o script de leitura forte codifica. Mas `INCR` numa chave ausente devolve `1`. Ou seja: a **primeira** invalidação de qualquer namespace levaria a versão de 1 para 1 e não invalidaria nada, silenciosamente; só a segunda funcionaria.
+
+O bump lê e grava `atual + 1` atomicamente (um `EVAL` no Valkey; no driver `memory`, `getVersion() + 1`, que já devolve `?? 1` e por isso nunca teve o problema). Todo bump precisa de teste que comece com a chave ausente — começar em 7 passa verde com a implementação errada.
 
 A partir do incremento, toda leitura monta `...:v8:...` e dá miss; as chaves `v7` tornam-se inalcançáveis e morrem sozinhas quando o TTL vence. Custo O(1), sem `SCAN` e sem `DEL` em massa.
 
@@ -363,7 +371,7 @@ export namespace GetOrSetCacheProviderDTO {
   }>
 
   export type OutputError<E> = Readonly<E>
-  export type OutputSuccess<T> = Readonly<{ value: T | null; source: CacheSource }>
+  export type OutputSuccess<T> = Readonly<{ value: T | null; source: CacheSource; lockOutcome: CacheLockOutcome }>
 
   export type Output<T, E> = Promise<Either<OutputError<E>, OutputSuccess<T>>>
 }
@@ -371,9 +379,23 @@ export namespace GetOrSetCacheProviderDTO {
 
 Três pontos deliberados:
 
-- **`OutputError<E> = E`** — nenhum erro de cache aparece no tipo de falha. O fail-open fica codificado no sistema de tipos: é impossível esse método retornar um `CacheConnectionError`. Erros de cache são registrados no logger e descartados; só a falha do `loader` propaga.
+- **`OutputError<E> = E`** — nenhum erro de cache aparece no tipo de falha. O fail-open fica codificado no sistema de tipos: é impossível esse método retornar um `CacheConnectionError`. Erros de cache saem por um canal fora de banda (abaixo) e são descartados; só a falha do `loader` propaga.
+- **`lockOutcome: CacheLockOutcome`** — `'not-attempted' | 'acquired' | 'not-acquired'`. Três estados, não um booleano: `false` colapsaria "nenhum lock foi tentado" (normal) com "pedi e não consegui" (degradado — o `loader` rodou sem proteção contra stampede), e qualquer métrica contando falhas em cima disso dispararia em toda leitura comum sem lock. É union de string e não `boolean | null` porque todo membro é _truthy_, forçando a comparação explícita em vez do `if (!lockAcquired)` que o terceiro estado existe para prevenir.
 - **`loader` devolve `Either<E, T | null>`** — "não encontrado" não é erro, é o caso do negative caching: grava-se uma sentinela com `negativeTtlInMs` para não martelar o banco com a mesma chave inexistente.
 - **`source: 'cache' | 'loader'`** — torna hit-rate mensurável sem instrumentação extra e permite ao teste afirmar "a segunda chamada veio do cache" sem inspecionar o Valkey.
+
+### 5.3.1 `OnCacheError` — o canal fora de banda
+
+```ts
+export type OnCacheError = (
+  input: Readonly<{ operation: string; namespace: string; key: string; error: unknown }>
+) => void
+```
+
+Obrigatório no construtor dos dois orquestradores. Duas decisões aqui:
+
+- **Obrigatório, não opcional.** O fail-open descarta erros de cache; um callback com default no-op faria do descarte silencioso o caminho de menor esforço. Sendo obrigatório, quem compõe é forçado a decidir o que fazer quando o Valkey cai.
+- **Carrega a chamada, não só o erro.** Um `unknown` cru obrigaria quem loga a usar `instanceof` mais parse de mensagem para distinguir um release falho de uma leitura falha, e não deixaria caminho de volta até a chave que o produziu. Erro visível mas não acionável é meio caminho para o silêncio que a obrigatoriedade queria evitar.
 
 `forceRefresh: true` pula a leitura, executa o `loader` e **reescreve** o cache — é refresh, não bypass. Continua adquirindo o lock: um refresh forçado disparado por várias instâncias ao mesmo tempo produziria exatamente o stampede que o lock existe para evitar.
 
@@ -385,7 +407,7 @@ export namespace AcquireLockProviderDTO {
     key: string
     namespace: string
     ttlInMs: number // obrigatório, sem default
-    retry?: Readonly<{ attempts: number; delayInMs: number }>
+    wait?: Readonly<{ timeoutInMs: number; pollIntervalInMs: number }>
   }>
 
   export type OutputError = Readonly<
@@ -399,11 +421,19 @@ export namespace AcquireLockProviderDTO {
 
 Ao contrário do cache, o TTL do lock **não** aceita default: cache sem TTL desperdiça memória, lock sem TTL é deadlock — se o processo que segurava o lock morre, ninguém mais o adquire.
 
+`wait` é um **orçamento de tempo real**, nunca uma contagem de tentativas. A distinção é o ponto da forma: contagem de tentativas faz o chamador pagar pelo que uma tentativa custa, e contra um driver de rede cada tentativa é um round-trip — `ceil(3000 / 50)` tentativas a 50ms de intervalo consomem 3000ms de espera **mais** 60 round-trips, de modo que quem pediu 3s espera bem mais justamente quando o cache está degradado e os round-trips estão lentos. O driver é dono da espera porque só ele sabe o custo de uma tentativa: ele marca o prazo na entrada, não começa tentativa com o orçamento esgotado e não dorme além do prazo. `pollIntervalInMs` é dica, não contrato — um driver que consiga esperar por notificação em vez de pollar pode ignorá-lo; mas nunca pode pollar mais rápido que ele, senão um `wait` de 3s vira milhares de round-trips numa única chave contendida. Ausência de `wait` significa uma tentativa e desiste.
+
 `token` é um UUID gerado por aquisição. `release` e `extend` executam um script Lua de compare-and-swap, então um processo lento cujo lock já expirou não consegue liberar (nem estender) o lock que **outro** processo adquiriu depois. Sem o token, `release` seria um `DEL` cego capaz de derrubar a exclusão mútua alheia.
 
 `IExecuteWithLockProvider` (camada `application`) adquire, executa o callback e libera no `finally`. Quem precisar do controle fino ainda pode usar acquire/release diretamente, mas o caminho ergonômico é o que não vaza lock.
 
 **Limitação conhecida e aceita:** em failover assíncrono do master, um lock concedido pode não ter sido replicado e ser reconcedido. É um lock best-effort, adequado para evitar stampede e trabalho duplicado — não para invariantes que exijam exclusão mútua garantida.
+
+### 5.4.1 Contadores: janela fixa
+
+`IIncrementCounterProvider.increment` recebe `windowInMs`, não `ttlInMs`. O nome importa porque a semântica não é "TTL desta escrita": a expiração é fixada no primeiro incremento e **não** é empurrada pelos seguintes, de modo que o contador zera um `windowInMs` depois do primeiro evento, não do último.
+
+É o comportamento que rate limiting precisa — renovar a cada incremento produziria um contador que nunca expira sob tráfego contínuo, ou seja, um limite que trava para sempre. Chamado `ttlInMs`, o campo prometeria renovação e quem o passasse em toda chamada veria o contador zerar em momentos aparentemente aleatórios.
 
 ### 5.5 Score
 
@@ -478,7 +508,7 @@ Os três sinais além do `PING` existem para pegar problema antes do incidente: 
    ├─ null    → SET sentinela   (negativeTtlInMs ± jitter)
    └─ valor   → SET serializado (ttlInMs ± jitter)
 6. release do lock no finally (compare-and-delete por token)
-7. return { value, 'loader' }
+7. return { value, 'loader', lockOutcome }
 ```
 
 A re-leitura do passo 4 é o que faz o lock valer a pena: sem ela, todos os que esperaram na fila executariam o `loader` em sequência, trocando um stampede paralelo por um serial.
@@ -513,9 +543,24 @@ Escritas viradas no-op com o breaker aberto são seguras: o dado permanece corre
 | -------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `valkey` | produção e integração  | `iovalkey`; master obrigatório, réplicas opcionais                                                               |
 | `memory` | dev e teste sem Docker | `Map` com expiração por timestamp; **por processo** — locks e contadores não são compartilhados entre instâncias |
-| `noop`   | desligar cache         | Null Object: leituras sempre miss, escritas descartadas, health sempre `healthy`                                 |
+| `noop`   | desligar cache         | Null Object: leituras sempre miss, escritas descartadas, health sempre `healthy`. **Recusa locks** (ver §8.2)    |
 
 O `memory` não é um substituto de produção e sua limitação é intencionalmente documentada: seu "lock distribuído" só exclui dentro do mesmo processo.
+
+### 8.2 Por que o `noop` recusa locks
+
+O `noop` descarta escritas e devolve miss em toda leitura — mas **falha** ao adquirir lock, em vez de conceder. Conceder seria a única forma de o pacote mentir sobre uma garantia: `executeWithLock` é a única operação que deliberadamente recusa fail-open, porque o chamador pediu exclusão mútua explicitamente. Um `acquire` que sempre concede faria, com `CACHE_DRIVER=noop`, a task de todos os concorrentes rodar em paralelo e todos receberem sucesso, sem um erro em lugar nenhum.
+
+As operações vizinhas seguem daí, e a assimetria é deliberada:
+
+| Operação         | Comportamento no `noop`        | Por quê                                                                                                                 |
+| ---------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `acquire`        | falha (`LockNotAcquiredError`) | nunca afirmar exclusividade que não existe                                                                              |
+| `release`        | sucesso, `released: false`     | nada foi adquirido, logo nada a liberar; falhar só encheria o canal de erro de quem libera defensivamente num `finally` |
+| `extend`         | falha (`LockNotOwnedError`)    | o sucesso é um `expiresAt` cru, sem como dizer "nada foi estendido"                                                     |
+| `setIfNotExists` | sucesso, `stored: true`        | `stored: false` faria todo chamador **pular** o trabalho; duplicar trabalho é a falha segura, não omiti-lo              |
+
+`getOrSet` continua funcionando sobre o `noop` — é fail-open por contrato — e o `lockOutcome: 'not-acquired'` deixa a degradação visível no call site em vez de silenciosa.
 
 Os três implementam exatamente o mesmo `ICacheDriver` — é isso que prova que a abstração não vazou detalhe do Valkey. Nenhum dos três implementa `getOrSet` ou `executeWithLock`: essas vêm de `application/` e valem para os três igualmente.
 
