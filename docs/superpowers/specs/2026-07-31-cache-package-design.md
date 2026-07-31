@@ -13,13 +13,13 @@ O `docs/ddd-naming-guide.md` §3.2 já prevê um `RateLimiterProvider` sobre Red
 
 ## Objetivo
 
-Criar `@ruguin/cache`: um pacote em Clean Architecture que expõe operações de cache (chave-valor, contador, idempotência, lock distribuído, score/ranking, health check) através de contratos granulares no domínio, com implementações intercambiáveis por driver (`valkey`, `memory`, `noop`), cache-aside com proteção contra stampede, e um adapter NestJS opcional. Ao final, `GET /health` do `core-server` reporta o estado real do Valkey.
+Criar `@ruguin/cache`: um pacote em Clean Architecture que expõe operações de cache (chave-valor, contador, idempotência, lock distribuído, score/ranking, health check) através de contratos granulares no domínio, com implementações intercambiáveis por driver (`valkey`, `memory`, `noop`), cache-aside com proteção contra stampede, invalidação em massa O(1) com dois modos de consistência, e um adapter NestJS opcional. Ao final, `GET /health` do `core-server` reporta o estado real do Valkey.
 
 ## Fora de escopo
 
 - **Cluster mode / Sentinel do Valkey** — a topologia assumida é um master com réplicas de leitura opcionais. Redlock (quorum entre múltiplos masters independentes) não se aplica e não será implementado.
 - **Serializers além de JSON** — `ISerializerStrategy` existe para permitir msgpack/outro depois; só `JsonSerializerStrategy` é implementado agora.
-- **Pub/Sub, streams, filas** — este pacote é cache, não message broker (isso é `packages/message-broker`).
+- **Pub/Sub, streams e filas como API pública** — este pacote é cache, não message broker (isso é `packages/message-broker`). Pub/Sub é usado **internamente** para o broadcast de invalidação de namespace (§4.3), mas nenhum contrato expõe publicação ou assinatura ao consumidor.
 - **`deleteByPattern` / `SCAN`** — invalidação em massa é feita por versionamento de namespace (§4). Nenhuma API do pacote permite varrer o keyspace.
 - **Cache de segundo nível em processo (near-cache)** — a única coisa cacheada em memória local é o número de versão do namespace (§4), com TTL próprio.
 - **Métricas OpenTelemetry exportadas** — o Decorator de observabilidade (§7) emite spans via `@opentelemetry/api`, que o `core-server` já configura para traces. Export de _métricas_ (OTLPMetricExporter) segue fora de escopo, como já registrado em `2026-07-30-core-server-api-docs-design.md`.
@@ -34,6 +34,7 @@ Criar `@ruguin/cache`: um pacote em Clean Architecture que expõe operações de
 | Serialização                 | JSON via Strategy                 | Único formato necessário hoje; trocável sem tocar em chamador                         |
 | TTL                          | opcional, com default do env      | `CACHE_DEFAULT_TTL_MS` já existe e é honrado; **exceto lock**, onde TTL é obrigatório |
 | Invalidação em massa         | versionamento de namespace        | O(1); `SCAN` em produção é risco operacional                                          |
+| Visibilidade da invalidação  | dois modos, em cascata            | `eventual` (rápido) por default; `strong` (sem janela) por namespace ou por chamada   |
 | Falha do cache no `getOrSet` | fail-open                         | Cache é otimização; indisponibilidade não pode derrubar request                       |
 | Testes de infra              | integração contra Valkey real     | Semântica de `SET NX PX`, TTL e Lua não se prova com mock                             |
 
@@ -102,6 +103,7 @@ packages/cache/src/
       cache-driver.enum.ts                    CacheDriver
       cache-health-status.enum.ts             CacheHealthStatus
       cache-source.enum.ts                    CacheSource
+      cache-consistency.enum.ts               CacheConsistency ('eventual' | 'strong')
       index.ts
     errors/
       cache-connection.error.ts
@@ -120,7 +122,7 @@ packages/cache/src/
       valkey/
         valkey-cache.provider.ts              Facade, implementa ICacheProvider
         connection/
-          valkey-connection.manager.ts        master + réplicas, roteamento, fallback
+          valkey-connection.manager.ts        master + réplicas + subscriber, roteamento
         operations/
           key-value.operations.ts
           counter.operations.ts
@@ -128,9 +130,13 @@ packages/cache/src/
           score.operations.ts
           namespace.operations.ts
           health.operations.ts
+        invalidation/
+          invalidation-publisher.ts           publica no canal após INCR
+          invalidation-subscriber.ts          assina, atualiza memo, limpa tudo na reconexão
         scripts/
           release-lock.lua
           extend-lock.lua
+          get-with-namespace-version.lua      leitura forte em 1 round-trip (§4.2)
       memory/
         memory-cache.provider.ts              Map + TTL simulado
       noop/
@@ -141,6 +147,7 @@ packages/cache/src/
       observable-cache.provider.ts            spans OTel + contadores hit/miss
       resilient-cache.provider.ts             circuit breaker
     key-builder.ts                            monta e valida a chave final
+    namespace-version.resolver.ts             cascata de consistência + memo local
   factory/
     cache.factory.ts                          CacheFactory
   nestjs/
@@ -188,9 +195,80 @@ INCR ruguin:iam:user:__version__   → 7 vira 8
 
 A partir do incremento, toda leitura monta `...:v8:...` e dá miss; as chaves `v7` tornam-se inalcançáveis e morrem sozinhas quando o TTL vence. Custo O(1), sem `SCAN` e sem `DEL` em massa.
 
-Ler a versão a cada operação custaria um round-trip extra por chamada, então o valor é memorizado em processo por `CACHE_NS_VERSION_LOCAL_TTL_MS` (default 5000). O preço dessa memoização é explícito: **após um `invalidateNamespace`, outras instâncias podem continuar servindo dado antigo por até esse intervalo.** Com `CACHE_NS_VERSION_LOCAL_TTL_MS=0` a memoização é desligada e a invalidação passa a ser imediata, ao custo de um round-trip por operação.
+### 4.1 Duas fontes de atraso
 
-Se a leitura da versão falhar (Valkey fora), o provider usa a última versão conhecida localmente, ou `1` se nunca leu — coerente com o fail-open: cache indisponível degrada, não quebra.
+Resolver a versão a cada operação custaria um round-trip extra, então o valor é memorizado em processo por `CACHE_NS_VERSION_LOCAL_TTL_MS`. Mas essa memoização não é a única fonte de atraso:
+
+| Fonte                                           | Janela                                               | Como zerar                 |
+| ----------------------------------------------- | ---------------------------------------------------- | -------------------------- |
+| Memoização local da versão                      | até `CACHE_NS_VERSION_LOCAL_TTL_MS` (default 5000ms) | não consultar o memo       |
+| Lag de replicação (o `INCR` acontece no master) | normalmente <1ms, com picos                          | ler a versão do **master** |
+
+Zerar apenas a primeira não basta: ler a versão "fresca" de uma réplica que ainda não recebeu o `INCR` continua devolvendo a versão antiga. Consistência forte exige **as duas** — ignorar o memo e ler do master.
+
+### 4.2 Dois modos de consistência
+
+O pacote expõe os dois, com resolução em cascata:
+
+```text
+consistency = input.consistency
+           ?? namespaces[ns].consistency        (config da factory)
+           ?? CACHE_DEFAULT_CONSISTENCY         (env, default 'eventual')
+```
+
+Declarar no nível do namespace é o caminho preferencial, porque correção que depende de lembrar uma flag em cada call site é frágil: se `api-key` nunca tolera janela, isso se declara uma vez, não em doze lugares.
+
+```ts
+CacheFactory.create({
+  namespaces: {
+    'api-key': { consistency: 'strong' },
+    suppression: { consistency: 'strong' }
+    // não declarado → CACHE_DEFAULT_CONSISTENCY
+  }
+})
+```
+
+**Modo `eventual`** — consulta o memo local; em miss, lê a versão da réplica (com fallback para o master). Janela máxima: `CACHE_NS_VERSION_LOCAL_TTL_MS` + lag de replicação.
+
+**Modo `strong`** — ignora o memo e resolve a versão no master. Para não pagar dois round-trips, a resolução da versão e a leitura do valor acontecem **dentro do servidor**, num único `EVAL`:
+
+```lua
+-- KEYS[1] = {prefix}:{ns}:__version__
+-- ARGV[1] = {prefix}:{ns}          ARGV[2] = chave lógica
+local version = redis.call('GET', KEYS[1]) or '1'
+return redis.call('GET', ARGV[1] .. ':v' .. version .. ':' .. ARGV[2])
+```
+
+Pipeline comum não resolveria isso: o segundo comando depende do **valor** retornado pelo primeiro para montar sua chave, e pipeline não expressa dependência de dados. Lua é o que torna o modo forte um único round-trip.
+
+O custo real do modo `strong`, portanto, não é latência de round-trip — é **ir ao master em vez da réplica**. Trocar ~0,2ms por garantia é um negócio melhor que trocar ~0,3ms por uma janela de 5 segundos.
+
+Uma leitura `strong` também **atualiza** o memo local (acabou de obter uma versão fresca do master), o que beneficia as leituras `eventual` seguintes.
+
+Esse otimização de round-trip único cobre `get` e `getOrSet`, o caminho quente. As demais leituras namespaceadas (`getScore`, `getRank`, `getTopScores`, `countScores`) em modo `strong` fazem dois round-trips ao master — resolvem a versão, depois executam o comando. Escrever um script Lua por formato de comando não se paga para operações que raramente exigem o modo forte.
+
+### 4.3 Broadcast de invalidação (Pub/Sub)
+
+`invalidateNamespace` faz `INCR` e em seguida publica em `{CACHE_PREFIX}:__invalidation__`. Cada instância assina esse canal e, ao receber, atualiza o memo local imediatamente — derrubando a janela típica do modo `eventual` de segundos para milissegundos.
+
+Isso **não** substitui o modo `strong`, e a distinção importa:
+
+| Mecanismo     | Natureza                      | Papel                                                           |
+| ------------- | ----------------------------- | --------------------------------------------------------------- |
+| Pub/Sub       | best-effort (fire-and-forget) | encurta a janela típica                                         |
+| TTL do memo   | garantido                     | é o **teto** da janela; o backstop quando uma mensagem se perde |
+| Modo `strong` | garantido                     | elimina a janela por completo                                   |
+
+Regras de implementação que preservam a correção:
+
+- **Conexão dedicada.** Um cliente em modo subscribe não aceita comandos normais, então o `ValkeyConnectionManager` mantém uma terceira conexão além de master e réplicas.
+- **Reconexão invalida tudo.** Ao reconectar, a instância pode ter perdido mensagens durante a queda — então descarta o memo inteiro, e não apenas o do namespace afetado.
+- **Versão só avança.** Uma mensagem só é aplicada se trouxer versão maior que a conhecida, para que reordenação ou reentrega não faça o memo retroceder.
+- **Mensagem própria é inofensiva.** Quem publicou também recebe; aplicar de novo a mesma versão é idempotente.
+
+### 4.4 Falha na resolução da versão
+
+Se a leitura da versão falhar (Valkey fora), o provider usa a última versão conhecida localmente, ou `1` se nunca leu — coerente com o fail-open: cache indisponível degrada, não quebra. No modo `strong`, porém, servir dado potencialmente inválido contradiz a garantia pedida: a operação retorna miss, forçando o `getOrSet` a consultar o `loader`. Modo forte prefere ir à fonte a arriscar dado velho.
 
 ## 5. Contratos
 
@@ -205,6 +283,7 @@ export namespace GetCacheProviderDTO {
   export type Input = Readonly<{
     key: string
     namespace: string
+    consistency?: CacheConsistency // ausente → cascata do §4.2
     validate?: (value: unknown) => boolean
   }>
 
@@ -261,6 +340,7 @@ export namespace GetOrSetCacheProviderDTO {
     namespace: string
     ttlInMs?: number // ausente → CACHE_DEFAULT_TTL_MS
     negativeTtlInMs?: number // ausente → CACHE_NEGATIVE_TTL_MS
+    consistency?: CacheConsistency // ausente → cascata do §4.2
     forceRefresh?: boolean
     lock?: Readonly<{ enabled: boolean; waitTimeoutInMs?: number }>
     validate?: (value: unknown) => boolean
@@ -363,27 +443,30 @@ Os três sinais além do `PING` existem para pegar problema antes do incidente: 
 ## 6. Fluxo do `getOrSet`
 
 ```text
-1. resolve versão do namespace          (memoizada por CACHE_NS_VERSION_LOCAL_TTL_MS)
-2. monta chave {prefix}:{ns}:v{ver}:{key}
-3. forceRefresh? ──sim──────────────────────────────┐
-   │não                                             │
-4. GET na réplica (breaker + timeout)               │
-   ├─ hit valor      → return { value, 'cache' }    │
-   ├─ hit sentinela  → return { null,  'cache' }    │
-   ├─ validate falhou → trata como miss ───────────►│
-   └─ miss ou erro ────────────────────────────────►│
-5. adquire lock no master (se lock.enabled)         │
-   ├─ conseguiu → re-GET (outro pode ter preenchido enquanto esperávamos)
-   └─ não conseguiu até waitTimeout → segue assim mesmo (lento > travado)
-6. loader()  ◄──────────────────────────────────────┘
+1. resolve o modo de consistência (cascata do §4.2)
+2. forceRefresh? ──sim──────────────────────────────────────────────┐
+   │não                                                             │
+3. leitura, conforme o modo:                                        │
+   ├─ eventual → resolve versão (memo local) → GET na réplica       │
+   └─ strong   → EVAL no master (versão + GET num round-trip)       │
+      ├─ hit valor      → return { value, 'cache' }                 │
+      ├─ hit sentinela  → return { null,  'cache' }                 │
+      ├─ validate falhou → trata como miss ────────────────────────►│
+      └─ miss ou erro ─────────────────────────────────────────────►│
+4. adquire lock no master (se lock.enabled)                         │
+   ├─ conseguiu → re-leitura (outro pode ter preenchido na espera)  │
+   └─ não conseguiu até waitTimeout → segue assim mesmo             │
+5. loader()  ◄──────────────────────────────────────────────────────┘
    ├─ failure → return failure(E)      ← único erro que sai daqui
    ├─ null    → SET sentinela   (negativeTtlInMs ± jitter)
    └─ valor   → SET serializado (ttlInMs ± jitter)
-7. release do lock no finally (compare-and-delete por token)
-8. return { value, 'loader' }
+6. release do lock no finally (compare-and-delete por token)
+7. return { value, 'loader' }
 ```
 
-O re-GET do passo 5 é o que faz o lock valer a pena: sem ele, todos os que esperaram na fila executariam o `loader` em sequência, trocando um stampede paralelo por um serial.
+A re-leitura do passo 4 é o que faz o lock valer a pena: sem ela, todos os que esperaram na fila executariam o `loader` em sequência, trocando um stampede paralelo por um serial.
+
+A escrita do passo 5 usa a versão vigente no momento da escrita. Se um `invalidateNamespace` ocorrer entre a leitura e a escrita, o valor é gravado sob a versão antiga e nasce inalcançável — desperdiça uma escrita, mas não serve dado obsoleto, e a chave morre no TTL.
 
 A sentinela do negative cache é um marcador interno reservado, distinguível de um valor legítimo `null` gravado pelo usuário.
 
@@ -417,11 +500,12 @@ Os três implementam exatamente os mesmos contratos — é isso que prova que a 
 
 ### 8.1 Roteamento master/réplica (driver `valkey`)
 
-`ValkeyConnectionManager` mantém uma conexão com o master e uma por réplica.
+`ValkeyConnectionManager` mantém três tipos de conexão: master, uma por réplica, e uma dedicada ao subscriber de invalidação (§4.3) — um cliente em modo subscribe não aceita comandos normais.
 
 | Operação                                                                                                 | Destino                                           |
 | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `get`, `getScore`, `getRank`, `getTopScores`, `countScores`                                              | réplica (round-robin), com fallback para o master |
+| leituras em modo `eventual` (`get`, `getScore`, `getRank`, `getTopScores`, `countScores`)                | réplica (round-robin), com fallback para o master |
+| leituras em modo `strong` (as mesmas, §4.2)                                                              | master, sempre                                    |
 | `set`, `delete`, `setIfNotExists`, **todos os contadores**, scores (escrita), locks, versão de namespace | master, sempre                                    |
 | `healthCheck`                                                                                            | master e cada réplica                             |
 
@@ -444,8 +528,12 @@ Em `packages/env/src/packages/cache.environment.ts`:
 | `CACHE_BREAKER_FAILURE_THRESHOLD`       | **nova**                     | `z.coerce.number().int().positive().default(5)`                        |
 | `CACHE_BREAKER_RESET_TIMEOUT_MS`        | **nova**                     | `z.coerce.number().int().positive().default(10_000)`                   |
 | `CACHE_REPLICATION_LAG_THRESHOLD_BYTES` | **nova**                     | `z.coerce.number().int().nonnegative().default(1_048_576)`             |
+| `CACHE_DEFAULT_CONSISTENCY`             | **nova**                     | `z.enum(['eventual', 'strong']).default('eventual')`                   |
+| `CACHE_INVALIDATION_BROADCAST`          | **nova**                     | `z.stringbool().default(true)` — liga o Pub/Sub do §4.3                |
 
 `CACHE_PREFIX`, `CACHE_DEFAULT_TTL_MS`, `CACHE_JITTER_RATIO`, `CACHE_NEGATIVE_TTL_MS` e `CACHE_NS_VERSION_LOCAL_TTL_MS` permanecem como estão e passam a ser efetivamente consumidos.
+
+O default `eventual` é deliberado: o modo forte custa um hop ao master em toda leitura, e transformá-lo em padrão global concentraria no master a carga que as réplicas existem para absorver. Quem precisa de garantia declara o namespace (§4.2) — o custo fica onde a necessidade está.
 
 A obrigatoriedade condicional de `CACHE_MASTER_URL` usa um refinement no schema (driver `valkey` sem URL falha no startup), preservando o princípio do pacote: variável ausente quebra no boot, não no meio de uma request.
 
@@ -495,9 +583,15 @@ Nenhum caminho do pacote lança exceção para falha esperada — tudo retorna `
 
 ## 12. Testes
 
-**Unit** (`vitest`, sem infra) — orquestradores da `application` com contratos mockados: prevenção de stampede, fail-open, negative cache, `forceRefresh`, re-GET pós-lock, release no `finally`. Mais: drivers `memory` e `noop`, `JsonSerializerStrategy`, `key-builder` (incluindo chaves inválidas), derivação do status de health a partir de payloads de `INFO`, máquina de estados do breaker, e memoização da versão de namespace.
+**Unit** (`vitest`, sem infra) — orquestradores da `application` com contratos mockados: prevenção de stampede, fail-open, negative cache, `forceRefresh`, re-leitura pós-lock, release no `finally`. Mais: drivers `memory` e `noop`, `JsonSerializerStrategy`, `key-builder` (incluindo chaves inválidas), derivação do status de health a partir de payloads de `INFO`, máquina de estados do breaker, e o `namespace-version.resolver` — cascata de consistência (chamada > namespace > env), expiração do memo, e a regra de que uma mensagem de invalidação só é aplicada se a versão for maior.
 
-**Integração** (contra o serviço `redis` do `docker-compose`) — driver Valkey real: expiração efetiva de TTL, semântica de `SET NX PX`, o Lua liberando apenas para o dono do token, roteamento master/réplica com fallback, parse do `INFO` de uma instância viva, e ciclo completo de `getOrSet` (miss → grava → hit). Nenhum mock cobre esse comportamento com fidelidade.
+**Integração** (contra o serviço `redis` do `docker-compose`) — driver Valkey real: expiração efetiva de TTL, semântica de `SET NX PX`, o Lua liberando apenas para o dono do token, roteamento master/réplica com fallback, parse do `INFO` de uma instância viva, e ciclo completo de `getOrSet` (miss → grava → hit).
+
+Três cenários de integração merecem menção explícita, porque são exatamente os que motivaram o §4:
+
+- **Modo `strong` enxerga invalidação imediatamente** — duas instâncias do provider apontando ao mesmo Valkey; a instância A invalida o namespace, e a instância B, lendo em modo `strong`, dá miss na leitura seguinte, sem esperar nada.
+- **Modo `eventual` respeita o teto** — com o broadcast desligado (`CACHE_INVALIDATION_BROADCAST=false`), a instância B pode servir dado antigo, mas nunca além de `CACHE_NS_VERSION_LOCAL_TTL_MS`.
+- **Broadcast encurta a janela** — com o broadcast ligado, a instância B enxerga a invalidação em milissegundos, muito antes do TTL do memo. E, após uma reconexão forçada do subscriber, o memo é descartado por inteiro.
 
 O pacote adota `vitest.config.ts` com projetos `unit` e `integration`, espelhando o que `apps/core-server` já faz, para que `test:unit` rode sem Docker no pre-commit e a integração fique explícita no CI.
 
@@ -509,20 +603,25 @@ O pacote adota `vitest.config.ts` com projetos `unit` e `integration`, espelhand
 4. `infra/serializers` + `infra/key-builder` — as peças puras.
 5. Drivers `noop` e `memory` — validam os contratos sem I/O.
 6. `application/` — `getOrSet` e `executeWithLock`, testados sobre o driver `memory`.
-7. Driver `valkey` — conexão, operations, scripts Lua, testes de integração.
-8. Decorators — observabilidade e breaker.
-9. `factory/` — composição.
-10. `nestjs/` — módulo, tokens, health indicator.
-11. Integração no `core-server` — `app.module.ts` e `health.controller.ts`.
+7. `infra/namespace-version.resolver.ts` — cascata de consistência e memo, testável sem I/O.
+8. Driver `valkey` — conexão, operations, scripts Lua, broadcast de invalidação, testes de integração.
+9. Decorators — observabilidade e breaker.
+10. `factory/` — composição, incluindo a config `namespaces`.
+11. `nestjs/` — módulo, tokens, health indicator.
+12. Integração no `core-server` — `app.module.ts` e `health.controller.ts`.
 
 Implementar `noop`/`memory` antes do `valkey` é deliberado: se os contratos servem bem a três implementações muito diferentes, é sinal de que não vazaram detalhe de nenhuma delas — e a camada `application` fica testável antes de existir qualquer I/O.
 
 ## 14. Riscos
 
-| Risco                                                               | Mitigação                                                                                |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Memoização da versão de namespace serve dado velho após invalidação | Janela limitada por `CACHE_NS_VERSION_LOCAL_TTL_MS`; `0` desliga a memoização            |
-| Lock perdido em failover do master                                  | Documentado como best-effort; não usar para invariante crítica                           |
-| Réplica com lag serve dado velho                                    | Health reporta `degraded` acima do limite; operações sensíveis podem usar `forceRefresh` |
-| Facade de ~25 métodos convida a acoplamento excessivo               | Contratos granulares permanecem a via preferencial; o Facade é conveniência              |
-| Chave sem TTL por default esquecido                                 | `CACHE_DEFAULT_TTL_MS` garante expiração; lock exige TTL explícito                       |
+| Risco                                                               | Mitigação                                                                                            |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Memoização da versão de namespace serve dado velho após invalidação | Namespace declarado `strong` elimina a janela (§4.2); broadcast a encurta; TTL do memo é o teto      |
+| Namespace crítico esquecido no modo `eventual`                      | Declaração fica na config da factory, revisável num lugar só — não espalhada por call site           |
+| Mensagem de invalidação perdida (Pub/Sub é fire-and-forget)         | TTL do memo continua sendo o backstop; reconexão do subscriber descarta o memo inteiro               |
+| Modo `strong` concentra leitura no master                           | Default global é `eventual`; só namespaces declarados pagam o hop                                    |
+| Lock perdido em failover do master                                  | Documentado como best-effort; não usar para invariante crítica                                       |
+| Réplica com lag serve dado velho                                    | Health reporta `degraded` acima do limite; modo `strong` lê do master; `forceRefresh` ignora o cache |
+| Facade de ~25 métodos convida a acoplamento excessivo               | Contratos granulares permanecem a via preferencial; o Facade é conveniência                          |
+| Conexão extra por instância para o subscriber                       | Uma só, independente do número de namespaces; desligável por `CACHE_INVALIDATION_BROADCAST=false`    |
+| Chave sem TTL por default esquecido                                 | `CACHE_DEFAULT_TTL_MS` garante expiração; lock exige TTL explícito                                   |
