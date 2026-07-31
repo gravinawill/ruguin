@@ -49,10 +49,10 @@ export async function configureApp(app: NestFastifyApplication): Promise<void> {
   const documentationHandler = apiReference({ withFastify: true, content: document })
   app.getHttpAdapter().get('/docs', (request, reply) => {
     /*
-     * Scalar's apiReference handler with withFastify:true is a raw Node handler, not a Fastify route handler.
-     * noinspection JSUnresolvedReference
-     * @ts-expect-error - Scalar handler expects Node IncomingMessage/ServerResponse, not Fastify types
+     * Scalar's apiReference handler with withFastify:true is a raw Node handler (writes directly to
+     * res via writeHead/write/end), not a Fastify route handler — it needs the raw req/res objects.
      */
+    // @ts-expect-error - Scalar handler expects Node's IncomingMessage/ServerResponse, not Fastify's wrapper types
     documentationHandler(request.raw, reply.raw)
   })
   app.getHttpAdapter().get('/docs-json', (_request, reply) => {
