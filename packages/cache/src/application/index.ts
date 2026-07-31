@@ -1,3 +1,4 @@
 export * from './cache-provider.facade'
 export * from './execute-with-lock.provider'
 export * from './get-or-set-cache.provider'
+export * from './on-cache-error'

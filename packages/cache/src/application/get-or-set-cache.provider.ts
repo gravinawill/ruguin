@@ -10,6 +10,8 @@ import {
   type ISetCacheProvider
 } from '../domain'
 
+import { type OnCacheError } from './on-cache-error'
+
 type CacheRead<T> = Readonly<{ found: boolean; value: T | null }>
 
 /*
@@ -28,7 +30,7 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
   private readonly lockReleaser: IReleaseLockProvider
   private readonly negativeTtlInMs: number
   private readonly lockTtlInMs: number
-  private readonly onCacheError: (error: unknown) => void
+  private readonly onCacheError: OnCacheError
 
   constructor(input: {
     reader: IGetCacheProvider
@@ -37,7 +39,7 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
     lockReleaser: IReleaseLockProvider
     negativeTtlInMs: number
     lockTtlInMs: number
-    onCacheError: (error: unknown) => void
+    onCacheError: OnCacheError
   }) {
     this.reader = input.reader
     this.writer = input.writer
@@ -100,7 +102,7 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
 
     // Fail-open: a cache outage must never surface as a failure of getOrSet.
     if (result.isFailure()) {
-      this.onCacheError(result.value)
+      this.report({ operation: 'get', input, error: result.value })
       return null
     }
 
@@ -118,7 +120,7 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
       ...(ttlInMs !== undefined && { ttlInMs })
     })
 
-    if (result.isFailure()) this.onCacheError(result.value)
+    if (result.isFailure()) this.report({ operation: 'set', input: context.input, error: result.value })
   }
 
   private async acquire<T, E>(input: GetOrSetCacheProviderDTO.Input<T, E>): Promise<string | null> {
@@ -134,7 +136,7 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
 
     // A lock we could not take is not fatal: being slow beats being stuck.
     if (result.isFailure()) {
-      this.onCacheError(result.value)
+      this.report({ operation: 'acquire', input, error: result.value })
       return null
     }
 
@@ -148,6 +150,19 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
       token: context.token
     })
 
-    if (result.isFailure()) this.onCacheError(result.value)
+    if (result.isFailure()) this.report({ operation: 'release', input: context.input, error: result.value })
+  }
+
+  private report<T, E>(context: {
+    operation: string
+    input: GetOrSetCacheProviderDTO.Input<T, E>
+    error: unknown
+  }): void {
+    this.onCacheError({
+      operation: context.operation,
+      namespace: context.input.namespace,
+      key: context.input.key,
+      error: context.error
+    })
   }
 }

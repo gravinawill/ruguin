@@ -9,12 +9,27 @@ import {
   type IGetCacheProvider,
   type IReleaseLockProvider,
   type ISetCacheProvider,
-  LockNotAcquiredError
+  LockNotAcquiredError,
+  LockNotOwnedError
 } from '../../domain'
 import { MemoryCacheDriver } from '../../infra/drivers/memory'
 import { KeyBuilder } from '../../infra/key-builder'
 import { JsonSerializerStrategy } from '../../infra/serializers'
 import { GetOrSetCacheProvider } from '../get-or-set-cache.provider'
+import { type OnCacheError } from '../on-cache-error'
+
+type Reported = Parameters<OnCacheError>[0]
+
+const recordingErrorHandler = (): { onCacheError: OnCacheError; reports: Reported[] } => {
+  const reports: Reported[] = []
+
+  return {
+    onCacheError: (report) => {
+      reports.push(report)
+    },
+    reports
+  }
+}
 
 const buildDriver = async (): Promise<MemoryCacheDriver> => {
   const driver = new MemoryCacheDriver({
@@ -33,7 +48,7 @@ const buildProvider = (input: {
   writer: ISetCacheProvider
   lockAcquirer: IAcquireLockProvider
   lockReleaser: IReleaseLockProvider
-  onCacheError?: (error: unknown) => void
+  onCacheError?: OnCacheError
 }): GetOrSetCacheProvider =>
   new GetOrSetCacheProvider({
     ...input,
@@ -110,15 +125,13 @@ describe('GetOrSetCacheProvider', () => {
     const brokenReader: IGetCacheProvider = {
       get: () => Promise.resolve(failure(new CacheConnectionError({ operation: 'get' })))
     }
-    const seen: unknown[] = []
+    const { onCacheError, reports } = recordingErrorHandler()
     const provider = buildProvider({
       reader: brokenReader,
       writer: driver,
       lockAcquirer: driver,
       lockReleaser: driver,
-      onCacheError: (error) => {
-        seen.push(error)
-      }
+      onCacheError
     })
 
     const result = await provider.getOrSet<string, Error>({
@@ -129,8 +142,95 @@ describe('GetOrSetCacheProvider', () => {
 
     if (result.isFailure()) throw new Error('expected success')
     expect(result.value).toEqual({ value: 'fresh', source: CacheSource.LOADER })
-    expect(seen).toHaveLength(1)
-    expect(seen[0]).toBeInstanceOf(CacheConnectionError)
+    expect(reports).toHaveLength(1)
+    expect(reports[0]).toEqual({
+      operation: 'get',
+      namespace: 'user',
+      key: '1',
+      error: expect.any(CacheConnectionError)
+    })
+  })
+
+  it('names the failing operation, so a broken read is distinguishable from a broken write', async () => {
+    const driver = await buildDriver()
+    const brokenWriter: ISetCacheProvider = {
+      set: () => Promise.resolve(failure(new CacheConnectionError({ operation: 'set' })))
+    }
+    const { onCacheError, reports } = recordingErrorHandler()
+    const provider = buildProvider({
+      reader: driver,
+      writer: brokenWriter,
+      lockAcquirer: driver,
+      lockReleaser: driver,
+      onCacheError
+    })
+
+    await provider.getOrSet<string, Error>({
+      key: 'orders',
+      namespace: 'billing',
+      loader: () => Promise.resolve(success('fresh'))
+    })
+
+    /*
+     * The whole point of the context: the reader is healthy here and the writer is not, and the
+     * report has to say so on its own. A bare `unknown` would leave a logger reaching for
+     * `instanceof` plus message parsing to reach the same conclusion.
+     */
+    expect(reports).toEqual([
+      { operation: 'set', namespace: 'billing', key: 'orders', error: expect.any(CacheConnectionError) }
+    ])
+  })
+
+  it('attributes a lock failure to acquire, on the key that was being filled', async () => {
+    const driver = await buildDriver()
+    const busyLock: IAcquireLockProvider = {
+      acquire: () => Promise.resolve(failure(new LockNotAcquiredError({ lockKey: 'x', attempts: 1 })))
+    }
+    const { onCacheError, reports } = recordingErrorHandler()
+    const provider = buildProvider({
+      reader: driver,
+      writer: driver,
+      lockAcquirer: busyLock,
+      lockReleaser: driver,
+      onCacheError
+    })
+
+    await provider.getOrSet<string, Error>({
+      key: 'orders',
+      namespace: 'billing',
+      lock: { enabled: true },
+      loader: () => Promise.resolve(success('fresh'))
+    })
+
+    expect(reports).toEqual([
+      { operation: 'acquire', namespace: 'billing', key: 'orders', error: expect.any(LockNotAcquiredError) }
+    ])
+  })
+
+  it('attributes a failed release to release', async () => {
+    const driver = await buildDriver()
+    const brokenReleaser: IReleaseLockProvider = {
+      release: () => Promise.resolve(failure(new LockNotOwnedError({ lockKey: 'x' })))
+    }
+    const { onCacheError, reports } = recordingErrorHandler()
+    const provider = buildProvider({
+      reader: driver,
+      writer: driver,
+      lockAcquirer: driver,
+      lockReleaser: brokenReleaser,
+      onCacheError
+    })
+
+    await provider.getOrSet<string, Error>({
+      key: 'orders',
+      namespace: 'billing',
+      lock: { enabled: true },
+      loader: () => Promise.resolve(success('fresh'))
+    })
+
+    expect(reports).toEqual([
+      { operation: 'release', namespace: 'billing', key: 'orders', error: expect.any(LockNotOwnedError) }
+    ])
   })
 
   it('still returns the value when the cache write fails', async () => {

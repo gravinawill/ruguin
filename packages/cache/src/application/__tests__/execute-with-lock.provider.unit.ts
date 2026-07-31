@@ -8,6 +8,7 @@ import {
   LockNotOwnedError
 } from '../../domain'
 import { ExecuteWithLockProvider } from '../execute-with-lock.provider'
+import { type OnCacheError } from '../on-cache-error'
 
 const grantingLock: IAcquireLockProvider = {
   acquire: () => {
@@ -121,16 +122,16 @@ describe('ExecuteWithLockProvider', () => {
     expect(tokens()).toEqual(['token-1'])
   })
 
-  it('does not mask the task result when the release fails', async () => {
+  it('does not mask the task result when the release fails, and says which call failed', async () => {
     const brokenReleaser: IReleaseLockProvider = {
       release: () => Promise.resolve(failure(new LockNotOwnedError({ lockKey: 'job' })))
     }
-    const seen: unknown[] = []
+    const reports: Array<Parameters<OnCacheError>[0]> = []
     const provider = new ExecuteWithLockProvider({
       lockAcquirer: grantingLock,
       lockReleaser: brokenReleaser,
-      onCacheError: (error) => {
-        seen.push(error)
+      onCacheError: (report) => {
+        reports.push(report)
       }
     })
 
@@ -143,6 +144,8 @@ describe('ExecuteWithLockProvider', () => {
 
     if (result.isFailure()) throw new Error('expected success')
     expect(result.value.value).toBe('done')
-    expect(seen[0]).toBeInstanceOf(LockNotOwnedError)
+    expect(reports).toEqual([
+      { operation: 'release', namespace: 'dispatch', key: 'job', error: expect.any(LockNotOwnedError) }
+    ])
   })
 })
