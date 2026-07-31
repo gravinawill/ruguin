@@ -1,8 +1,8 @@
 import { type Either, failure, success } from '@ruguin/utils'
 
 import {
-  type CacheConnectionError,
   CacheConsistency,
+  type CacheOperationError,
   type IResolveNamespaceVersionProvider,
   type ResolveNamespaceVersionProviderDTO
 } from '../domain'
@@ -11,7 +11,7 @@ export type NamespaceVersionSource = Readonly<{
   fetchVersion: (input: {
     namespace: string
     consistency: CacheConsistency
-  }) => Promise<Either<CacheConnectionError, Readonly<{ version: number }>>>
+  }) => Promise<Either<CacheOperationError, Readonly<{ version: number }>>>
 }>
 
 export type NamespaceConfig = Readonly<Record<string, Readonly<{ consistency?: CacheConsistency }>>>
@@ -42,7 +42,7 @@ export class NamespaceVersionResolver implements IResolveNamespaceVersionProvide
   public async resolveNamespaceVersion(
     input: ResolveNamespaceVersionProviderDTO.Input
   ): ResolveNamespaceVersionProviderDTO.Output {
-    const consistency: CacheConsistency = this.resolveConsistency(input)
+    const consistency: CacheConsistency = this.effectiveConsistency(input)
 
     if (consistency === CacheConsistency.EVENTUAL) {
       const memoised: number | null = this.readMemo({ namespace: input.namespace })
@@ -79,7 +79,13 @@ export class NamespaceVersionResolver implements IResolveNamespaceVersionProvide
     this.memo.clear()
   }
 
-  private resolveConsistency(input: ResolveNamespaceVersionProviderDTO.Input): CacheConsistency {
+  /*
+   * Public because the cascade decides more than the version lookup: a driver with read
+   * replicas has to route the *command* to the same node the version came from, and a strong
+   * read served off a replica whose INCR has not landed is the stale answer the mode exists to
+   * rule out. One implementation of the precedence, consulted by both.
+   */
+  public effectiveConsistency(input: ResolveNamespaceVersionProviderDTO.Input): CacheConsistency {
     return input.consistency ?? this.namespaces[input.namespace]?.consistency ?? this.defaultConsistency
   }
 

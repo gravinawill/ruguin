@@ -23,6 +23,14 @@ const failingSource: NamespaceVersionSource = {
   fetchVersion: () => Promise.resolve(failure(new CacheConnectionError({ operation: 'resolveNamespaceVersion' })))
 }
 
+const resolverWith = (namespaces: Record<string, { consistency?: CacheConsistency }>): NamespaceVersionResolver =>
+  new NamespaceVersionResolver({
+    source: sourceReturning([1]).source,
+    defaultConsistency: CacheConsistency.EVENTUAL,
+    localTtlInMs: 5000,
+    namespaces
+  })
+
 describe('NamespaceVersionResolver', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -238,5 +246,32 @@ describe('NamespaceVersionResolver', () => {
     await resolver.resolveNamespaceVersion({ namespace: 'order' })
 
     expect(calls()).toBe(4)
+  })
+})
+
+/*
+ * Exposed because the cascade decides more than the version lookup: a driver with read replicas
+ * has to route the *command* to the same node the version came from, and a strong read served
+ * off a replica whose INCR has not landed is the stale answer the mode exists to rule out.
+ */
+describe('effectiveConsistency', () => {
+  it('lets the call override everything', () => {
+    const resolver = resolverWith({ user: { consistency: CacheConsistency.EVENTUAL } })
+
+    expect(resolver.effectiveConsistency({ namespace: 'user', consistency: CacheConsistency.STRONG })).toBe(
+      CacheConsistency.STRONG
+    )
+  })
+
+  it('falls back to the namespace declaration, which is the preferred place to state it', () => {
+    const resolver = resolverWith({ 'api-key': { consistency: CacheConsistency.STRONG } })
+
+    expect(resolver.effectiveConsistency({ namespace: 'api-key' })).toBe(CacheConsistency.STRONG)
+  })
+
+  it('falls back to the global default for an undeclared namespace', () => {
+    const resolver = resolverWith({ 'api-key': { consistency: CacheConsistency.STRONG } })
+
+    expect(resolver.effectiveConsistency({ namespace: 'session' })).toBe(CacheConsistency.EVENTUAL)
   })
 })
