@@ -207,8 +207,12 @@ Invalidar um grupo de chaves não apaga nada:
 
 ```text
 SET  ruguin:iam:user:v7:123        → grava
-INCR ruguin:iam:user:__version__   → 7 vira 8
+bump ruguin:iam:user:__version__   → 7 vira 8
 ```
+
+O bump **não** pode ser um `INCR` cru, e o motivo é um caso de borda que o exemplo acima esconde. A convenção é que chave de versão ausente significa versão 1 — é o que o resolver assume e o que o script de leitura forte codifica. Mas `INCR` numa chave ausente devolve `1`. Ou seja: a **primeira** invalidação de qualquer namespace levaria a versão de 1 para 1 e não invalidaria nada, silenciosamente; só a segunda funcionaria.
+
+O bump lê e grava `atual + 1` atomicamente (um `EVAL` no Valkey; no driver `memory`, `getVersion() + 1`, que já devolve `?? 1` e por isso nunca teve o problema). Todo bump precisa de teste que comece com a chave ausente — começar em 7 passa verde com a implementação errada.
 
 A partir do incremento, toda leitura monta `...:v8:...` e dá miss; as chaves `v7` tornam-se inalcançáveis e morrem sozinhas quando o TTL vence. Custo O(1), sem `SCAN` e sem `DEL` em massa.
 
