@@ -58,9 +58,84 @@ describe('cacheENV', () => {
   })
 
   it('rejects an unknown driver instead of silently falling back', async () => {
-    setEnvironment({ CACHE_PREFIX: 'ruguin:ledger', CACHE_DRIVER: 'valkey' })
+    setEnvironment({ CACHE_PREFIX: 'ruguin:ledger', CACHE_DRIVER: 'redis' })
 
     await expect(import('../cache.environment')).rejects.toThrow()
+  })
+
+  it('accepts the valkey driver when a master url is present', async () => {
+    setEnvironment({
+      CACHE_PREFIX: 'ruguin:iam',
+      CACHE_DRIVER: 'valkey',
+      CACHE_MASTER_URL: 'redis://localhost:6379'
+    })
+
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(cacheENV.CACHE_DRIVER).toBe('valkey')
+    expect(cacheENV.CACHE_MASTER_URL).toBe('redis://localhost:6379')
+  })
+
+  it('rejects the valkey driver without a master url', async () => {
+    setEnvironment({ CACHE_PREFIX: 'ruguin:iam', CACHE_DRIVER: 'valkey' })
+
+    await expect(import('../cache.environment')).rejects.toThrow()
+  })
+
+  it('allows the memory driver without a master url', async () => {
+    setEnvironment({ CACHE_PREFIX: 'ruguin:iam', CACHE_DRIVER: 'memory' })
+
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(cacheENV.CACHE_DRIVER).toBe('memory')
+  })
+
+  it('splits replica urls into a list and drops blanks', async () => {
+    setEnvironment({
+      CACHE_PREFIX: 'ruguin:iam',
+      CACHE_REPLICA_URLS: 'redis://a:6379, redis://b:6379 ,'
+    })
+
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(cacheENV.CACHE_REPLICA_URLS).toEqual(['redis://a:6379', 'redis://b:6379'])
+  })
+
+  it('defaults replica urls to an empty list', async () => {
+    setEnvironment({ CACHE_PREFIX: 'ruguin:iam' })
+
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(cacheENV.CACHE_REPLICA_URLS).toEqual([])
+  })
+
+  it('applies the defaults for the consistency and resilience knobs', async () => {
+    setEnvironment({ CACHE_PREFIX: 'ruguin:iam' })
+
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(cacheENV.CACHE_DEFAULT_CONSISTENCY).toBe('eventual')
+    expect(cacheENV.CACHE_INVALIDATION_BROADCAST).toBe(true)
+    expect(cacheENV.CACHE_OPERATION_TIMEOUT_MS).toBe(500)
+    expect(cacheENV.CACHE_BREAKER_FAILURE_THRESHOLD).toBe(5)
+    expect(cacheENV.CACHE_BREAKER_RESET_TIMEOUT_MS).toBe(10_000)
+    expect(cacheENV.CACHE_REPLICATION_LAG_THRESHOLD_BYTES).toBe(1_048_576)
+  })
+
+  it('accepts strong as the global consistency default', async () => {
+    setEnvironment({ CACHE_PREFIX: 'ruguin:iam', CACHE_DEFAULT_CONSISTENCY: 'strong' })
+
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(cacheENV.CACHE_DEFAULT_CONSISTENCY).toBe('strong')
+  })
+
+  it('turns the invalidation broadcast off from a string flag', async () => {
+    setEnvironment({ CACHE_PREFIX: 'ruguin:iam', CACHE_INVALIDATION_BROADCAST: 'false' })
+
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(cacheENV.CACHE_INVALIDATION_BROADCAST).toBe(false)
   })
 
   it('throws when the required prefix is missing', async () => {
