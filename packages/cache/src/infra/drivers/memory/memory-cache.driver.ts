@@ -32,6 +32,7 @@ import {
   type SetIfNotExistsCacheProviderDTO,
   type SetScoreProviderDTO
 } from '../../../domain'
+import { applyTtlJitter } from '../../apply-ttl-jitter'
 import { type KeyBuilder } from '../../key-builder'
 
 import { MemoryStore } from './memory.store'
@@ -363,13 +364,11 @@ export class MemoryCacheDriver implements ICacheDriver {
   }
 
   private effectiveTtl(input: { ttlInMs?: number; applyJitter?: boolean }): number {
-    const base: number = input.ttlInMs ?? this.defaultTtlInMs
-    if (input.applyJitter === false || this.jitterRatio === 0) return base
-
-    // Spread expiries so a batch written together does not all die in the same millisecond.
-    const spread: number = base * this.jitterRatio
-
-    // eslint-disable-next-line sonarjs/pseudo-random -- TTL jitter is a load-spreading heuristic, not a security primitive
-    return Math.max(1, Math.round(base - spread + Math.random() * spread * 2))
+    return applyTtlJitter({
+      applyJitter: input.applyJitter,
+      defaultTtlInMs: this.defaultTtlInMs,
+      jitterRatio: this.jitterRatio,
+      ttlInMs: input.ttlInMs
+    })
   }
 }
