@@ -1,7 +1,7 @@
 import { type Either, failure, success } from '@ruguin/utils'
 import { describe, expect, it } from 'vitest'
 
-import { CacheSource } from '../../enums'
+import { CacheLockOutcome, CacheSource } from '../../enums'
 import {
   type GetCacheProviderDTO,
   type GetOrSetCacheProviderDTO,
@@ -30,7 +30,7 @@ class StubProvider implements IGetCacheProvider, ISetCacheProvider, IIncrementCo
   public async getOrSet<T, E>(input: GetOrSetCacheProviderDTO.Input<T, E>): GetOrSetCacheProviderDTO.Output<T, E> {
     const loaded: Either<E, T | null> = await input.loader()
     if (loaded.isFailure()) return failure(loaded.value)
-    return success({ value: loaded.value, source: CacheSource.LOADER })
+    return success({ value: loaded.value, source: CacheSource.LOADER, lockOutcome: CacheLockOutcome.NOT_ATTEMPTED })
   }
 }
 

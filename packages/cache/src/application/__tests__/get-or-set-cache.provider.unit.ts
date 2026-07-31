@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   type AcquireLockProviderDTO,
   CacheConnectionError,
+  CacheLockOutcome,
   CacheSource,
   type IAcquireLockProvider,
   type IGetCacheProvider,
@@ -76,8 +77,16 @@ describe('GetOrSetCacheProvider', () => {
     const second = await provider.getOrSet<string, Error>({ key: '1', namespace: 'user', loader })
 
     if (first.isFailure() || second.isFailure()) throw new Error('expected success')
-    expect(first.value).toEqual({ value: 'fresh', source: CacheSource.LOADER })
-    expect(second.value).toEqual({ value: 'fresh', source: CacheSource.CACHE })
+    expect(first.value).toEqual({
+      value: 'fresh',
+      source: CacheSource.LOADER,
+      lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+    })
+    expect(second.value).toEqual({
+      value: 'fresh',
+      source: CacheSource.CACHE,
+      lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+    })
     expect(loader).toHaveBeenCalledTimes(1)
   })
 
@@ -95,7 +104,11 @@ describe('GetOrSetCacheProvider', () => {
     const second = await provider.getOrSet<string, Error>({ key: 'ghost', namespace: 'user', loader })
 
     if (second.isFailure()) throw new Error('expected success')
-    expect(second.value).toEqual({ value: null, source: CacheSource.CACHE })
+    expect(second.value).toEqual({
+      value: null,
+      source: CacheSource.CACHE,
+      lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+    })
     expect(loader).toHaveBeenCalledTimes(1)
   })
 
@@ -141,7 +154,11 @@ describe('GetOrSetCacheProvider', () => {
     })
 
     if (result.isFailure()) throw new Error('expected success')
-    expect(result.value).toEqual({ value: 'fresh', source: CacheSource.LOADER })
+    expect(result.value).toEqual({
+      value: 'fresh',
+      source: CacheSource.LOADER,
+      lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+    })
     expect(reports).toHaveLength(1)
     expect(reports[0]).toEqual({
       operation: 'get',
@@ -282,7 +299,11 @@ describe('GetOrSetCacheProvider', () => {
     })
 
     if (result.isFailure()) throw new Error('expected success')
-    expect(result.value).toEqual({ value: 'filled-by-someone-else', source: CacheSource.CACHE })
+    expect(result.value).toEqual({
+      value: 'filled-by-someone-else',
+      source: CacheSource.CACHE,
+      lockOutcome: CacheLockOutcome.ACQUIRED
+    })
     expect(loader).not.toHaveBeenCalled()
   })
 
@@ -342,6 +363,94 @@ describe('GetOrSetCacheProvider', () => {
     expect(loader).toHaveBeenCalledTimes(1)
   })
 
+  describe('lock outcome reporting', () => {
+    it('reports NOT_ACQUIRED when the loader ran without the protection the caller asked for', async () => {
+      const driver = await buildDriver()
+      const busyLock: IAcquireLockProvider = {
+        acquire: () => Promise.resolve(failure(new LockNotAcquiredError({ lockKey: 'x', attempts: 1 })))
+      }
+      const provider = buildProvider({
+        reader: driver,
+        writer: driver,
+        lockAcquirer: busyLock,
+        lockReleaser: driver
+      })
+
+      const result = await provider.getOrSet<string, Error>({
+        key: '1',
+        namespace: 'user',
+        lock: { enabled: true },
+        loader: () => Promise.resolve(success('fresh'))
+      })
+
+      /*
+       * Without this the degraded run is indistinguishable from a clean one: same value, same
+       * source, and getOrSet is fail-open so nothing reaches the error channel either.
+       */
+      if (result.isFailure()) throw new Error('expected success')
+      expect(result.value.lockOutcome).toBe(CacheLockOutcome.NOT_ACQUIRED)
+      expect(result.value.source).toBe(CacheSource.LOADER)
+    })
+
+    it('reports ACQUIRED when the lock was held for the loader', async () => {
+      const driver = await buildDriver()
+      const provider = buildProvider({
+        reader: driver,
+        writer: driver,
+        lockAcquirer: driver,
+        lockReleaser: driver
+      })
+
+      const result = await provider.getOrSet<string, Error>({
+        key: '1',
+        namespace: 'user',
+        lock: { enabled: true },
+        loader: () => Promise.resolve(success('fresh'))
+      })
+
+      if (result.isFailure()) throw new Error('expected success')
+      expect(result.value.lockOutcome).toBe(CacheLockOutcome.ACQUIRED)
+    })
+
+    it('separates "no lock was attempted" from "the lock was refused"', async () => {
+      const driver = await buildDriver()
+      const provider = buildProvider({
+        reader: driver,
+        writer: driver,
+        lockAcquirer: driver,
+        lockReleaser: driver
+      })
+
+      const unlocked = await provider.getOrSet<string, Error>({
+        key: '1',
+        namespace: 'user',
+        loader: () => Promise.resolve(success('fresh'))
+      })
+      const servedFromCacheDespiteAskingForTheLock = await provider.getOrSet<string, Error>({
+        key: '1',
+        namespace: 'user',
+        lock: { enabled: true },
+        loader: () => Promise.resolve(success('unused'))
+      })
+
+      /*
+       * Both are the healthy case, and a plain boolean would have flattened them into the same
+       * `false` as the degraded run above — making any alert counting failures fire on every
+       * ordinary unlocked read. A cache hit short-circuits before the lock logic, so it reports
+       * NOT_ATTEMPTED even though the caller did ask; `source` says which case it was.
+       */
+      if (unlocked.isFailure() || servedFromCacheDespiteAskingForTheLock.isFailure()) {
+        throw new Error('expected success')
+      }
+      expect(unlocked.value.lockOutcome).toBe(CacheLockOutcome.NOT_ATTEMPTED)
+      expect(servedFromCacheDespiteAskingForTheLock.value).toEqual({
+        value: 'fresh',
+        source: CacheSource.CACHE,
+        lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+      })
+    })
+  })
+
   it('releases the lock even when the loader fails', async () => {
     const driver = await buildDriver()
     const released: string[] = []
@@ -395,8 +504,16 @@ describe('GetOrSetCacheProvider', () => {
     })
 
     if (refreshed.isFailure() || afterwards.isFailure()) throw new Error('expected success')
-    expect(refreshed.value).toEqual({ value: 'new', source: CacheSource.LOADER })
-    expect(afterwards.value).toEqual({ value: 'new', source: CacheSource.CACHE })
+    expect(refreshed.value).toEqual({
+      value: 'new',
+      source: CacheSource.LOADER,
+      lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+    })
+    expect(afterwards.value).toEqual({
+      value: 'new',
+      source: CacheSource.CACHE,
+      lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+    })
   })
 
   it('treats a value rejected by validate as a miss and reloads', async () => {
@@ -421,7 +538,11 @@ describe('GetOrSetCacheProvider', () => {
     })
 
     if (result.isFailure()) throw new Error('expected success')
-    expect(result.value).toEqual({ value: 'new-shape', source: CacheSource.LOADER })
+    expect(result.value).toEqual({
+      value: 'new-shape',
+      source: CacheSource.LOADER,
+      lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+    })
   })
 
   describe('negative caching ttl', () => {
@@ -455,7 +576,11 @@ describe('GetOrSetCacheProvider', () => {
       const afterNegativeTtl = await provider.getOrSet<string, Error>({ key: 'ghost', namespace: 'user', loader })
 
       if (afterNegativeTtl.isFailure()) throw new Error('expected success')
-      expect(afterNegativeTtl.value).toEqual({ value: null, source: CacheSource.LOADER })
+      expect(afterNegativeTtl.value).toEqual({
+        value: null,
+        source: CacheSource.LOADER,
+        lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+      })
       expect(loader).toHaveBeenCalledTimes(2)
     })
 
@@ -477,7 +602,11 @@ describe('GetOrSetCacheProvider', () => {
       const afterOverrideTtl = await provider.getOrSet<string, Error>({ key: 'ghost', namespace: 'user', loader })
 
       if (afterOverrideTtl.isFailure()) throw new Error('expected success')
-      expect(afterOverrideTtl.value).toEqual({ value: null, source: CacheSource.LOADER })
+      expect(afterOverrideTtl.value).toEqual({
+        value: null,
+        source: CacheSource.LOADER,
+        lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+      })
       expect(loader).toHaveBeenCalledTimes(2)
     })
   })
