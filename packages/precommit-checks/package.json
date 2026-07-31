@@ -1,0 +1,20 @@
+{
+  "name": "@ruguin/precommit-checks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check:lint": "eslint . --max-warnings 0",
+    "check:types": "tsc --noEmit --pretty",
+    "test:unit": "vitest run --project unit"
+  },
+  "devDependencies": {
+    "@ruguin/eslint-config": "workspace:*",
+    "@ruguin/typescript-config": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
