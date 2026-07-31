@@ -1,3 +1,5 @@
 export * from './cache'
 export * from './counter'
+export * from './lock'
+export * from './score'
 export * from './serializer'
