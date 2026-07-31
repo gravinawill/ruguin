@@ -6,7 +6,7 @@ import helmet from '@fastify/helmet'
 import { VersioningType } from '@nestjs/common'
 import { type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
-import { docsENV } from '@ruguin/env'
+import { docsENV } from '@ruguin/env/docs'
 import { apiReference } from '@scalar/nestjs-api-reference'
 
 export async function configureApp(app: NestFastifyApplication): Promise<void> {
