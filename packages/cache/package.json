@@ -1,0 +1,36 @@
+{
+  "name": "@ruguin/cache",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "check:lint": "eslint . --max-warnings 0",
+    "check:types": "tsc --noEmit --pretty",
+    "clean": "rm -rf .claude-flow .swarm .superpowers .remember .gitnexus .turbo coverage node_modules dist build",
+    "fix:lint": "eslint --fix .",
+    "test:all": "vitest run",
+    "test:integration": "vitest run --project integration",
+    "test:unit": "vitest run --project unit",
+    "update:deps": "ncu -u"
+  },
+  "lint-staged": {
+    "*.ts": "eslint --fix"
+  },
+  "dependencies": {
+    "@ruguin/ddd-kernel": "workspace:*",
+    "@ruguin/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@ruguin/eslint-config": "workspace:*",
+    "@ruguin/typescript-config": "workspace:*",
+    "@types/node": "^26.1.2",
+    "npm-check-updates": "23.0.0",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
