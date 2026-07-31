@@ -7,15 +7,17 @@ import {
   type IReleaseLockProvider
 } from '../domain'
 
+import { type OnCacheError } from './on-cache-error'
+
 export class ExecuteWithLockProvider implements IExecuteWithLockProvider {
   private readonly lockAcquirer: IAcquireLockProvider
   private readonly lockReleaser: IReleaseLockProvider
-  private readonly onCacheError: (error: unknown) => void
+  private readonly onCacheError: OnCacheError
 
   constructor(input: {
     lockAcquirer: IAcquireLockProvider
     lockReleaser: IReleaseLockProvider
-    onCacheError: (error: unknown) => void
+    onCacheError: OnCacheError
   }) {
     this.lockAcquirer = input.lockAcquirer
     this.lockReleaser = input.lockReleaser
@@ -51,7 +53,14 @@ export class ExecuteWithLockProvider implements IExecuteWithLockProvider {
       })
 
       // Reported, never thrown: a failed release must not overwrite the task's own result.
-      if (released.isFailure()) this.onCacheError(released.value)
+      if (released.isFailure()) {
+        this.onCacheError({
+          operation: 'release',
+          namespace: input.namespace,
+          key: input.key,
+          error: released.value
+        })
+      }
     }
   }
 }
