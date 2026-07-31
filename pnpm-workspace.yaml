@@ -8,6 +8,7 @@ onlyBuiltDependencies:
   - unrs-resolver
 blockExoticSubdeps: true
 allowBuilds:
+  '@scarf/scarf': false
   '@swc/core': true
   esbuild: true
   protobufjs: true
