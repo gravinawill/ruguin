@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { type Either, success } from '@ruguin/utils'
+import { describe, expect, it, vi } from 'vitest'
 
-import { CacheDriver, CacheHealthStatus, type ICacheDriver } from '../../../../domain'
+import { ExecuteWithLockProvider } from '../../../../application'
+import {
+  CacheDriver,
+  CacheHealthStatus,
+  type ICacheDriver,
+  LockNotAcquiredError,
+  LockNotOwnedError
+} from '../../../../domain'
 import { NoopCacheDriver } from '../noop-cache.driver'
 
 describe('NoopCacheDriver', () => {
@@ -23,12 +31,51 @@ describe('NoopCacheDriver', () => {
     expect(read.value.value).toBeNull()
   })
 
-  it('grants every lock, since there is nothing to coordinate', async () => {
-    const first = await provider.acquire({ key: 'a', namespace: 'user', ttlInMs: 1000 })
-    const second = await provider.acquire({ key: 'a', namespace: 'user', ttlInMs: 1000 })
+  it('refuses every lock, since it coordinates nothing', async () => {
+    const result = await provider.acquire({ key: 'a', namespace: 'user', ttlInMs: 1000 })
 
-    expect(first.isSuccess()).toBe(true)
-    expect(second.isSuccess()).toBe(true)
+    if (result.isSuccess()) throw new Error('expected failure')
+    expect(result.value).toBeInstanceOf(LockNotAcquiredError)
+    expect(result.value.message).toContain('noop:user:__lock__:a')
+  })
+
+  it('reports that nothing was released, because nothing was ever held', async () => {
+    const result = await provider.release({ key: 'a', namespace: 'user', token: 'whatever' })
+
+    if (result.isFailure()) throw new Error('expected success')
+    expect(result.value.released).toBe(false)
+  })
+
+  it('refuses to extend, since there is no expiry it could honestly report', async () => {
+    const result = await provider.extend({ key: 'a', namespace: 'user', token: 'whatever', ttlInMs: 1000 })
+
+    if (result.isSuccess()) throw new Error('expected failure')
+    expect(result.value).toBeInstanceOf(LockNotOwnedError)
+  })
+
+  it('makes executeWithLock refuse rather than run the task unprotected', async () => {
+    const task = vi.fn((): Promise<Either<Error, string>> => Promise.resolve(success('should not run')))
+    const orchestrator = new ExecuteWithLockProvider({
+      lockAcquirer: provider,
+      lockReleaser: provider,
+      onCacheError: (): void => undefined
+    })
+
+    const result = await orchestrator.executeWithLock<string, Error>({
+      key: 'a',
+      namespace: 'user',
+      ttlInMs: 1000,
+      task
+    })
+
+    /*
+     * The regression this pins: while the driver granted every lock, CACHE_DRIVER=noop turned
+     * the one operation that refuses to fail open into a silent no-op — every concurrent caller
+     * ran the task in parallel and every one of them was told it had exclusive access.
+     */
+    if (result.isSuccess()) throw new Error('expected failure')
+    expect(result.value).toBeInstanceOf(LockNotAcquiredError)
+    expect(task).not.toHaveBeenCalled()
   })
 
   it('reports itself as healthy', async () => {

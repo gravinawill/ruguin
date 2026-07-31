@@ -35,6 +35,9 @@ src/
 - Todo caminho retorna `Either`; nada lança para falha esperada.
 - `getOrSet` é fail-open por contrato — o tipo `OutputError<E> = E` impede propagar erro de cache.
 - O driver `memory` é para dev e teste: seu lock só exclui dentro do mesmo processo.
+- O driver `noop` recusa todo lock (`acquire` → `LockNotAcquiredError`): conceder seria fabricar
+  exclusão mútua que ele não tem. Com `CACHE_DRIVER=noop`, `executeWithLock` falha em vez de
+  rodar a task — o único ponto do pacote onde desligar o cache muda o resultado do chamador.
 
 ## Commands
 
