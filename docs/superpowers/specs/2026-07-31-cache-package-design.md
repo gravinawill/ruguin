@@ -413,6 +413,8 @@ Sete contratos sobre sorted sets: `setScore` (`ZADD`), `incrementScore` (`ZINCRB
 
 Sorted sets não têm TTL por membro, só por chave: o TTL desses contratos aplica-se ao conjunto inteiro.
 
+As quatro leituras (`getScore`, `getRank`, `getTopScores`, `countScores`) aceitam `consistency?: CacheConsistency` no `Input`, assim como `get` — são chaves namespaceadas e portanto sujeitas à mesma cascata do §4.2, que a tabela de roteamento do §8.1 já pressupõe. As escritas não aceitam: já vão ao master por definição.
+
 ### 5.6 Health check
 
 ```ts
