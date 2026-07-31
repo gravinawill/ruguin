@@ -133,13 +133,32 @@ describe('MemoryCacheDriver', () => {
   })
 
   it('counts within a namespace', async () => {
-    await driver.increment({ key: 'ip-1', namespace: 'rate', ttlInMs: 60_000 })
+    await driver.increment({ key: 'ip-1', namespace: 'rate', windowInMs: 60_000 })
     const second = await driver.increment({ key: 'ip-1', namespace: 'rate', by: 2 })
     const read = await driver.getCounter({ key: 'ip-1', namespace: 'rate' })
 
     if (second.isFailure() || read.isFailure()) throw new Error('expected success')
     expect(second.value.value).toBe(3)
     expect(read.value.value).toBe(3)
+  })
+
+  it('resets the counter a fixed windowInMs after the first increment, however often it is passed', async () => {
+    await driver.increment({ key: 'ip-2', namespace: 'rate', windowInMs: 60_000 })
+    vi.advanceTimersByTime(59_000)
+
+    /*
+     * Passing the window again mid-flight must not push the expiry out: that is why it is not
+     * called ttlInMs. A caller who renews on every call would expect a count of 2 at t=120s.
+     */
+    await driver.increment({ key: 'ip-2', namespace: 'rate', windowInMs: 60_000 })
+    const beforeReset = await driver.getCounter({ key: 'ip-2', namespace: 'rate' })
+
+    vi.advanceTimersByTime(1001)
+    const afterReset = await driver.getCounter({ key: 'ip-2', namespace: 'rate' })
+
+    if (beforeReset.isFailure() || afterReset.isFailure()) throw new Error('expected success')
+    expect(beforeReset.value.value).toBe(2)
+    expect(afterReset.value.value).toBe(0)
   })
 
   it('holds a lock against a second caller and releases it only for the owner', async () => {

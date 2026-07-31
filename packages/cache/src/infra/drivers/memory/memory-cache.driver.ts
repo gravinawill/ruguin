@@ -145,7 +145,8 @@ export class MemoryCacheDriver implements ICacheDriver {
 
     return Promise.resolve(
       success({
-        value: this.store.incrementCounter({ key: key.value, by: input.by ?? 1, ttlInMs: input.ttlInMs })
+        // The store anchors this expiry to the first increment, which is what windowInMs means.
+        value: this.store.incrementCounter({ key: key.value, by: input.by ?? 1, ttlInMs: input.windowInMs })
       })
     )
   }
