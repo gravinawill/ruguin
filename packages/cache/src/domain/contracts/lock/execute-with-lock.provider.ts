@@ -2,12 +2,16 @@ import { type Either } from '@ruguin/utils'
 
 import { type CacheOperationError, type LockNotAcquiredError } from '../../errors'
 
+import { type AcquireLockProviderDTO } from './acquire-lock.provider'
+
 export namespace ExecuteWithLockProviderDTO {
   export type Input<T, E> = Readonly<{
     key: string
     namespace: string
     ttlInMs: number
-    retry?: Readonly<{ attempts: number; delayInMs: number }>
+
+    // Passed straight through to the driver; see AcquireLockProviderDTO.Wait for the semantics.
+    wait?: AcquireLockProviderDTO.Wait
     task: () => Promise<Either<E, T>>
   }>
 

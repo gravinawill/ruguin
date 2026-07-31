@@ -38,6 +38,11 @@ src/
   sem a proteção pedida (`NOT_ACQUIRED`), estado que antes era indistinguível de uma execução
   limpa. `NOT_ATTEMPTED` cobre tanto "não pediu lock" quanto "veio do cache antes do lock".
 - O driver `memory` é para dev e teste: seu lock só exclui dentro do mesmo processo.
+- `acquire` recebe orçamento de espera (`wait: { timeoutInMs, pollIntervalInMs }`), não contagem
+  de tentativas. Quem espera é o driver, porque só ele sabe o custo de uma tentativa: contra rede
+  cada uma é um round-trip, e converter orçamento em `ceil(timeout / poll)` estoura o prazo
+  justamente quando o cache está degradado. O driver ancora o prazo na entrada, não inicia
+  tentativa com orçamento esgotado e não dorme além dele.
 - O driver `noop` recusa todo lock (`acquire` → `LockNotAcquiredError`): conceder seria fabricar
   exclusão mútua que ele não tem. Com `CACHE_DRIVER=noop`, `executeWithLock` falha em vez de
   rodar a task — o único ponto do pacote onde desligar o cache muda o resultado do chamador.

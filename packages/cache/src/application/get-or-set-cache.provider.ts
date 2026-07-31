@@ -128,14 +128,20 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
   }
 
   private async acquire<T, E>(input: GetOrSetCacheProviderDTO.Input<T, E>): Promise<string | null> {
-    const waitTimeoutInMs: number = input.lock?.waitTimeoutInMs ?? DEFAULT_LOCK_WAIT_TIMEOUT_MS
-    const attempts: number = Math.max(1, Math.ceil(waitTimeoutInMs / LOCK_POLL_INTERVAL_MS))
-
+    /*
+     * The budget goes down verbatim. It used to become `ceil(waitTimeout / pollInterval)`
+     * attempts, which silently changed what the caller asked for: an attempt count only equals
+     * a wait when attempts are free, and against Valkey each one is a round trip. The driver is
+     * the only layer that knows that cost, so it is the layer that spends the budget.
+     */
     const result = await this.lockAcquirer.acquire({
       key: input.key,
       namespace: input.namespace,
       ttlInMs: this.lockTtlInMs,
-      retry: { attempts, delayInMs: LOCK_POLL_INTERVAL_MS }
+      wait: {
+        timeoutInMs: input.lock?.waitTimeoutInMs ?? DEFAULT_LOCK_WAIT_TIMEOUT_MS,
+        pollIntervalInMs: LOCK_POLL_INTERVAL_MS
+      }
     })
 
     // A lock we could not take is not fatal: being slow beats being stuck.

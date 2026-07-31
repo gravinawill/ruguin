@@ -309,10 +309,10 @@ describe('GetOrSetCacheProvider', () => {
 
   it('asks for a 3s lock wait budget polled every 50ms', async () => {
     const driver = await buildDriver()
-    const retries: Array<AcquireLockProviderDTO.Input['retry']> = []
+    const waits: Array<AcquireLockProviderDTO.Input['wait']> = []
     const countingLock: IAcquireLockProvider = {
       acquire: (input) => {
-        retries.push(input.retry)
+        waits.push(input.wait)
         return Promise.resolve(failure(new LockNotAcquiredError({ lockKey: input.key, attempts: 1 })))
       }
     }
@@ -331,11 +331,41 @@ describe('GetOrSetCacheProvider', () => {
     })
 
     /*
-     * Pinned rather than merely "more than one attempt": with no wait budget the caller
-     * never queues, the post-lock re-read never fires, and the stampede protection is inert
-     * under exactly the contention it targets. 3000ms / 50ms is that budget, spelled out.
+     * Pinned rather than merely "some waiting happens": with no wait budget the caller never
+     * queues, the post-lock re-read never fires, and the stampede protection is inert under
+     * exactly the contention it targets.
+     *
+     * Pinned as the budget itself, too, not as `{ attempts: 60, delayInMs: 50 }`. Converting it
+     * here was the bug: an attempt count only equals a wait when attempts are free, so against
+     * a network driver 3000ms became 3000ms of sleeping plus 60 round trips.
      */
-    expect(retries[0]).toEqual({ attempts: 60, delayInMs: 50 })
+    expect(waits[0]).toEqual({ timeoutInMs: 3000, pollIntervalInMs: 50 })
+  })
+
+  it('passes a per-call wait budget through unconverted', async () => {
+    const driver = await buildDriver()
+    const waits: Array<AcquireLockProviderDTO.Input['wait']> = []
+    const countingLock: IAcquireLockProvider = {
+      acquire: (input) => {
+        waits.push(input.wait)
+        return Promise.resolve(failure(new LockNotAcquiredError({ lockKey: input.key, attempts: 1 })))
+      }
+    }
+    const provider = buildProvider({
+      reader: driver,
+      writer: driver,
+      lockAcquirer: countingLock,
+      lockReleaser: driver
+    })
+
+    await provider.getOrSet<string, Error>({
+      key: '1',
+      namespace: 'user',
+      lock: { enabled: true, waitTimeoutInMs: 250 },
+      loader: () => Promise.resolve(success('fresh'))
+    })
+
+    expect(waits[0]).toEqual({ timeoutInMs: 250, pollIntervalInMs: 50 })
   })
 
   it('runs the loader anyway when the lock cannot be taken', async () => {
