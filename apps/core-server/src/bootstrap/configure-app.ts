@@ -28,15 +28,6 @@ export async function configureApp(app: NestFastifyApplication): Promise<void> {
     authenticate: true
   })
 
-  const fastify = app.getHttpAdapter().getInstance()
-  fastify.addHook('onRequest', (request, reply, done) => {
-    if (!request.url.startsWith('/docs')) {
-      done()
-      return
-    }
-    fastify.basicAuth(request, reply, done)
-  })
-
   const document = SwaggerModule.createDocument(
     app,
     new DocumentBuilder()
@@ -47,15 +38,26 @@ export async function configureApp(app: NestFastifyApplication): Promise<void> {
   )
 
   const documentationHandler = apiReference({ withFastify: true, content: document })
-  app.getHttpAdapter().get('/docs', (request, reply) => {
+  const fastify = app.getHttpAdapter().getInstance()
+
+  /*
+   * Basic Auth is attached per route rather than by matching request.url in a global hook: Fastify's
+   * router percent-decodes the path before matching, so a global string check and the router can
+   * disagree (`/%64ocs-json` skipped the check but still reached the handler). A route-scoped
+   * onRequest hook runs in the context of whatever route the router actually resolved.
+   */
+  fastify.get('/docs', { onRequest: fastify.basicAuth }, (request, reply) => {
+    reply.hijack()
     /*
      * Scalar's apiReference handler with withFastify:true is a raw Node handler (writes directly to
-     * res via writeHead/write/end), not a Fastify route handler — it needs the raw req/res objects.
+     * res via writeHead/write/end), not a Fastify route handler — it needs the raw res object, so
+     * the reply is hijacked to stop Fastify from also trying to send it.
      */
     // @ts-expect-error - Scalar handler expects Node's IncomingMessage/ServerResponse, not Fastify's wrapper types
     documentationHandler(request.raw, reply.raw)
   })
-  app.getHttpAdapter().get('/docs-json', (_request, reply) => {
+
+  fastify.get('/docs-json', { onRequest: fastify.basicAuth }, (_request, reply) => {
     reply.send(document)
   })
 }
