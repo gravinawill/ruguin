@@ -3,6 +3,7 @@
   "display": "NestJS",
   "extends": "./base.json",
   "compilerOptions": {
+    "allowImportingTsExtensions": false,
     "noEmit": false,
     "allowJs": false,
     "checkJs": false,
