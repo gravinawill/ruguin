@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-`@ruguin/cache` — Clean Architecture cache provider for the monorepo's services. Domain contracts describe every leaf operation (get/set/delete, counters, locks, sorted scores, namespace invalidation, connection lifecycle, health) plus the two orchestrators composed on top of them. Drivers adapt one storage technology to the leaf contracts; `memory` and `noop` ship today, `valkey` is a future plan. Depends on `@ruguin/utils` (for `Either`) and `@ruguin/ddd-kernel`.
+`@ruguin/cache` — Clean Architecture cache provider for the monorepo's services. Domain contracts describe every leaf operation (get/set/delete, counters, locks, sorted scores, namespace invalidation, connection lifecycle, health) plus the two orchestrators composed on top of them. Drivers adapt one storage technology to the leaf contracts; all three drivers ship today. Depends on `@ruguin/utils` (for `Either`) and `@ruguin/ddd-kernel`.
 
 ## Structure
 
@@ -25,6 +25,10 @@ src/
     drivers/
       memory/     # in-memory store, lazy ttl expiry — dev and test only
       noop/       # always-miss driver — cache disabled without branching call sites
+      valkey/     # iovalkey: master + replicas + a dedicated subscriber connection
+    decorators/   # observable(resilient(driver)) — spans and circuit breaker over ICacheDriver
+  factory/
+    cache.factory.ts   # the single composition root: picks the driver, applies the decorators
   index.ts        # barrel: application, domain, infra
 ```
 
@@ -48,6 +52,13 @@ src/
 - O driver `noop` recusa todo lock (`acquire` → `LockNotAcquiredError`): conceder seria fabricar
   exclusão mútua que ele não tem. Com `CACHE_DRIVER=noop`, `executeWithLock` falha em vez de
   rodar a task — o único ponto do pacote onde desligar o cache muda o resultado do chamador.
+- O driver `valkey` mantem tres conexoes: master, uma por replica, e uma dedicada ao subscriber
+  de invalidacao — um cliente em modo subscribe recusa comandos normais. Leitura eventual vai a
+  replica (round-robin, com fallback para o master); leitura forte, escrita, contador (inclusive
+  na leitura) e lock vao sempre ao master.
+- Os decorators envolvem `ICacheDriver`, nao `ICacheProvider`. E isso que faz o `getOrSet`
+  enxergar o breaker: circuito aberto vira miss instantaneo e o cache-aside vai ao loader sem
+  pagar timeout.
 
 ## Commands
 
@@ -55,4 +66,5 @@ src/
 pnpm --filter @ruguin/cache test:unit
 pnpm --filter @ruguin/cache check:types
 pnpm --filter @ruguin/cache check:lint
+pnpm --filter @ruguin/cache test:integration   # exige docker compose up -d redis redis-replica
 ```
