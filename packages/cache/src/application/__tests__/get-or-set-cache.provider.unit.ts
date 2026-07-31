@@ -1,5 +1,5 @@
 import { type Either, failure, success } from '@ruguin/utils'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   type AcquireLockProviderDTO,
@@ -322,5 +322,63 @@ describe('GetOrSetCacheProvider', () => {
 
     if (result.isFailure()) throw new Error('expected success')
     expect(result.value).toEqual({ value: 'new-shape', source: CacheSource.LOADER })
+  })
+
+  describe('negative caching ttl', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('expires the cached null after negativeTtlInMs, not after the driver default ttl', async () => {
+      const driver = await buildDriver()
+      const provider = buildProvider({
+        reader: driver,
+        writer: driver,
+        lockAcquirer: driver,
+        lockReleaser: driver
+      })
+      const loader = vi.fn((): Promise<Either<Error, string | null>> => Promise.resolve(success(null)))
+
+      await provider.getOrSet<string, Error>({ key: 'ghost', namespace: 'user', loader })
+
+      /*
+       * Past the provider's negativeTtlInMs (30s) but still well inside the driver's
+       * defaultTtlInMs (60s). If write() ever used the regular ttl for a null value, the
+       * sentinel would still be alive here and the loader would not run again.
+       */
+      vi.advanceTimersByTime(30_001)
+
+      const afterNegativeTtl = await provider.getOrSet<string, Error>({ key: 'ghost', namespace: 'user', loader })
+
+      if (afterNegativeTtl.isFailure()) throw new Error('expected success')
+      expect(afterNegativeTtl.value).toEqual({ value: null, source: CacheSource.LOADER })
+      expect(loader).toHaveBeenCalledTimes(2)
+    })
+
+    it('honors a per-call negativeTtlInMs override for the cached null', async () => {
+      const driver = await buildDriver()
+      const provider = buildProvider({
+        reader: driver,
+        writer: driver,
+        lockAcquirer: driver,
+        lockReleaser: driver
+      })
+      const loader = vi.fn((): Promise<Either<Error, string | null>> => Promise.resolve(success(null)))
+
+      await provider.getOrSet<string, Error>({ key: 'ghost', namespace: 'user', negativeTtlInMs: 5000, loader })
+
+      // Past the 5s override but well inside the provider's default 30s negativeTtlInMs.
+      vi.advanceTimersByTime(5001)
+
+      const afterOverrideTtl = await provider.getOrSet<string, Error>({ key: 'ghost', namespace: 'user', loader })
+
+      if (afterOverrideTtl.isFailure()) throw new Error('expected success')
+      expect(afterOverrideTtl.value).toEqual({ value: null, source: CacheSource.LOADER })
+      expect(loader).toHaveBeenCalledTimes(2)
+    })
   })
 })
