@@ -31,7 +31,7 @@ export class ExecuteWithLockProvider implements IExecuteWithLockProvider {
       key: input.key,
       namespace: input.namespace,
       ttlInMs: input.ttlInMs,
-      ...(input.retry !== undefined && { retry: input.retry })
+      ...(input.wait !== undefined && { wait: input.wait })
     })
 
     /*

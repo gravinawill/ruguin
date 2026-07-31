@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { CacheDriver, CacheHealthStatus, InvalidCacheKeyError } from '../../../../domain'
+import { type AcquireLockProviderDTO, CacheDriver, CacheHealthStatus, InvalidCacheKeyError } from '../../../../domain'
 import { KeyBuilder } from '../../../key-builder'
 import { JsonSerializerStrategy } from '../../../serializers'
 import { MemoryCacheDriver } from '../memory-cache.driver'
@@ -175,21 +175,51 @@ describe('MemoryCacheDriver', () => {
     expect(released.isSuccess()).toBe(true)
   })
 
-  it('retries a busy lock for the configured number of attempts', async () => {
+  it('gives up on a busy lock exactly when the wait budget runs out', async () => {
     await driver.acquire({ key: 'job', namespace: 'lock', ttlInMs: 5000 })
-    const contended = driver.acquire({
-      key: 'job',
-      namespace: 'lock',
-      ttlInMs: 5000,
-      retry: { attempts: 3, delayInMs: 10 }
-    })
 
-    await vi.advanceTimersByTimeAsync(50)
+    const startedAt: number = Date.now()
+
+    /*
+     * Recorded when the call settles rather than after advancing, because advancing the fake
+     * clock moves it whether the driver waited or not — reading Date.now() afterwards would
+     * assert nothing. The advance below is deliberately generous so the driver, not the test,
+     * decides when to stop.
+     */
+    let settledAt = -1
+    const contended: AcquireLockProviderDTO.Output = (async (): AcquireLockProviderDTO.Output => {
+      const acquired = await driver.acquire({
+        key: 'job',
+        namespace: 'lock',
+        ttlInMs: 5000,
+        wait: { timeoutInMs: 120, pollIntervalInMs: 50 }
+      })
+      settledAt = Date.now()
+
+      return acquired
+    })()
+
+    await vi.advanceTimersByTimeAsync(1000)
     const result = await contended
 
-    expect(result.isFailure()).toBe(true)
     if (result.isSuccess()) throw new Error('expected failure')
-    expect(result.value.message).toContain('3')
+
+    /*
+     * 120ms of waiting, not 100ms. A budget converted to `ceil(120 / 50) = 3` attempts spends
+     * only the two 50ms gaps between them and abandons the last 20ms the caller asked for;
+     * spending against the clock fits a fourth attempt in, on a 20ms nap that lands exactly on
+     * the deadline. The count follows from the clock here, never the reverse.
+     */
+    expect(settledAt - startedAt).toBe(120)
+    expect(result.value.message).toContain('4 attempt(s)')
+  })
+
+  it('makes a single attempt when no wait budget is given', async () => {
+    await driver.acquire({ key: 'job', namespace: 'lock', ttlInMs: 5000 })
+    const result = await driver.acquire({ key: 'job', namespace: 'lock', ttlInMs: 5000 })
+
+    if (result.isSuccess()) throw new Error('expected failure')
+    expect(result.value.message).toContain('1 attempt(s)')
   })
 
   it('ranks a leaderboard', async () => {

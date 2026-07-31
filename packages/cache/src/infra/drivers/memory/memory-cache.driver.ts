@@ -172,15 +172,29 @@ export class MemoryCacheDriver implements ICacheDriver {
     const key = this.keyBuilder.buildLockKey({ namespace: input.namespace, key: input.key })
     if (key.isFailure()) return failure(key.value)
 
-    const attempts: number = input.retry?.attempts ?? 1
+    /*
+     * The budget is spent against the clock, never converted into an attempt count. Here an
+     * attempt is free so the two would nearly agree, but the contract has to hold for a driver
+     * whose every attempt is a round trip — that is where a count overshoots the budget by the
+     * cost of the attempts themselves.
+     */
+    const deadlineAt: number = Date.now() + (input.wait?.timeoutInMs ?? 0)
     const token: string = crypto.randomUUID()
 
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    let attempts = 0
+
+    for (;;) {
+      attempts += 1
+
       if (this.store.acquireLock({ key: key.value.physicalKey, token, ttlInMs: input.ttlInMs })) {
         return success({ token, expiresAt: new Date(Date.now() + input.ttlInMs) })
       }
 
-      if (attempt < attempts) await sleep(input.retry?.delayInMs ?? 0)
+      const remainingInMs: number = deadlineAt - Date.now()
+      if (remainingInMs <= 0) break
+
+      // Never sleep past the deadline: the last nap is short so the final attempt lands on it.
+      await sleep(Math.min(input.wait?.pollIntervalInMs ?? 0, remainingInMs))
     }
 
     return failure(new LockNotAcquiredError({ lockKey: key.value.physicalKey, attempts }))
