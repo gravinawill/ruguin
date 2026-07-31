@@ -34,6 +34,9 @@ src/
 - Driver implementa `ICacheDriver` (contratos folha); `getOrSet` e `executeWithLock` vivem em `application/` e servem a qualquer driver.
 - Todo caminho retorna `Either`; nada lança para falha esperada.
 - `getOrSet` é fail-open por contrato — o tipo `OutputError<E> = E` impede propagar erro de cache.
+  A observabilidade entra pelo sucesso: `lockOutcome: CacheLockOutcome` diz se o loader rodou
+  sem a proteção pedida (`NOT_ACQUIRED`), estado que antes era indistinguível de uma execução
+  limpa. `NOT_ATTEMPTED` cobre tanto "não pediu lock" quanto "veio do cache antes do lock".
 - O driver `memory` é para dev e teste: seu lock só exclui dentro do mesmo processo.
 - O driver `noop` recusa todo lock (`acquire` → `LockNotAcquiredError`): conceder seria fabricar
   exclusão mútua que ele não tem. Com `CACHE_DRIVER=noop`, `executeWithLock` falha em vez de

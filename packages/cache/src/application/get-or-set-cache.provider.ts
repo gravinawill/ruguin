@@ -1,6 +1,7 @@
 import { failure, success } from '@ruguin/utils'
 
 import {
+  CacheLockOutcome,
   CacheSource,
   type GetOrSetCacheProviderDTO,
   type IAcquireLockProvider,
@@ -51,15 +52,18 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
   }
 
   public async getOrSet<T, E>(input: GetOrSetCacheProviderDTO.Input<T, E>): GetOrSetCacheProviderDTO.Output<T, E> {
+    let lockOutcome: CacheLockOutcome = CacheLockOutcome.NOT_ATTEMPTED
+
     if (input.forceRefresh !== true) {
       const cached: CacheRead<T> | null = await this.read<T, E>(input)
-      if (cached?.found === true) return success({ value: cached.value, source: CacheSource.CACHE })
+      if (cached?.found === true) return success({ value: cached.value, source: CacheSource.CACHE, lockOutcome })
     }
 
     let lockToken: string | null = null
 
     if (input.lock?.enabled === true) {
       lockToken = await this.acquire(input)
+      lockOutcome = lockToken === null ? CacheLockOutcome.NOT_ACQUIRED : CacheLockOutcome.ACQUIRED
 
       if (lockToken !== null && input.forceRefresh !== true) {
         /*
@@ -70,7 +74,7 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
         const refreshed: CacheRead<T> | null = await this.read<T, E>(input)
         if (refreshed?.found === true) {
           await this.release({ input, token: lockToken })
-          return success({ value: refreshed.value, source: CacheSource.CACHE })
+          return success({ value: refreshed.value, source: CacheSource.CACHE, lockOutcome })
         }
       }
     }
@@ -86,7 +90,7 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
 
       await this.write({ input, value: loaded.value })
 
-      return success({ value: loaded.value, source: CacheSource.LOADER })
+      return success({ value: loaded.value, source: CacheSource.LOADER, lockOutcome })
     } finally {
       if (lockToken !== null) await this.release({ input, token: lockToken })
     }
