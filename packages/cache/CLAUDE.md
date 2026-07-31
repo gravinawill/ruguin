@@ -42,7 +42,9 @@ src/
   de tentativas. Quem espera é o driver, porque só ele sabe o custo de uma tentativa: contra rede
   cada uma é um round-trip, e converter orçamento em `ceil(timeout / poll)` estoura o prazo
   justamente quando o cache está degradado. O driver ancora o prazo na entrada, não inicia
-  tentativa com orçamento esgotado e não dorme além dele.
+  tentativa com orçamento esgotado e não dorme além dele. `pollIntervalInMs` tem que ser
+  positivo: o orçamento limita tempo decorrido, não número de tentativas, então intervalo zero
+  transformaria uma espera de 3s em milhares de round-trips na mesma chave.
 - O driver `noop` recusa todo lock (`acquire` → `LockNotAcquiredError`): conceder seria fabricar
   exclusão mútua que ele não tem. Com `CACHE_DRIVER=noop`, `executeWithLock` falha em vez de
   rodar a task — o único ponto do pacote onde desligar o cache muda o resultado do chamador.

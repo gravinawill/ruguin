@@ -52,14 +52,20 @@ export class GetOrSetCacheProvider implements IGetOrSetCacheProvider {
   }
 
   public async getOrSet<T, E>(input: GetOrSetCacheProviderDTO.Input<T, E>): GetOrSetCacheProviderDTO.Output<T, E> {
-    let lockOutcome: CacheLockOutcome = CacheLockOutcome.NOT_ATTEMPTED
-
     if (input.forceRefresh !== true) {
       const cached: CacheRead<T> | null = await this.read<T, E>(input)
-      if (cached?.found === true) return success({ value: cached.value, source: CacheSource.CACHE, lockOutcome })
+
+      /*
+       * Spelled out rather than read from the variable below: this path returns before the lock
+       * logic, so no attempt was made even when the caller asked for one.
+       */
+      if (cached?.found === true) {
+        return success({ value: cached.value, source: CacheSource.CACHE, lockOutcome: CacheLockOutcome.NOT_ATTEMPTED })
+      }
     }
 
     let lockToken: string | null = null
+    let lockOutcome: CacheLockOutcome = CacheLockOutcome.NOT_ATTEMPTED
 
     if (input.lock?.enabled === true) {
       lockToken = await this.acquire(input)
