@@ -2,6 +2,7 @@ import { type Either, failure, success } from '@ruguin/utils'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  type AcquireLockProviderDTO,
   type IAcquireLockProvider,
   type IReleaseLockProvider,
   LockNotAcquiredError,
@@ -57,6 +58,39 @@ describe('ExecuteWithLockProvider', () => {
     if (result.isFailure()) throw new Error('expected success')
     expect(result.value.value).toBe('done')
     expect(tokens()).toEqual(['token-1'])
+  })
+
+  it('hands the caller wait budget to the driver untouched', async () => {
+    const seen: AcquireLockProviderDTO.Input[] = []
+    const recordingAcquirer: IAcquireLockProvider = {
+      acquire: (input) => {
+        seen.push(input)
+        const expiresAt = new Date(Date.now() + 5000)
+
+        return Promise.resolve(success({ token: 'token-1', expiresAt }))
+      }
+    }
+    const { releaser } = recordingReleaser()
+    const provider = new ExecuteWithLockProvider({
+      lockAcquirer: recordingAcquirer,
+      lockReleaser: releaser,
+      onCacheError: noop
+    })
+
+    await provider.executeWithLock<string, Error>({
+      key: 'job',
+      namespace: 'dispatch',
+      ttlInMs: 5000,
+      wait: { timeoutInMs: 2000, pollIntervalInMs: 25 },
+      task: () => Promise.resolve(success('done'))
+    })
+
+    /*
+     * This orchestrator has no waiting logic of its own — the budget only reaches the driver if
+     * it is forwarded. Untested, dropping the spread would silently discard whatever the caller
+     * asked to wait and reduce every contended call to a single attempt.
+     */
+    expect(seen[0]?.wait).toEqual({ timeoutInMs: 2000, pollIntervalInMs: 25 })
   })
 
   it('refuses to run the task when the lock is busy', async () => {

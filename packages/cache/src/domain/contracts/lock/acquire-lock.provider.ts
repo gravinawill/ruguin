@@ -18,6 +18,11 @@ export namespace AcquireLockProviderDTO {
    * sleep past the deadline. `pollIntervalInMs` is the gap between attempts, and a driver that
    * can wait on a notification instead of polling is free to ignore it: the budget is the
    * contract, the polling is a hint.
+   *
+   * `pollIntervalInMs` must be positive, and a driver must never poll faster than it. The
+   * budget alone does not bound the number of attempts — it bounds the elapsed time — so an
+   * interval of zero turns a 3s wait into thousands of round trips against one contended key.
+   * That is the flood this shape exists to prevent, not to license.
    */
   export type Wait = Readonly<{ timeoutInMs: number; pollIntervalInMs: number }>
 

@@ -214,6 +214,30 @@ describe('MemoryCacheDriver', () => {
     expect(result.value.message).toContain('4 attempt(s)')
   })
 
+  it('refuses to poll faster than 1ms, so a zero interval cannot hammer the lock', async () => {
+    await driver.acquire({ key: 'job', namespace: 'lock', ttlInMs: 5000 })
+
+    const contended = driver.acquire({
+      key: 'job',
+      namespace: 'lock',
+      ttlInMs: 5000,
+      wait: { timeoutInMs: 20, pollIntervalInMs: 0 }
+    })
+
+    await vi.advanceTimersByTimeAsync(100)
+    const result = await contended
+
+    if (result.isSuccess()) throw new Error('expected failure')
+
+    /*
+     * The budget bounds elapsed time, not the attempt count — so without a floor, a caller
+     * passing 0 turns a wait into a flood: against a network driver a 3s budget would become
+     * thousands of round trips on one contended key, the opposite of what the budget is for.
+     * 21 is 20ms of 1ms naps plus the attempt that lands on the deadline.
+     */
+    expect(result.value.message).toContain('21 attempt(s)')
+  })
+
   it('makes a single attempt when no wait budget is given', async () => {
     await driver.acquire({ key: 'job', namespace: 'lock', ttlInMs: 5000 })
     const result = await driver.acquire({ key: 'job', namespace: 'lock', ttlInMs: 5000 })

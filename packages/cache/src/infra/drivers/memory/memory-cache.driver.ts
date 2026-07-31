@@ -41,6 +41,9 @@ const sleep = async (ms: number): Promise<void> =>
     setTimeout(resolve, ms)
   })
 
+// Floor for a caller-supplied lock poll interval. See AcquireLockProviderDTO.Wait.
+const MIN_POLL_INTERVAL_MS = 1
+
 export class MemoryCacheDriver implements ICacheDriver {
   public readonly store: MemoryStore
 
@@ -193,8 +196,13 @@ export class MemoryCacheDriver implements ICacheDriver {
       const remainingInMs: number = deadlineAt - Date.now()
       if (remainingInMs <= 0) break
 
-      // Never sleep past the deadline: the last nap is short so the final attempt lands on it.
-      await sleep(Math.min(input.wait?.pollIntervalInMs ?? 0, remainingInMs))
+      /*
+       * Two bounds, both required. The deadline caps the nap so the final attempt lands on it
+       * rather than past it; the floor keeps a caller who passes 0 from turning the budget into
+       * a hammer, since the budget bounds elapsed time and not the attempt count.
+       */
+      const pollIntervalInMs: number = Math.max(MIN_POLL_INTERVAL_MS, input.wait?.pollIntervalInMs ?? 0)
+      await sleep(Math.min(pollIntervalInMs, remainingInMs))
     }
 
     return failure(new LockNotAcquiredError({ lockKey: key.value.physicalKey, attempts }))
