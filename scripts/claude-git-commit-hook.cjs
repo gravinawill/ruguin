@@ -17,7 +17,9 @@ function main() {
       process.exit(0)
     }
 
-    if (!/(?:^|;|&&|\|)\s*git\s+commit\b/.test(command)) {
+    const isGitCommit = command.split('\n').some((line) => /(?:^|[;|]|&&)\s*git\s+commit(?:\s|$)/.test(line))
+
+    if (!isGitCommit) {
       process.exit(0)
     }
 

@@ -17,7 +17,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PROJECT_DIR:-.}/scripts/claude-git-commit-hook.cjs\"",
-            "timeout": 120000
+            "timeout": 150000
           }
         ]
       },
