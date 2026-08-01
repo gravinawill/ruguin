@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { type Baseline, readBaseline } from './lib/baseline'
+import { type Baseline, readBaseline, writeBaseline } from './lib/baseline'
 import { runCycleCheck, runDetectChanges, runImpactForSymbol } from './lib/gitnexus-checks'
 import {
   runComplexityRegression,
@@ -36,8 +36,12 @@ export function runAllChecks(exec: ExecFn, repoRoot: string, stagedFiles: string
 
   record(runDiffRisk(exec))
   record(runSecretsScan(exec))
-  record(runComplexityRegression(exec, repoRoot, stagedFiles, baseline))
-  record(runDependenciesRegression(exec, stagedFiles, baseline))
+
+  const complexityResult = runComplexityRegression(exec, repoRoot, stagedFiles, baseline)
+  record(complexityResult)
+
+  const dependenciesResult = runDependenciesRegression(exec, stagedFiles, baseline)
+  record(dependenciesResult)
 
   const report: Record<string, unknown> = {}
   for (const subcommand of REPORT_ONLY_SUBCOMMANDS) {
@@ -45,7 +49,12 @@ export function runAllChecks(exec: ExecFn, repoRoot: string, stagedFiles: string
     report[subcommand] = output
   }
 
-  return { pass: findings.length === 0, findings, warnings, report }
+  const currentMetrics = {
+    complexity: complexityResult.currentComplexity,
+    dependencies: dependenciesResult.currentDependencies
+  }
+
+  return { pass: findings.length === 0, findings, warnings, report, currentMetrics }
 }
 
 function realExec(command: string, arguments_: string[]) {
@@ -69,7 +78,18 @@ function main(): void {
   const baselinePath = path.resolve(repoRoot, '.claude/pre-commit-baseline.json')
   const baseline = readBaseline(baselinePath)
 
-  const { pass, findings, warnings, report } = runAllChecks(realExec, repoRoot, stagedFiles, baseline)
+  const { pass, findings, warnings, report, currentMetrics } = runAllChecks(realExec, repoRoot, stagedFiles, baseline)
+
+  if (pass) {
+    const updatedBaseline: Baseline = {
+      updatedAt: new Date().toISOString(),
+      complexity: { ...baseline.complexity, ...currentMetrics.complexity },
+      dependencies: { ...baseline.dependencies, ...currentMetrics.dependencies }
+    }
+    writeBaseline(baselinePath, updatedBaseline)
+    // eslint-disable-next-line sonarjs/no-os-command-from-path -- `git` resolves via PATH by design; trusted, well-known project tool, not user input.
+    execFileSync('git', ['add', baselinePath])
+  }
 
   writeFileSync(path.resolve(repoRoot, '.git/.claude-precommit-report.json'), JSON.stringify(report, null, 2))
 
