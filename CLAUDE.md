@@ -11,6 +11,7 @@
 - NEVER add a `Co-Authored-By` trailer to user commits unless this project's `.claude/settings.json` has `attribution.commit` set (#2078). The Claude Code Bash tool may suggest one in its default commit-message template — ignore it. `Co-Authored-By` is semantic authorship attribution under git/GitHub convention; the tool is the facilitator, not a co-author.
 - Keep files under 500 lines
 - Validate input at system boundaries
+- Comment sparingly: only what the code cannot say. Explain **why** — a non-obvious constraint, a decision someone would otherwise "fix", a surprising edge case. Never restate what the line below already says. A comment that would survive a rewrite of the code under it is worth keeping; one that just narrates it is noise that goes stale and lies.
 
 ## Agent Comms (SendMessage-First Coordination)
 
@@ -25,28 +26,48 @@ Lead (you) ←→ architect ←→ developer ←→ tester ←→ reviewer
 
 ```javascript
 // ALL agents in ONE message, each knows WHO to message next
-Agent({ prompt: "Research the codebase. SendMessage findings to 'architect'.",
-  subagent_type: "researcher", name: "researcher", run_in_background: true })
-Agent({ prompt: "Wait for 'researcher'. Design solution. SendMessage to 'coder'.",
-  subagent_type: "system-architect", name: "architect", run_in_background: true })
-Agent({ prompt: "Wait for 'architect'. Implement it. SendMessage to 'tester'.",
-  subagent_type: "coder", name: "coder", run_in_background: true })
-Agent({ prompt: "Wait for 'coder'. Write tests. SendMessage results to 'reviewer'.",
-  subagent_type: "tester", name: "tester", run_in_background: true })
-Agent({ prompt: "Wait for 'tester'. Review code quality and security.",
-  subagent_type: "reviewer", name: "reviewer", run_in_background: true })
+Agent({
+  prompt: "Research the codebase. SendMessage findings to 'architect'.",
+  subagent_type: 'researcher',
+  name: 'researcher',
+  run_in_background: true
+})
+Agent({
+  prompt: "Wait for 'researcher'. Design solution. SendMessage to 'coder'.",
+  subagent_type: 'system-architect',
+  name: 'architect',
+  run_in_background: true
+})
+Agent({
+  prompt: "Wait for 'architect'. Implement it. SendMessage to 'tester'.",
+  subagent_type: 'coder',
+  name: 'coder',
+  run_in_background: true
+})
+Agent({
+  prompt: "Wait for 'coder'. Write tests. SendMessage results to 'reviewer'.",
+  subagent_type: 'tester',
+  name: 'tester',
+  run_in_background: true
+})
+Agent({
+  prompt: "Wait for 'tester'. Review code quality and security.",
+  subagent_type: 'reviewer',
+  name: 'reviewer',
+  run_in_background: true
+})
 
 // Kick off the pipeline
-SendMessage({ to: "researcher", summary: "Start", message: "[task context]" })
+SendMessage({ to: 'researcher', summary: 'Start', message: '[task context]' })
 ```
 
 ### Patterns
 
-| Pattern | Flow | Use When |
-|---------|------|----------|
-| **Pipeline** | A → B → C → D | Sequential dependencies (feature dev) |
-| **Fan-out** | Lead → A, B, C → Lead | Independent parallel work (research) |
-| **Supervisor** | Lead ↔ workers | Ongoing coordination (complex refactor) |
+| Pattern        | Flow                  | Use When                                |
+| -------------- | --------------------- | --------------------------------------- |
+| **Pipeline**   | A → B → C → D         | Sequential dependencies (feature dev)   |
+| **Fan-out**    | Lead → A, B, C → Lead | Independent parallel work (research)    |
+| **Supervisor** | Lead ↔ workers        | Ongoing coordination (complex refactor) |
 
 ### Rules
 
@@ -72,13 +93,13 @@ npx @claude-flow/cli@latest swarm init --topology hierarchical --max-agents 8 --
 
 ### Agent Routing
 
-| Task | Agents | Topology |
-|------|--------|----------|
-| Bug Fix | researcher, coder, tester | hierarchical |
-| Feature | architect, coder, tester, reviewer | hierarchical |
-| Refactor | architect, coder, reviewer | hierarchical |
-| Performance | perf-engineer, coder | hierarchical |
-| Security | security-architect, auditor | hierarchical |
+| Task        | Agents                             | Topology     |
+| ----------- | ---------------------------------- | ------------ |
+| Bug Fix     | researcher, coder, tester          | hierarchical |
+| Feature     | architect, coder, tester, reviewer | hierarchical |
+| Refactor    | architect, coder, reviewer         | hierarchical |
+| Performance | perf-engineer, coder               | hierarchical |
+| Security    | security-architect, auditor        | hierarchical |
 
 ### When to Swarm
 
@@ -87,11 +108,11 @@ npx @claude-flow/cli@latest swarm init --topology hierarchical --max-agents 8 --
 
 ### 3-Tier Model Routing
 
-| Tier | Handler | Use Cases |
-|------|---------|-----------|
-| 1 | Agent Booster (WASM) | Simple transforms — skip LLM, use Edit directly |
-| 2 | Haiku | Simple tasks, low complexity |
-| 3 | Sonnet/Opus | Architecture, security, complex reasoning |
+| Tier | Handler              | Use Cases                                       |
+| ---- | -------------------- | ----------------------------------------------- |
+| 1    | Agent Booster (WASM) | Simple transforms — skip LLM, use Edit directly |
+| 2    | Haiku                | Simple tasks, low complexity                    |
+| 3    | Sonnet/Opus          | Architecture, security, complex reasoning       |
 
 ## Memory & Learning
 
@@ -111,25 +132,25 @@ npx @claude-flow/cli@latest hooks post-task --task-id "[id]" --success true --st
 
 ### MCP Tools (use `ToolSearch("keyword")` to discover)
 
-| Category | Key Tools |
-|----------|-----------|
-| **Memory** | `memory_store`, `memory_search`, `memory_search_unified` |
-| **Bridge** | `memory_import_claude`, `memory_bridge_status` |
-| **Swarm** | `swarm_init`, `swarm_status`, `swarm_health` |
-| **Agents** | `agent_spawn`, `agent_list`, `agent_status` |
-| **Hooks** | `hooks_route`, `hooks_post-task`, `hooks_worker-dispatch` |
-| **Security** | `aidefence_scan`, `aidefence_is_safe`, `aidefence_has_pii` |
+| Category      | Key Tools                                                  |
+| ------------- | ---------------------------------------------------------- |
+| **Memory**    | `memory_store`, `memory_search`, `memory_search_unified`   |
+| **Bridge**    | `memory_import_claude`, `memory_bridge_status`             |
+| **Swarm**     | `swarm_init`, `swarm_status`, `swarm_health`               |
+| **Agents**    | `agent_spawn`, `agent_list`, `agent_status`                |
+| **Hooks**     | `hooks_route`, `hooks_post-task`, `hooks_worker-dispatch`  |
+| **Security**  | `aidefence_scan`, `aidefence_is_safe`, `aidefence_has_pii` |
 | **Hive-Mind** | `hive-mind_init`, `hive-mind_consensus`, `hive-mind_spawn` |
 
 ### Background Workers
 
-| Worker | When |
-|--------|------|
-| `audit` | After security changes |
+| Worker     | When                   |
+| ---------- | ---------------------- |
+| `audit`    | After security changes |
 | `optimize` | After performance work |
-| `testgaps` | After adding features |
-| `map` | Every 5+ file changes |
-| `document` | After API changes |
+| `testgaps` | After adding features  |
+| `map`      | Every 5+ file changes  |
+| `document` | After API changes      |
 
 ```bash
 npx @claude-flow/cli@latest hooks worker dispatch --trigger audit
@@ -185,11 +206,12 @@ npx ruflo@latest doctor --fix
 
 ## Project Map
 
-| Package | Purpose | Docs |
-|---------|---------|------|
+| Package                     | Purpose                                                                                       | Docs                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `packages/precommit-checks` | Deterministic pre-commit gate (GitNexus + ruflo + agentic review) running before every commit | [`packages/precommit-checks/CLAUDE.md`](packages/precommit-checks/CLAUDE.md) |
 
 <!-- gitnexus:start -->
+
 # GitNexus — Code Intelligence
 
 This project is indexed by GitNexus as **ruguin** (478 symbols, 603 relationships, 0 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
@@ -214,23 +236,23 @@ This project is indexed by GitNexus as **ruguin** (478 symbols, 603 relationship
 
 ## Resources
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/ruguin/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/ruguin/clusters` | All functional areas |
-| `gitnexus://repo/ruguin/processes` | All execution flows |
-| `gitnexus://repo/ruguin/process/{name}` | Step-by-step execution trace |
+| Resource                                | Use for                                  |
+| --------------------------------------- | ---------------------------------------- |
+| `gitnexus://repo/ruguin/context`        | Codebase overview, check index freshness |
+| `gitnexus://repo/ruguin/clusters`       | All functional areas                     |
+| `gitnexus://repo/ruguin/processes`      | All execution flows                      |
+| `gitnexus://repo/ruguin/process/{name}` | Step-by-step execution trace             |
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Task                                         | Read this skill file                                        |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md`       |
+| Blast radius / "What breaks if I change X?"  | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?"             | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md`       |
+| Rename / extract / split / refactor          | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md`     |
+| Tools, resources, schema reference           | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md`           |
+| Index, status, clean, wiki CLI commands      | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md`             |
 
 <!-- gitnexus:end -->
 
