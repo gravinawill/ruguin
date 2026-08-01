@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./nestjs": "./src/nestjs/index.ts"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -28,11 +29,29 @@
     "iovalkey": "^0.4.0"
   },
   "devDependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/core": "^11.0.1",
+    "@nestjs/terminus": "^11.1.1",
+    "@nestjs/testing": "^11.0.1",
     "@ruguin/eslint-config": "workspace:*",
     "@ruguin/typescript-config": "workspace:*",
     "@types/node": "^26.1.2",
     "npm-check-updates": "23.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
     "typescript": "6.0.3",
     "vitest": "^4.1.10"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^11.0.1",
+    "@nestjs/terminus": "^11.1.1"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/common": {
+      "optional": true
+    },
+    "@nestjs/terminus": {
+      "optional": true
+    }
   }
 }
