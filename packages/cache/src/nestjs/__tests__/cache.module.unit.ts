@@ -1,12 +1,12 @@
 import 'reflect-metadata'
 
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { describe, expect, it } from 'vitest'
 
 import { CacheConsistency, CacheDriver, type ICacheProvider, type IGetCacheProvider } from '../../domain'
 import { CacheModule } from '../cache.module'
-import { CACHE_PROVIDER, CONTRACT_TOKENS, GET_CACHE_PROVIDER } from '../cache.tokens'
+import { CACHE_PROVIDER, CONTRACT_TOKENS, GET_CACHE_PROVIDER, HEALTH_CHECK_PROVIDER } from '../cache.tokens'
 import { type CacheModuleFactoryOptions } from '../cache-module.options'
 import { InjectCache } from '../inject-cache.decorator'
 
@@ -96,5 +96,40 @@ describe('CacheModule.forRoot', () => {
     }).compile()
 
     await expect(compiling).rejects.toThrow('InvalidCacheConfigError')
+  })
+})
+
+@Module({ providers: [{ provide: 'PREFIX', useValue: 'ruguin:async' }], exports: ['PREFIX'] })
+class PrefixModule {}
+
+describe('CacheModule.forRootAsync', () => {
+  it('builds the provider from an injected factory', async () => {
+    const moduleReference = await Test.createTestingModule({
+      imports: [
+        CacheModule.forRootAsync({
+          imports: [PrefixModule],
+          inject: ['PREFIX'],
+          useFactory: (prefix: string) => baseOptions({ prefix })
+        })
+      ]
+    }).compile()
+
+    expect(moduleReference.get(HEALTH_CHECK_PROVIDER)).toBe(moduleReference.get(CACHE_PROVIDER))
+
+    await moduleReference.close()
+  })
+
+  it('accepts an async factory and honours isGlobal', async () => {
+    const definition = CacheModule.forRootAsync({
+      isGlobal: true,
+      useFactory: () => Promise.resolve(baseOptions())
+    })
+
+    expect(definition.global).toBe(true)
+
+    const moduleReference = await Test.createTestingModule({ imports: [definition] }).compile()
+    expect(moduleReference.get(CACHE_PROVIDER)).toBeDefined()
+
+    await moduleReference.close()
   })
 })
