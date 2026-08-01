@@ -67,6 +67,21 @@ function realExec(command: string, arguments_: string[]) {
   }
 }
 
+/**
+ * Resolves the real git directory via `git rev-parse --git-dir`, instead of assuming
+ * `<repoRoot>/.git` is always a directory. Inside a git worktree, `.git` is a plain text
+ * pointer file (not a directory), so writing to `resolve(repoRoot, '.git/...')` throws
+ * ENOTDIR. `git rev-parse --git-dir` returns the correct path in both cases — e.g.
+ * `/main-repo/.git/worktrees/<name>` for a worktree — and per git's own docs/behavior it
+ * may be relative to the cwd it was invoked from, so it's resolved against `repoRoot` here
+ * (a no-op when the returned path is already absolute, since `path.resolve` discards
+ * earlier segments once it hits an absolute one).
+ */
+export function resolveGitDirectory(exec: ExecFn, repoRoot: string): string {
+  const { stdout } = exec('git', ['rev-parse', '--git-dir'])
+  return path.resolve(repoRoot, stdout.trim())
+}
+
 function main(): void {
   const repoRoot = process.cwd()
 
@@ -74,6 +89,8 @@ function main(): void {
   const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only'], { encoding: 'utf8' })
     .split('\n')
     .filter(Boolean)
+
+  const gitDirectory = resolveGitDirectory(realExec, repoRoot)
 
   const baselinePath = path.resolve(repoRoot, '.claude/pre-commit-baseline.json')
   const baseline = readBaseline(baselinePath)
@@ -91,7 +108,7 @@ function main(): void {
     execFileSync('git', ['add', baselinePath])
   }
 
-  writeFileSync(path.resolve(repoRoot, '.git/.claude-precommit-report.json'), JSON.stringify(report, null, 2))
+  writeFileSync(path.resolve(gitDirectory, '.claude-precommit-report.json'), JSON.stringify(report, null, 2))
 
   if (warnings.length > 0) {
     console.warn(`⚠ ${warnings.length} check(s) skipped (tool unavailable):\n${warnings.join('\n')}`)
