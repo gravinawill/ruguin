@@ -8,7 +8,7 @@ import { computeDiffHash, type PrecommitState, readState, writeState } from './l
 type DecideGateInput = {
   diffHash: string
   state: PrecommitState | null
-  runDeterministicChecks: () => { pass: boolean; findings: string[] }
+  runDeterministicChecks: () => { pass: boolean; findings: string[]; diffHashAfterChecks: string }
 }
 
 export function decideGate({ diffHash, state, runDeterministicChecks }: DecideGateInput): {
@@ -19,9 +19,21 @@ export function decideGate({ diffHash, state, runDeterministicChecks }: DecideGa
   const isFreshForThisDiff = state?.diffHash === diffHash
 
   if (!isFreshForThisDiff) {
-    const { pass, findings } = runDeterministicChecks()
+    /*
+     * `diffHashAfterChecks` (not the outer `diffHash` param) is what gets persisted below.
+     * Running the deterministic checks can itself mutate the staged diff — e.g.
+     * `pre-commit-checks.ts`'s own `main()` runs `git add` on an updated baseline file when
+     * its checks pass — so the hash captured before calling `runDeterministicChecks()` can be
+     * stale by the time this function returns. Persisting the pre-check hash caused
+     * `mark-review-done.ts` (which independently recomputes its own fresh hash from the
+     * CURRENT `git diff --cached`) to see a permanent mismatch and reject every review,
+     * even when nothing the user/Claude did actually changed. `diffHash` itself is still used
+     * above, unmodified, purely to detect staleness against the *previous* run's already
+     * post-check hash — that comparison is unaffected by this run's own side effects.
+     */
+    const { pass, findings, diffHashAfterChecks } = runDeterministicChecks()
     const nextState: PrecommitState = {
-      diffHash,
+      diffHash: diffHashAfterChecks,
       deterministic: pass ? 'pass' : 'fail',
       agenticReviewDone: false,
       overrideApproved: false
@@ -68,26 +80,39 @@ export function decideGate({ diffHash, state, runDeterministicChecks }: DecideGa
  * does on any blocking finding) — the thrown error still carries `stdout`/`stderr`, same as
  * `realExec` (see `./lib/git`), so both the pass and fail paths are handled without an
  * uncaught exception crashing this script.
+ *
+ * Also recomputes and returns `diffHashAfterChecks`: `pre-commit-checks.ts`'s own `main()`
+ * stages an updated `.claude/pre-commit-baseline.json` via `git add` when its checks pass,
+ * mutating `git diff --cached` as a side effect of this very call. Recomputed unconditionally
+ * (not only on pass) so this stays correct even if a future change adds a side effect on the
+ * failure path too.
  */
-function runDeterministicChecksSubprocess(): { pass: boolean; findings: string[] } {
+function runDeterministicChecksSubprocess(): { pass: boolean; findings: string[]; diffHashAfterChecks: string } {
   const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
   const preCommitChecksPath = path.resolve(currentDirectory, 'pre-commit-checks.ts')
 
-  try {
-    // eslint-disable-next-line sonarjs/no-os-command-from-path -- `npx`/`tsx` resolve via PATH by design; trusted, well-known project tooling, not user input.
-    const stdout = execFileSync('npx', ['tsx', preCommitChecksPath], { encoding: 'utf8' })
-    return { pass: stdout.includes('PRECOMMIT_RESULT=PASS'), findings: [] }
-  } catch (error) {
-    const execError = error as { stdout?: string; stderr?: string }
-    /*
-     * stderr carries the actual `✖ Pre-commit checks failed:\n<findings>` text (see
-     * pre-commit-checks.ts's `console.error`); stdout only carries the PRECOMMIT_RESULT marker.
-     * Both are included so nothing useful is dropped, with String(error) as an ultimate fallback
-     * for the (unexpected) case where the child process produced neither.
-     */
-    const output = [execError.stdout, execError.stderr].filter(Boolean).join('\n') || String(error)
-    return { pass: false, findings: [output] }
-  }
+  const result = ((): { pass: boolean; findings: string[] } => {
+    try {
+      // eslint-disable-next-line sonarjs/no-os-command-from-path -- `npx`/`tsx` resolve via PATH by design; trusted, well-known project tooling, not user input.
+      const stdout = execFileSync('npx', ['tsx', preCommitChecksPath], { encoding: 'utf8' })
+      return { pass: stdout.includes('PRECOMMIT_RESULT=PASS'), findings: [] }
+    } catch (error) {
+      const execError = error as { stdout?: string; stderr?: string }
+      /*
+       * stderr carries the actual `✖ Pre-commit checks failed:\n<findings>` text (see
+       * pre-commit-checks.ts's `console.error`); stdout only carries the PRECOMMIT_RESULT
+       * marker. Both are included so nothing useful is dropped, with String(error) as an
+       * ultimate fallback for the (unexpected) case where the child process produced neither.
+       */
+      const output = [execError.stdout, execError.stderr].filter(Boolean).join('\n') || String(error)
+      return { pass: false, findings: [output] }
+    }
+  })()
+
+  // eslint-disable-next-line sonarjs/no-os-command-from-path -- `git` resolves via PATH by design; trusted, well-known project tool, not user input.
+  const diffTextAfterChecks = execFileSync('git', ['diff', '--cached'], { encoding: 'utf8' })
+
+  return { ...result, diffHashAfterChecks: computeDiffHash(diffTextAfterChecks) }
 }
 
 function main(): void {
