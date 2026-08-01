@@ -2,8 +2,8 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { realExec, resolveGitDirectory } from './lib/git'
 import { computeDiffHash, type PrecommitState, readState, writeState } from './lib/precommit-state'
-import { resolveGitDirectory } from './pre-commit-checks'
 
 type DecideGateInput = {
   diffHash: string
@@ -58,16 +58,6 @@ export function decideGate({ diffHash, state, runDeterministicChecks }: DecideGa
   }
 }
 
-function realExec(command: string, arguments_: string[]) {
-  try {
-    const stdout = execFileSync(command, arguments_, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-    return { status: 0, stdout, stderr: '' }
-  } catch (error) {
-    const execError = error as { status?: number; stdout?: string; stderr?: string }
-    return { status: execError.status ?? 1, stdout: execError.stdout ?? '', stderr: execError.stderr ?? String(error) }
-  }
-}
-
 /**
  * Runs `pre-commit-checks.ts` as a subprocess and interprets its `PRECOMMIT_RESULT=PASS|FAIL`
  * marker line. Resolved via `import.meta.url` (a sibling of this file) rather than a path
@@ -76,8 +66,8 @@ function realExec(command: string, arguments_: string[]) {
  *
  * `execFileSync` throws when the child process exits non-zero (which `pre-commit-checks.ts`
  * does on any blocking finding) — the thrown error still carries `stdout`/`stderr`, same as
- * `realExec` above, so both the pass and fail paths are handled without an uncaught exception
- * crashing this script.
+ * `realExec` (see `./lib/git`), so both the pass and fail paths are handled without an
+ * uncaught exception crashing this script.
  */
 function runDeterministicChecksSubprocess(): { pass: boolean; findings: string[] } {
   const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
