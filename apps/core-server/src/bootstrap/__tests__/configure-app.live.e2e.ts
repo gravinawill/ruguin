@@ -7,9 +7,16 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { AppModule } from '../../app.module'
 import { configureApp } from '../configure-app'
 
+/*
+ * AppModule now registers CacheModule, and @ruguin/env validates the cache schema at import time —
+ * so these have to be in place before the module graph is built, which is what vi.hoisted buys.
+ * The memory driver keeps this suite free of Docker; the Valkey-backed behaviour has its own suite.
+ */
 vi.hoisted(() => {
   process.env.DOCS_USERNAME = 'test-docs-user'
   process.env.DOCS_PASSWORD = 'test-docs-pass'
+  process.env.CACHE_PREFIX = 'ruguin:e2e'
+  process.env.CACHE_DRIVER = 'memory'
 })
 
 const VALID_CREDENTIALS = `Basic ${Buffer.from('test-docs-user:test-docs-pass').toString('base64')}`
