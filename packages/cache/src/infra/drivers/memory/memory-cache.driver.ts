@@ -112,7 +112,10 @@ export class MemoryCacheDriver implements ICacheDriver {
     const serialized = this.serializer.serialize({ value: input.value })
     if (serialized.isFailure()) return Promise.resolve(failure(serialized.value))
 
-    const ttlInMs: number = this.effectiveTtl({ ttlInMs: input.ttlInMs, applyJitter: input.applyJitter })
+    const ttlInMs: number = this.effectiveTtl({
+      ...(input.ttlInMs !== undefined && { ttlInMs: input.ttlInMs }),
+      ...(input.applyJitter !== undefined && { applyJitter: input.applyJitter })
+    })
     this.store.setValue({ key: key.value, serialized: serialized.value.serialized, ttlInMs })
 
     const expiresAt: Date = new Date(Date.now() + ttlInMs)
@@ -150,7 +153,11 @@ export class MemoryCacheDriver implements ICacheDriver {
     return Promise.resolve(
       success({
         // The store anchors this expiry to the first increment, which is what windowInMs means.
-        value: this.store.incrementCounter({ key: key.value, by: input.by ?? 1, ttlInMs: input.windowInMs })
+        value: this.store.incrementCounter({
+          key: key.value,
+          by: input.by ?? 1,
+          ...(input.windowInMs !== undefined && { ttlInMs: input.windowInMs })
+        })
       })
     )
   }
@@ -247,7 +254,7 @@ export class MemoryCacheDriver implements ICacheDriver {
           key: key.value,
           member: input.member,
           score: input.score,
-          ttlInMs: input.ttlInMs
+          ...(input.ttlInMs !== undefined && { ttlInMs: input.ttlInMs })
         })
       })
     )
@@ -263,7 +270,7 @@ export class MemoryCacheDriver implements ICacheDriver {
           key: key.value,
           member: input.member,
           by: input.by,
-          ttlInMs: input.ttlInMs
+          ...(input.ttlInMs !== undefined && { ttlInMs: input.ttlInMs })
         })
       })
     )
@@ -289,7 +296,11 @@ export class MemoryCacheDriver implements ICacheDriver {
 
     return Promise.resolve(
       success({
-        entries: this.store.getTopScores({ key: key.value, limit: input.limit, offset: input.offset })
+        entries: this.store.getTopScores({
+          key: key.value,
+          limit: input.limit,
+          ...(input.offset !== undefined && { offset: input.offset })
+        })
       })
     )
   }
