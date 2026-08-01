@@ -2,9 +2,16 @@ import 'reflect-metadata'
 
 import { Inject, Injectable, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
-import { describe, expect, it } from 'vitest'
+import { failure } from '@ruguin/utils'
+import { describe, expect, it, vi } from 'vitest'
 
-import { CacheConsistency, CacheDriver, type ICacheProvider, type IGetCacheProvider } from '../../domain'
+import {
+  CacheConnectionError,
+  CacheConsistency,
+  CacheDriver,
+  type ICacheProvider,
+  type IGetCacheProvider
+} from '../../domain'
 import { CacheModule } from '../cache.module'
 import { CACHE_PROVIDER, CONTRACT_TOKENS, GET_CACHE_PROVIDER, HEALTH_CHECK_PROVIDER } from '../cache.tokens'
 import { type CacheModuleFactoryOptions } from '../cache-module.options'
@@ -96,6 +103,35 @@ describe('CacheModule.forRoot', () => {
     }).compile()
 
     await expect(compiling).rejects.toThrow('InvalidCacheConfigError')
+  })
+
+  it('connects on module init and disconnects on shutdown', async () => {
+    const moduleReference = await Test.createTestingModule({ imports: [CacheModule.forRoot(baseOptions())] }).compile()
+
+    const cache = moduleReference.get<ICacheProvider>(CACHE_PROVIDER)
+    const connect = vi.spyOn(cache, 'connect')
+    const disconnect = vi.spyOn(cache, 'disconnect')
+
+    await moduleReference.init()
+    expect(connect).toHaveBeenCalledTimes(1)
+
+    await moduleReference.close()
+    expect(disconnect).toHaveBeenCalledTimes(1)
+  })
+
+  /*
+   * The premise of the whole fail-open design: a cache that cannot be reached degrades the service,
+   * it does not stop it. If this ever starts rejecting, a Valkey outage becomes an API outage.
+   */
+  it('boots even when connect fails', async () => {
+    const moduleReference = await Test.createTestingModule({ imports: [CacheModule.forRoot(baseOptions())] }).compile()
+
+    const cache = moduleReference.get<ICacheProvider>(CACHE_PROVIDER)
+    vi.spyOn(cache, 'connect').mockResolvedValue(failure(new CacheConnectionError({ operation: 'connect' })))
+
+    await expect(moduleReference.init()).resolves.toBeDefined()
+
+    await moduleReference.close()
   })
 })
 
