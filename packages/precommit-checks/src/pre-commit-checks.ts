@@ -3,6 +3,7 @@ import type { ExecFn } from './lib/gitnexus-checks'
 import { execFileSync } from 'node:child_process'
 import { existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { type Baseline, readBaseline, writeBaseline } from './lib/baseline'
 import { runCycleCheck, runDetectChanges, runImpactForSymbol } from './lib/gitnexus-checks'
@@ -125,6 +126,17 @@ function main(): void {
   process.exit(0)
 }
 
-if (existsSync('.git') && !process.env.VITEST) {
+/*
+ * `claude-precommit-gate.ts` imports `resolveGitDirectory` from this module. Without this
+ * check, evaluating that import would also run the guard below purely as a side effect of
+ * module evaluation (ESM top-level code runs once on first import, regardless of who imports
+ * it) — triggering this file's own `main()` and `process.exit()` before the importer's own
+ * `main()` ever gets a chance to run. Comparing `import.meta.url` against `process.argv[1]`
+ * restricts the auto-run to only when this file is the directly-executed entrypoint (e.g. via
+ * `npx tsx src/pre-commit-checks.ts` from Husky), not merely imported for its exports.
+ */
+const isDirectlyExecuted = process.argv[1] != null && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+
+if (isDirectlyExecuted && existsSync('.git') && !process.env.VITEST) {
   main()
 }
