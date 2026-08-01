@@ -31,6 +31,7 @@ describe('runSecretsScan', () => {
     const exec = vi.fn()
     const result = runSecretsScan(exec, [])
     expect(result.blocking).toBe(false)
+    expect(result.warning).toBe(false)
     expect(exec).not.toHaveBeenCalled()
   })
 
@@ -38,6 +39,8 @@ describe('runSecretsScan', () => {
     const exec = vi.fn().mockReturnValue({ status: 0, stdout: 'Scanned 1 file\n\nNo secrets detected.\n', stderr: '' })
     const result = runSecretsScan(exec, ['src/a.ts', 'src/b.ts'])
     expect(result.blocking).toBe(false)
+    expect(result.warning).toBe(false)
+    expect(result.message).toBe('No secrets detected.')
     expect(exec).toHaveBeenCalledTimes(2)
   })
 
@@ -52,15 +55,30 @@ describe('runSecretsScan', () => {
       })
     const result = runSecretsScan(exec, ['src/a.ts', 'src/b.ts'])
     expect(result.blocking).toBe(true)
+    expect(result.warning).toBe(false)
     expect(exec).toHaveBeenCalledTimes(2)
   })
 
-  it('does not block when the tool is unavailable', () => {
+  it('warns (does not block) when the tool is unavailable', () => {
     const exec = vi.fn().mockReturnValue({ status: 1, stdout: '', stderr: 'tool not found' })
     const result = runSecretsScan(exec, ['src/a.ts'])
     expect(result.blocking).toBe(false)
-    // Tool error messages are still generated, so exec is called
+    expect(result.warning).toBe(true)
+    expect(result.message).toContain('Unable to scan')
+    expect(result.message).toContain('tool not found')
     expect(exec).toHaveBeenCalled()
+  })
+
+  it('warns when some files scan successfully and others fail', () => {
+    const exec = vi
+      .fn()
+      .mockReturnValueOnce({ status: 1, stdout: '', stderr: 'connection error' })
+      .mockReturnValueOnce({ status: 0, stdout: 'Scanned 1 file\n\nNo secrets detected.\n', stderr: '' })
+    const result = runSecretsScan(exec, ['src/a.ts', 'src/b.ts'])
+    expect(result.blocking).toBe(false)
+    expect(result.warning).toBe(true)
+    expect(result.message).toContain('Unable to scan src/a.ts')
+    expect(exec).toHaveBeenCalledTimes(2)
   })
 })
 

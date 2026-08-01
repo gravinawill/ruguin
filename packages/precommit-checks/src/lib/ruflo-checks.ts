@@ -40,6 +40,7 @@ export function runSecretsScan(exec: ExecFn, stagedFiles: string[]): CheckResult
 
   const allMessages: string[] = []
   let hasSecrets = false
+  let hasErrors = false
 
   // Scan each staged file individually to avoid detecting pre-existing repo-wide secrets
   for (const file of stagedFiles) {
@@ -54,7 +55,8 @@ export function runSecretsScan(exec: ExecFn, stagedFiles: string[]): CheckResult
     ])
 
     if (status !== 0 && !stdout) {
-      // Tool unavailable, but don't block on this single file — continue scanning others
+      // Tool unavailable for this file — track error but continue scanning others
+      hasErrors = true
       allMessages.push(`⚠ Unable to scan ${file}: ${stderr || 'no output'}`)
       continue
     }
@@ -66,8 +68,13 @@ export function runSecretsScan(exec: ExecFn, stagedFiles: string[]): CheckResult
     }
   }
 
+  // Block if any secrets found; warn if any scan failed; else clean pass
   if (hasSecrets) {
     return { blocking: true, warning: false, message: allMessages.join('\n\n') }
+  }
+
+  if (hasErrors) {
+    return { blocking: false, warning: true, message: allMessages.join('\n\n') }
   }
 
   return { blocking: false, warning: false, message: 'No secrets detected.' }
