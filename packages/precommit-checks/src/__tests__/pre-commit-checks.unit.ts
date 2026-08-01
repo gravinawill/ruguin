@@ -58,4 +58,22 @@ describe('runAllChecks', () => {
       expect.arrayContaining(['symbols', 'imports', 'boundaries', 'modules', 'ast', 'deps'])
     )
   })
+
+  it('returns current complexity/dependencies metrics for staged files when it passes', () => {
+    const exec = execReturning({
+      ...CLEAN_MAPPING,
+      'analyze complexity': {
+        status: 0,
+        stdout: '{"files":[{"file":"/repo/src/a.ts","cyclomatic":3,"cognitive":2}],"summary":{}}'
+      },
+      'analyze dependencies': {
+        status: 0,
+        stdout: '{"nodes":[],"edges":[{"source":"src/a.ts","target":"src/b.ts"}]}'
+      }
+    })
+    const result = runAllChecks(exec, '/repo', ['src/a.ts'], EMPTY_BASELINE)
+    expect(result.pass).toBe(true)
+    expect(result.currentMetrics.complexity).toEqual({ 'src/a.ts': { cyclomatic: 3, cognitive: 2 } })
+    expect(result.currentMetrics.dependencies).toEqual({ 'src/a.ts': { connections: 1 } })
+  })
 })
