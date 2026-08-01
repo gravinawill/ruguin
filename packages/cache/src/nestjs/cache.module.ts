@@ -5,7 +5,11 @@ import { type ICacheProvider } from '../domain'
 import { CacheFactory } from '../factory'
 
 import { CACHE_MODULE_OPTIONS, CACHE_PROVIDER, CONTRACT_TOKENS } from './cache.tokens'
-import { type CacheModuleFactoryOptions, type CacheModuleOptions } from './cache-module.options'
+import {
+  type CacheModuleAsyncOptions,
+  type CacheModuleFactoryOptions,
+  type CacheModuleOptions
+} from './cache-module.options'
 
 const LOGGER_CONTEXT = 'CacheModule'
 
@@ -52,6 +56,20 @@ export class CacheModule {
       module: this,
       providers: [
         { provide: CACHE_MODULE_OPTIONS, useValue: factoryOptions },
+        buildCacheProvider(),
+        ...buildContractAliases()
+      ]
+    }
+  }
+
+  public static forRootAsync(options: CacheModuleAsyncOptions): DynamicModule {
+    return {
+      exports: [CACHE_PROVIDER, ...CONTRACT_TOKENS],
+      global: options.isGlobal ?? false,
+      imports: options.imports ?? [],
+      module: this,
+      providers: [
+        { provide: CACHE_MODULE_OPTIONS, useFactory: options.useFactory, inject: options.inject ?? [] },
         buildCacheProvider(),
         ...buildContractAliases()
       ]
