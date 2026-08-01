@@ -611,17 +611,23 @@ A obrigatoriedade condicional de `CACHE_MASTER_URL` usa um refinement no schema 
 
 ```ts
 // apps/core-server/src/app.module.ts
-CacheModule.forRoot({ isGlobal: true })
+CacheModule.forRoot({ ...createCacheModuleOptions(), isGlobal: true })
 ```
+
+As opções do módulo são a configuração completa da `CacheFactory` mais `isGlobal`. Não há default para `prefix` nem para os TTLs: o mapeamento de variáveis de ambiente para configuração vive no **consumidor** (`createCacheModuleOptions`, no `core-server`), não no pacote. Puxar `@ruguin/env` para dentro do `@ruguin/cache` decidiria por todo consumidor futuro que a configuração vem de variáveis de ambiente — exatamente o acoplamento que manter o núcleo livre de `process.env` evita.
+
+`onCacheError` é o único campo opcional, com default para o `Logger` do Nest.
 
 - `forRoot(options)` / `forRootAsync(options)`, com `isGlobal` opcional.
 - Registra um provider por contrato sob tokens `Symbol` (`GET_CACHE_PROVIDER`, `CACHE_PROVIDER`, …), todos resolvendo para a mesma instância produzida pela `CacheFactory`. Consumidores escolhem o nível de acoplamento no ponto de injeção.
-- `onModuleInit` chama `connect()`; `onApplicationShutdown` chama `disconnect()`.
+- `onModuleInit` chama `connect()`; `onApplicationShutdown` chama `disconnect()`. Uma falha em `connect()` **não** derruba o boot: lançar ali transformaria uma queda do Valkey em queda da API, que é precisamente o que o fail-open e o circuit breaker existem para impedir. Configuração inválida, ao contrário, lança — é erro de programação, não indisponibilidade.
 - `@InjectCache()` é açúcar para `@Inject(CACHE_PROVIDER)`.
 
 ### 10.1 Health indicator
 
-`CacheHealthIndicator` estende `HealthIndicator` do `@nestjs/terminus` e converte o resultado de `healthCheck()` no formato do Terminus. `HealthController` passa de `this.health.check([])` para:
+`CacheHealthIndicator` converte o resultado de `healthCheck()` no formato do Terminus, mas **não estende `HealthIndicator`** — essa classe está deprecada no Terminus 11, e este repo tem `sonarjs/deprecation` e `@typescript-eslint/no-deprecated` ligados, o que torna estendê-la um erro de lint.
+
+O substituto oficial, `HealthIndicatorService`, é pior aqui: seria **injetado**, e o pnpm dá ao `@ruguin/cache` uma cópia própria do Terminus — a classe que o pacote pede não é a mesma instância que o `TerminusModule` provê no app, e o Nest recusa resolver a dependência. Como o executor do Terminus só lê `status` do objeto devolvido pela função indicadora, montar o `HealthIndicatorResult` à mão são três linhas e elimina o acoplamento de runtime. `@nestjs/terminus` entra apenas como **tipo**. `HealthController` passa de `this.health.check([])` para:
 
 ```ts
 this.health.check([() => this.cacheHealth.isHealthy('cache')])
