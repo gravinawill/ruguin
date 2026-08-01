@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./cache": "./src/packages/cache.environment.ts",
     "./docs": "./src/packages/docs.environment.ts"
   },
   "main": "./src/index.ts",
