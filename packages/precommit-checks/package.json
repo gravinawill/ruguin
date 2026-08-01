@@ -9,6 +9,9 @@
   "scripts": {
     "check:lint": "eslint . --max-warnings 0",
     "check:types": "tsc --noEmit --pretty",
+    "clean": "rm -rf .claude-flow .swarm .superpowers .remember .gitnexus .turbo coverage node_modules dist build",
+    "fix:lint": "eslint --fix .",
+    "test:all": "vitest run",
     "test:unit": "vitest run"
   },
   "devDependencies": {
