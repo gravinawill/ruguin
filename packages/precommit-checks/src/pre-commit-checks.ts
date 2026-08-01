@@ -1,8 +1,10 @@
+import type { ExecFn } from './lib/gitnexus-checks'
+
 import { execFileSync } from 'node:child_process'
 import { existsSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import path from 'node:path'
+
 import { type Baseline, readBaseline } from './lib/baseline'
-import type { ExecFn } from './lib/gitnexus-checks'
 import { runCycleCheck, runDetectChanges, runImpactForSymbol } from './lib/gitnexus-checks'
 import {
   runComplexityRegression,
@@ -27,7 +29,8 @@ export function runAllChecks(exec: ExecFn, repoRoot: string, stagedFiles: string
 
   const { result: detectChangesResult, changedSymbols } = runDetectChanges(exec)
   record(detectChangesResult)
-  for (const symbol of new Set(changedSymbols)) {
+  const uniqueChangedSymbols = new Set(changedSymbols)
+  for (const symbol of uniqueChangedSymbols) {
     record(runImpactForSymbol(exec, symbol))
   }
 
@@ -45,9 +48,9 @@ export function runAllChecks(exec: ExecFn, repoRoot: string, stagedFiles: string
   return { pass: findings.length === 0, findings, warnings, report }
 }
 
-function realExec(command: string, args: string[]) {
+function realExec(command: string, arguments_: string[]) {
   try {
-    const stdout = execFileSync(command, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    const stdout = execFileSync(command, arguments_, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
     return { status: 0, stdout, stderr: '' }
   } catch (error) {
     const execError = error as { status?: number; stdout?: string; stderr?: string }
@@ -57,16 +60,18 @@ function realExec(command: string, args: string[]) {
 
 function main(): void {
   const repoRoot = process.cwd()
+
+  // eslint-disable-next-line sonarjs/no-os-command-from-path -- `git` resolves via PATH by design; trusted, well-known project tool, not user input.
   const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only'], { encoding: 'utf8' })
     .split('\n')
     .filter(Boolean)
 
-  const baselinePath = resolve(repoRoot, '.claude/pre-commit-baseline.json')
+  const baselinePath = path.resolve(repoRoot, '.claude/pre-commit-baseline.json')
   const baseline = readBaseline(baselinePath)
 
   const { pass, findings, warnings, report } = runAllChecks(realExec, repoRoot, stagedFiles, baseline)
 
-  writeFileSync(resolve(repoRoot, '.git/.claude-precommit-report.json'), JSON.stringify(report, null, 2))
+  writeFileSync(path.resolve(repoRoot, '.git/.claude-precommit-report.json'), JSON.stringify(report, null, 2))
 
   if (warnings.length > 0) {
     console.warn(`⚠ ${warnings.length} check(s) skipped (tool unavailable):\n${warnings.join('\n')}`)

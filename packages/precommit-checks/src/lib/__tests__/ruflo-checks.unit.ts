@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
 import type { Baseline } from '../baseline'
+
+import { describe, expect, it, vi } from 'vitest'
+
 import {
   runComplexityRegression,
   runDependenciesRegression,
@@ -33,13 +35,11 @@ describe('runSecretsScan', () => {
   })
 
   it('blocks when the pass message is absent', () => {
-    const exec = vi
-      .fn()
-      .mockReturnValue({
-        status: 0,
-        stdout: 'Scanned 10 files\n\n1 potential secret found in src/config.ts',
-        stderr: ''
-      })
+    const exec = vi.fn().mockReturnValue({
+      status: 0,
+      stdout: 'Scanned 10 files\n\n1 potential secret found in src/config.ts',
+      stderr: ''
+    })
     expect(runSecretsScan(exec).blocking).toBe(true)
   })
 })

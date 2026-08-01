@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import path from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+
 import { computeDiffHash, readState, writeState } from '../precommit-state'
 
 describe('computeDiffHash', () => {
@@ -15,16 +17,16 @@ describe('computeDiffHash', () => {
 })
 
 describe('readState / writeState', () => {
-  let dir: string
+  let directory: string
   let statePath: string
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'precommit-state-'))
-    statePath = join(dir, 'state.json')
+    directory = mkdtempSync(path.join(tmpdir(), 'precommit-state-'))
+    statePath = path.join(directory, 'state.json')
   })
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true })
+    rmSync(directory, { recursive: true, force: true })
   })
 
   it('returns null when the file does not exist', () => {

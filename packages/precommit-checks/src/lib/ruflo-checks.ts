@@ -1,7 +1,9 @@
-import { resolve } from 'node:path'
+import type { CheckResult, ExecFn } from './gitnexus-checks'
+
+import path from 'node:path'
+
 import { type Baseline, complexityRegressed, dependenciesRegressed } from './baseline'
 import { extractJson } from './extract-json'
-import type { CheckResult, ExecFn } from './gitnexus-checks'
 
 const RUFLO = 'npx'
 const RUFLO_ARGS_PREFIX = ['@claude-flow/cli@latest']
@@ -57,14 +59,16 @@ export function runComplexityRegression(
 ): CheckResult {
   const { status, stdout, stderr } = exec(RUFLO, [...RUFLO_ARGS_PREFIX, 'analyze', 'complexity', '--format', 'json'])
 
-  const parsed = extractJson(stdout) as { files?: { file: string; cyclomatic: number; cognitive: number }[] } | null
+  const parsed = extractJson(stdout) as {
+    files?: Array<{ file: string; cyclomatic: number; cognitive: number }>
+  } | null
   if (status !== 0 || !parsed) {
     return { blocking: false, warning: true, message: `ruflo analyze complexity unavailable: ${stderr || 'no output'}` }
   }
 
   const byAbsolutePath = new Map((parsed.files ?? []).map((entry) => [entry.file, entry]))
   const regressions = stagedFiles.filter((relativePath) => {
-    const entry = byAbsolutePath.get(resolve(repoRoot, relativePath))
+    const entry = byAbsolutePath.get(path.resolve(repoRoot, relativePath))
     if (!entry) return false
     return complexityRegressed(baseline, relativePath, { cyclomatic: entry.cyclomatic, cognitive: entry.cognitive })
   })
@@ -79,7 +83,7 @@ export function runComplexityRegression(
 export function runDependenciesRegression(exec: ExecFn, stagedFiles: string[], baseline: Baseline): CheckResult {
   const { status, stdout, stderr } = exec(RUFLO, [...RUFLO_ARGS_PREFIX, 'analyze', 'dependencies', '--format', 'json'])
 
-  const parsed = extractJson(stdout) as { edges?: { source: string; target: string }[] } | null
+  const parsed = extractJson(stdout) as { edges?: Array<{ source: string; target: string }> } | null
   if (status !== 0 || !parsed) {
     return {
       blocking: false,
@@ -102,7 +106,7 @@ export function runDependenciesRegression(exec: ExecFn, stagedFiles: string[], b
   }
 }
 
-export function runReportOnly(exec: ExecFn, subcommand: string): { subcommand: string; output: unknown | string } {
+export function runReportOnly(exec: ExecFn, subcommand: string): { subcommand: string; output: unknown } {
   const { stdout } = exec(RUFLO, [...RUFLO_ARGS_PREFIX, 'analyze', subcommand, '--format', 'json'])
 
   const parsed = extractJson(stdout)

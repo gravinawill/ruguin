@@ -1,4 +1,4 @@
-export function extractJson(stdout: string): unknown | null {
+export function extractJson(stdout: string): unknown {
   const objectStart = stdout.indexOf('{')
   const arrayStart = stdout.indexOf('[')
 
