@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+
 import { runAllChecks } from '../pre-commit-checks'
 
 function execReturning(mapping: Record<string, { status: number; stdout: string; stderr?: string }>) {
-  return vi.fn((_command: string, args: string[]) => {
-    const key = args.join(' ')
+  return vi.fn((_command: string, arguments_: string[]) => {
+    const key = arguments_.join(' ')
     const match = Object.entries(mapping).find(([pattern]) => key.includes(pattern))
     if (!match) return { status: 0, stdout: '', stderr: '' }
     return { status: match[1].status, stdout: match[1].stdout, stderr: match[1].stderr ?? '' }

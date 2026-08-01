@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import path from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+
 import { complexityRegressed, dependenciesRegressed, readBaseline, writeBaseline } from '../baseline'
 
 describe('readBaseline', () => {
@@ -11,15 +13,17 @@ describe('readBaseline', () => {
 })
 
 describe('readBaseline / writeBaseline round-trip', () => {
-  let dir: string
-  let path: string
+  let directory: string
+  let baselinePath: string
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'baseline-'))
-    path = join(dir, 'baseline.json')
+    directory = mkdtempSync(path.join(tmpdir(), 'baseline-'))
+    baselinePath = path.join(directory, 'baseline.json')
   })
 
-  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true })
+  })
 
   it('round-trips', () => {
     const baseline = {
@@ -27,8 +31,8 @@ describe('readBaseline / writeBaseline round-trip', () => {
       complexity: { 'src/a.ts': { cyclomatic: 3, cognitive: 2 } },
       dependencies: { 'src/a.ts': { connections: 4 } }
     }
-    writeBaseline(path, baseline)
-    expect(readBaseline(path)).toEqual(baseline)
+    writeBaseline(baselinePath, baseline)
+    expect(readBaseline(baselinePath)).toEqual(baseline)
   })
 })
 

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+
 import { runCycleCheck, runDetectChanges, runImpactForSymbol } from '../gitnexus-checks'
 
 describe('runCycleCheck', () => {
