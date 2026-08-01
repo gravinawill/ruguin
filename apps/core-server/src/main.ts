@@ -10,5 +10,11 @@ const app = await NestFactory.create<NestFastifyApplication>(AppModule, new Fast
   bufferLogs: true
 })
 app.useLogger(app.get(Logger))
+/*
+ * Without this, onApplicationShutdown only runs for an explicit app.close(); a SIGTERM from the
+ * orchestrator would kill the process with the Valkey sockets still open, and the server would see
+ * the client disappear rather than quit.
+ */
+app.enableShutdownHooks()
 await configureApp(app)
 await app.listen(process.env.PORT ?? 3000, '0.0.0.0')

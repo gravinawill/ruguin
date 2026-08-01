@@ -29,7 +29,8 @@ src/
     decorators/   # observable(resilient(driver)) — spans and circuit breaker over ICacheDriver
   factory/
     cache.factory.ts   # the single composition root: picks the driver, applies the decorators
-  index.ts        # barrel: application, domain, infra
+  nestjs/         # optional adapter behind the ./nestjs export: CacheModule, tokens, health indicator
+  index.ts        # barrel: application, domain, infra — the framework-agnostic surface
 ```
 
 ## Rules
@@ -59,6 +60,17 @@ src/
 - Os decorators envolvem `ICacheDriver`, nao `ICacheProvider`. E isso que faz o `getOrSet`
   enxergar o breaker: circuito aberto vira miss instantaneo e o cache-aside vai ao loader sem
   pagar timeout.
+- O adapter NestJS mora atrás do export `./nestjs`, com `@nestjs/common` e `@nestjs/terminus` como
+  peers **opcionais**: o barrel raiz continua consumível por um worker sem NestJS. Nada do Terminus
+  é injetado dentro do pacote — o pnpm dá a ele uma cópia própria, e uma classe injetada de lá não
+  seria a mesma que o `TerminusModule` provê no app.
+- Os 24 tokens granulares e o `CACHE_PROVIDER` resolvem todos para a **mesma** instância
+  (`useExisting`). O token escolhido no ponto de injeção decide quanto da superfície o construtor
+  enxerga, não quantos objetos existem.
+- `connect()` que falha no boot é reportado e o boot continua: fail-open significa que uma queda do
+  Valkey degrada o serviço, não o derruba. Config inválida, ao contrário, lança — é erro de boot.
+- O pacote compila com `exactOptionalPropertyTypes`, porque o `core-server` compila estes fontes com
+  essa opção ligada. Campo opcional recebe spread condicional, nunca `undefined` explícito.
 
 ## Commands
 
@@ -67,4 +79,5 @@ pnpm --filter @ruguin/cache test:unit
 pnpm --filter @ruguin/cache check:types
 pnpm --filter @ruguin/cache check:lint
 pnpm --filter @ruguin/cache test:integration   # exige docker compose up -d redis redis-replica
+pnpm --filter @ruguin/core-server test:e2e   # inclui /health contra o Valkey real
 ```
