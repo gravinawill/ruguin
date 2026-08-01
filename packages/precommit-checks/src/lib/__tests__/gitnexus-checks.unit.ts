@@ -7,7 +7,7 @@ describe('runCycleCheck', () => {
     const exec = vi
       .fn()
       .mockReturnValue({ status: 0, stdout: '{"status":"clean","cycleCount":0,"cycles":[]}', stderr: '' })
-    const result = runCycleCheck(exec)
+    const result = runCycleCheck(exec, '/repo')
     expect(result.blocking).toBe(false)
   })
 
@@ -17,16 +17,29 @@ describe('runCycleCheck', () => {
       stdout: '{"status":"cycles-found","cycleCount":1,"cycles":["a.ts -> b.ts -> a.ts"]}',
       stderr: ''
     })
-    const result = runCycleCheck(exec)
+    const result = runCycleCheck(exec, '/repo')
     expect(result.blocking).toBe(true)
     expect(result.message).toContain('a.ts -> b.ts -> a.ts')
   })
 
   it('warns (does not block) when the tool is unavailable', () => {
     const exec = vi.fn().mockReturnValue({ status: 1, stdout: '', stderr: 'command not found' })
-    const result = runCycleCheck(exec)
+    const result = runCycleCheck(exec, '/repo')
     expect(result.blocking).toBe(false)
     expect(result.warning).toBe(true)
+  })
+
+  /*
+   * Multiple GitNexus-indexed repos sharing a package name (e.g. a main checkout plus its
+   * worktrees) makes `.gitnexus/run.cjs` fail with an ambiguity error unless `-r/--repo` is
+   * passed — confirmed empirically that the exact repo path (as GitNexus lists it) resolves it.
+   */
+  it('passes -r <repoRoot> to disambiguate multiple GitNexus-indexed repos sharing a package name', () => {
+    const exec = vi
+      .fn()
+      .mockReturnValue({ status: 0, stdout: '{"status":"clean","cycleCount":0,"cycles":[]}', stderr: '' })
+    runCycleCheck(exec, '/repo')
+    expect(exec).toHaveBeenCalledWith('node', expect.arrayContaining(['-r', '/repo']))
   })
 })
 
@@ -43,7 +56,7 @@ describe('runDetectChanges', () => {
 
   it('blocks on HIGH/CRITICAL risk and extracts changed symbol names', () => {
     const exec = vi.fn().mockReturnValue({ status: 0, stdout: sample, stderr: '' })
-    const { result, changedSymbols } = runDetectChanges(exec)
+    const { result, changedSymbols } = runDetectChanges(exec, '/repo')
     expect(result.blocking).toBe(true)
     expect(changedSymbols).toEqual(['RequestEmailSendUseCase', 'EmailRepository'])
   })
@@ -52,8 +65,14 @@ describe('runDetectChanges', () => {
     const exec = vi
       .fn()
       .mockReturnValue({ status: 0, stdout: sample.replace('Risk level: high', 'Risk level: low'), stderr: '' })
-    const { result } = runDetectChanges(exec)
+    const { result } = runDetectChanges(exec, '/repo')
     expect(result.blocking).toBe(false)
+  })
+
+  it('passes -r <repoRoot> to disambiguate multiple GitNexus-indexed repos sharing a package name', () => {
+    const exec = vi.fn().mockReturnValue({ status: 0, stdout: sample, stderr: '' })
+    runDetectChanges(exec, '/repo')
+    expect(exec).toHaveBeenCalledWith('node', expect.arrayContaining(['-r', '/repo']))
   })
 })
 
@@ -62,20 +81,28 @@ describe('runImpactForSymbol', () => {
     const exec = vi
       .fn()
       .mockReturnValue({ status: 0, stdout: '{"target":{"name":"X"},"risk":"HIGH","impactedCount":9}', stderr: '' })
-    expect(runImpactForSymbol(exec, 'X').blocking).toBe(true)
+    expect(runImpactForSymbol(exec, 'X', '/repo').blocking).toBe(true)
   })
 
   it('does not block on LOW risk', () => {
     const exec = vi
       .fn()
       .mockReturnValue({ status: 0, stdout: '{"target":{"name":"X"},"risk":"LOW","impactedCount":1}', stderr: '' })
-    expect(runImpactForSymbol(exec, 'X').blocking).toBe(false)
+    expect(runImpactForSymbol(exec, 'X', '/repo').blocking).toBe(false)
   })
 
   it('warns instead of blocking when the symbol cannot be resolved', () => {
     const exec = vi.fn().mockReturnValue({ status: 1, stdout: '', stderr: 'ambiguous symbol' })
-    const result = runImpactForSymbol(exec, 'X')
+    const result = runImpactForSymbol(exec, 'X', '/repo')
     expect(result.blocking).toBe(false)
     expect(result.warning).toBe(true)
+  })
+
+  it('passes -r <repoRoot> to disambiguate multiple GitNexus-indexed repos sharing a package name', () => {
+    const exec = vi
+      .fn()
+      .mockReturnValue({ status: 0, stdout: '{"target":{"name":"X"},"risk":"LOW","impactedCount":1}', stderr: '' })
+    runImpactForSymbol(exec, 'X', '/repo')
+    expect(exec).toHaveBeenCalledWith('node', expect.arrayContaining(['-r', '/repo']))
   })
 })

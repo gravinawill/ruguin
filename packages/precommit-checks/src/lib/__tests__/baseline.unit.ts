@@ -10,6 +10,18 @@ describe('readBaseline', () => {
   it('returns an empty baseline when the file is missing', () => {
     expect(readBaseline('/does/not/exist.json')).toEqual({ updatedAt: '', complexity: {}, dependencies: {} })
   })
+
+  it('returns a fresh object (and fresh nested complexity/dependencies objects) on every call, so a mutating caller cannot corrupt a shared constant', () => {
+    const first = readBaseline('/does/not/exist.json')
+    const second = readBaseline('/does/not/exist.json')
+
+    expect(first).not.toBe(second)
+    expect(first.complexity).not.toBe(second.complexity)
+    expect(first.dependencies).not.toBe(second.dependencies)
+
+    first.complexity['src/a.ts'] = { cyclomatic: 99, cognitive: 99 }
+    expect(second.complexity).toEqual({})
+  })
 })
 
 describe('readBaseline / writeBaseline round-trip', () => {

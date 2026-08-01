@@ -43,8 +43,18 @@ export function realExec(command: string, arguments_: string[], timeoutMs = DEFA
  * may be relative to the cwd it was invoked from, so it's resolved against `repoRoot` here
  * (a no-op when the returned path is already absolute, since `path.resolve` discards
  * earlier segments once it hits an absolute one).
+ *
+ * `status` is checked explicitly rather than trusting `stdout` alone: if this `git` call ever
+ * fails, `stdout` would be `''` and `path.resolve(repoRoot, '')` would silently return
+ * `repoRoot` itself — meaning the gate state file and the report file would land directly in
+ * the repo root as untracked files instead of inside the real git directory, where a broad
+ * `git add` could accidentally sweep them into a real commit. This is an infrastructure
+ * problem, not a "wrong path" the caller can gracefully degrade around, so it throws.
  */
 export function resolveGitDirectory(exec: ExecFn, repoRoot: string): string {
-  const { stdout } = exec('git', ['rev-parse', '--git-dir'])
+  const { status, stdout, stderr } = exec('git', ['rev-parse', '--git-dir'])
+  if (status !== 0) {
+    throw new Error(`git rev-parse --git-dir failed (status ${status}): ${stderr || 'no output'}`)
+  }
   return path.resolve(repoRoot, stdout.trim())
 }

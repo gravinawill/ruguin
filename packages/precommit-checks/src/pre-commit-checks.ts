@@ -27,17 +27,17 @@ export function runAllChecks(exec: ExecFn, repoRoot: string, stagedFiles: string
     if (result.warning) warnings.push(result.message)
   }
 
-  record(runCycleCheck(exec))
+  record(runCycleCheck(exec, repoRoot))
 
-  const { result: detectChangesResult, changedSymbols } = runDetectChanges(exec)
+  const { result: detectChangesResult, changedSymbols } = runDetectChanges(exec, repoRoot)
   record(detectChangesResult)
   const uniqueChangedSymbols = new Set(changedSymbols)
   for (const symbol of uniqueChangedSymbols) {
-    record(runImpactForSymbol(exec, symbol))
+    record(runImpactForSymbol(exec, symbol, repoRoot))
   }
 
   record(runDiffRisk(exec))
-  record(runSecretsScan(exec, stagedFiles))
+  record(runSecretsScan(exec, repoRoot, stagedFiles))
 
   const complexityResult = runComplexityRegression(exec, repoRoot, stagedFiles, baseline)
   record(complexityResult)
@@ -62,8 +62,14 @@ export function runAllChecks(exec: ExecFn, repoRoot: string, stagedFiles: string
 function main(): void {
   const repoRoot = process.cwd()
 
+  /*
+   * `--diff-filter=ACMR` excludes deleted files — a deleted-but-staged path would otherwise be
+   * handed to secrets-scan/complexity lookups as a nonexistent path.
+   */
   // eslint-disable-next-line sonarjs/no-os-command-from-path -- `git` resolves via PATH by design; trusted, well-known project tool, not user input.
-  const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only'], { encoding: 'utf8' })
+  const stagedFiles = execFileSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACMR'], {
+    encoding: 'utf8'
+  })
     .split('\n')
     .filter(Boolean)
 

@@ -15,7 +15,12 @@ const CLEAN_MAPPING = {
   'check --cycles': { status: 0, stdout: '{"status":"clean","cycleCount":0,"cycles":[]}' },
   'detect-changes': { status: 0, stdout: 'Changes: 0 files, 0 symbols\nRisk level: low\n\nChanged symbols:\n' },
   'diff --risk': { status: 0, stdout: '{"risk":{"overall":"low"}}' },
-  'security secrets': { status: 0, stdout: 'No secrets detected.' },
+  /*
+   * The real CLI has no `--format json` support and always prints a "Scanned N files" line on a
+   * genuine run — that line is what `runSecretsScan` uses to distinguish "clean" from "tool
+   * unavailable" (there's no JSON/exit-status signal for it to lean on instead).
+   */
+  'security secrets': { status: 0, stdout: 'Scanned 1 files\n\nNo secrets detected.' },
   'analyze complexity': { status: 0, stdout: '{"files":[],"summary":{}}' },
   'analyze dependencies': { status: 0, stdout: '{"nodes":[],"edges":[]}' },
   'analyze symbols': { status: 0, stdout: '{"symbols":[]}' },
@@ -46,9 +51,31 @@ describe('runAllChecks', () => {
   })
 
   it('fails when the secrets scan finds something', () => {
-    const exec = execReturning({ ...CLEAN_MAPPING, 'security secrets': { status: 0, stdout: '1 secret found' } })
+    const exec = execReturning({
+      ...CLEAN_MAPPING,
+      'security secrets': {
+        status: 1,
+        stdout: [
+          'Scanned 1 files',
+          '',
+          '| Secret Type | Location | Risk | Recommended |',
+          '| AWS Access Key | a.ts:1 | Critical | Rotate immediately |'
+        ].join('\n')
+      }
+    })
     const result = runAllChecks(exec, '/repo', ['src/a.ts'], EMPTY_BASELINE)
     expect(result.pass).toBe(false)
+  })
+
+  it("propagates a sub-check's warning (e.g. a tool being unavailable) into its own warnings array without blocking", () => {
+    const exec = execReturning({
+      ...CLEAN_MAPPING,
+      'check --cycles': { status: 1, stdout: '', stderr: 'gitnexus index corrupted' }
+    })
+    const result = runAllChecks(exec, '/repo', ['src/a.ts'], EMPTY_BASELINE)
+    expect(result.pass).toBe(true)
+    expect(result.warnings.length).toBeGreaterThan(0)
+    expect(result.warnings.some((warning) => warning.includes('gitnexus index corrupted'))).toBe(true)
   })
 
   it('collects report-only output without affecting pass/fail', () => {
