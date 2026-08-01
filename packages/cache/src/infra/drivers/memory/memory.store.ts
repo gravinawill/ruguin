@@ -113,7 +113,10 @@ export class MemoryStore {
   }
 
   public setScore(input: { key: string; member: string; score: number; ttlInMs?: number }): boolean {
-    const members: Map<string, number> = this.membersOf({ key: input.key, ttlInMs: input.ttlInMs })
+    const members: Map<string, number> = this.membersOf({
+      key: input.key,
+      ...(input.ttlInMs !== undefined && { ttlInMs: input.ttlInMs })
+    })
     const isNewMember = !members.has(input.member)
 
     members.set(input.member, input.score)
@@ -122,7 +125,10 @@ export class MemoryStore {
   }
 
   public incrementScore(input: { key: string; member: string; by: number; ttlInMs?: number }): number {
-    const members: Map<string, number> = this.membersOf({ key: input.key, ttlInMs: input.ttlInMs })
+    const members: Map<string, number> = this.membersOf({
+      key: input.key,
+      ...(input.ttlInMs !== undefined && { ttlInMs: input.ttlInMs })
+    })
     const next: number = (members.get(input.member) ?? 0) + input.by
 
     members.set(input.member, next)

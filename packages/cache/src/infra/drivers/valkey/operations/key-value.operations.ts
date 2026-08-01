@@ -159,7 +159,7 @@ export class KeyValueOperations {
     if (raw.isFailure()) return failure(raw.value)
     if (raw.value === null) return success(MISS)
 
-    return this.decode<T>({ raw: raw.value, validate: input.validate })
+    return this.decode<T>({ raw: raw.value, ...(input.validate !== undefined && { validate: input.validate }) })
   }
 
   private async getStrong<T>(input: GetCacheProviderDTO.Input): GetCacheProviderDTO.Output<T> {
@@ -202,7 +202,7 @@ export class KeyValueOperations {
     const raw: string | undefined = reply[1]
     if (raw === undefined) return success(MISS)
 
-    return this.decode<T>({ raw, validate: input.validate })
+    return this.decode<T>({ raw, ...(input.validate !== undefined && { validate: input.validate }) })
   }
 
   /*
