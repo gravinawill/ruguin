@@ -54,9 +54,9 @@ export function runDetectChanges(exec: ExecFn): { result: CheckResult; changedSy
     if (symbol) changedSymbols.push(symbol)
   }
 
-  const blocking = BLOCKING_RISK_LEVELS.has(risk)
+  const isBlocking = BLOCKING_RISK_LEVELS.has(risk)
   return {
-    result: { blocking, warning: false, message: `detect-changes risk level: ${risk}` },
+    result: { blocking: isBlocking, warning: false, message: `detect-changes risk level: ${risk}` },
     changedSymbols
   }
 }
