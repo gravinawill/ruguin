@@ -183,6 +183,12 @@ npx ruflo@latest doctor --fix
 
 **Agent tool** handles execution (agents, files, code, git). **MCP tools** handle coordination (swarm, memory, hooks). **CLI** is the same via Bash.
 
+## Project Map
+
+| Package | Purpose | Docs |
+|---------|---------|------|
+| `packages/precommit-checks` | Deterministic pre-commit gate (GitNexus + ruflo + agentic review) running before every commit | [`packages/precommit-checks/CLAUDE.md`](packages/precommit-checks/CLAUDE.md) |
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
