@@ -22,10 +22,11 @@ export default defineConfig(
   },
   {
     /*
-     * `main()` in pre-commit-checks.ts is a CLI entrypoint invoked directly by Husky and the
-     * Claude PreToolUse hook; it must signal pass/fail to the calling shell via process exit codes.
+     * `main()` in pre-commit-checks.ts and claude-precommit-gate.ts are CLI entrypoints invoked
+     * directly by Husky and the Claude PreToolUse hook respectively; both must signal pass/fail
+     * to the calling shell via process exit codes.
      */
-    files: ['src/pre-commit-checks.ts'],
+    files: ['src/pre-commit-checks.ts', 'src/claude-precommit-gate.ts'],
     rules: {
       'unicorn/no-process-exit': 'off'
     }
