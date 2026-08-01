@@ -1,14 +1,19 @@
 import { type Either, failure, success } from '@ruguin/utils'
 import { type RedisOptions } from 'iovalkey'
 
-import { CacheProviderFacade, ExecuteWithLockProvider, GetOrSetCacheProvider, type OnCacheError } from '../application'
+import {
+  CacheProviderFacade,
+  ExecuteWithLockProvider,
+  GetOrSetCacheProvider,
+  type OnCacheError
+} from '../application/index.ts'
 import {
   type CacheConsistency,
   CacheDriver,
   type ICacheDriver,
   type ICacheProvider,
   InvalidCacheConfigError
-} from '../domain'
+} from '../domain/index.ts'
 import {
   JsonSerializerStrategy,
   KeyBuilder,
@@ -17,9 +22,9 @@ import {
   NoopCacheDriver,
   ObservableCacheProvider,
   ResilientCacheProvider
-} from '../infra'
+} from '../infra/index.ts'
 
-import { createValkeyDriver } from './create-valkey-driver'
+import { createValkeyDriver } from './create-valkey-driver.ts'
 
 export namespace CacheFactoryDTO {
   export type Config = Readonly<{

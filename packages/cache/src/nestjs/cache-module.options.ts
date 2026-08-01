@@ -1,7 +1,5 @@
 import { type FactoryProvider, type ModuleMetadata } from '@nestjs/common'
-
-import { type OnCacheError } from '../application'
-import { type CacheFactoryDTO } from '../factory'
+import { type CacheFactoryDTO, type OnCacheError } from '@ruguin/cache'
 
 /*
  * The factory's own config minus onCacheError, which the module can supply for you: reporting a

@@ -1,6 +1,6 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheOperationError, type LockNotAcquiredError } from '../../errors'
+import { type CacheOperationError, type LockNotAcquiredError } from '../../errors/index.ts'
 
 export namespace AcquireLockProviderDTO {
   /*

@@ -1,3 +1,3 @@
-export * from './enums'
-export * from './errors'
-export * from './value-objects'
+export * from './enums/index.ts'
+export * from './errors/index.ts'
+export * from './value-objects/index.ts'

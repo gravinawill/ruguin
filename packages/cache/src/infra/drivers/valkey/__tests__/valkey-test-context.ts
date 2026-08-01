@@ -1,7 +1,7 @@
-import { type OnCacheError } from '../../../../application'
-import { CacheConsistency, CacheDriver, type ICacheProvider } from '../../../../domain'
-import { CacheFactory } from '../../../../factory'
-import { type NamespaceConfig } from '../../../namespace-version.resolver'
+import { type OnCacheError } from '../../../../application/index.ts'
+import { CacheConsistency, CacheDriver, type ICacheProvider } from '../../../../domain/index.ts'
+import { CacheFactory } from '../../../../factory/index.ts'
+import { type NamespaceConfig } from '../../../namespace-version.resolver.ts'
 
 export const MASTER_URL: string = process.env.CACHE_TEST_MASTER_URL ?? 'redis://localhost:6379'
 export const REPLICA_URL: string = process.env.CACHE_TEST_REPLICA_URL ?? 'redis://localhost:6380'

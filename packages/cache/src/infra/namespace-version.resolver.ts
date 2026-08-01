@@ -5,7 +5,7 @@ import {
   type CacheOperationError,
   type IResolveNamespaceVersionProvider,
   type ResolveNamespaceVersionProviderDTO
-} from '../domain'
+} from '../domain/index.ts'
 
 export type NamespaceVersionSource = Readonly<{
   fetchVersion: (input: {

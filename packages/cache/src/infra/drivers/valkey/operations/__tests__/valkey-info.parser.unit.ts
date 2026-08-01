@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CacheHealthStatus, type HealthCheckProviderDTO } from '../../../../../domain'
+import { CacheHealthStatus, type HealthCheckProviderDTO } from '../../../../../domain/index.ts'
 import {
   clientsHealthFrom,
   deriveHealthStatus,
@@ -8,7 +8,7 @@ import {
   parseValkeyInfo,
   replicationLagFrom,
   serverInfoFrom
-} from '../valkey-info.parser'
+} from '../valkey-info.parser.ts'
 
 const MASTER_INFO = [
   '# Server',

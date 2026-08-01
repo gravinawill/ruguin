@@ -1,9 +1,9 @@
 import { success } from '@ruguin/utils'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { CacheConsistency, CacheLockOutcome, CacheSource, type ICacheProvider } from '../../../../domain'
+import { CacheConsistency, CacheLockOutcome, CacheSource, type ICacheProvider } from '../../../../domain/index.ts'
 
-import { createValkeyCache, sleep, uniquePrefix } from './valkey-test-context'
+import { createValkeyCache, sleep, uniquePrefix } from './valkey-test-context.ts'
 
 const NAMESPACE = 'user'
 

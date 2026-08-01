@@ -1,7 +1,7 @@
 import { type RedisOptions } from 'iovalkey'
 
-import { type OnCacheError } from '../application'
-import { type CacheConsistency, type ISerializerStrategy } from '../domain'
+import { type OnCacheError } from '../application/index.ts'
+import { type CacheConsistency, type ISerializerStrategy } from '../domain/index.ts'
 import {
   CounterOperations,
   HealthOperations,
@@ -18,7 +18,7 @@ import {
   ValkeyCacheDriver,
   ValkeyCommandExecutor,
   ValkeyConnectionManager
-} from '../infra'
+} from '../infra/index.ts'
 
 export type ValkeyDriverConfig = Readonly<{
   connectionOptions?: RedisOptions

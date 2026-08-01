@@ -1,6 +1,6 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheOperationError, type CacheSerializationError } from '../../errors'
+import { type CacheOperationError, type CacheSerializationError } from '../../errors/index.ts'
 
 export namespace SetCacheProviderDTO {
   export type Input<T> = Readonly<{

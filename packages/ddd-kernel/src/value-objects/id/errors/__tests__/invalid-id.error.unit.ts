@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { StatusError } from '../../../../enums'
-import { InvalidIDError } from '../invalid-id.error'
+import { StatusError } from '../../../../enums/index.ts'
+import { InvalidIDError } from '../invalid-id.error.ts'
 
 describe('InvalidIDError', () => {
   it('builds the message from a modelName owner', () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { CircuitBreaker, CircuitBreakerState } from '../circuit-breaker'
+import { CircuitBreaker, CircuitBreakerState } from '../circuit-breaker.ts'
 
 describe('CircuitBreaker', () => {
   beforeEach(() => {

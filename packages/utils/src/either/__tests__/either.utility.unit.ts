@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { failure, success } from '../either.utility'
+import { failure, success } from '../either.utility.ts'
 
 describe('Either', () => {
   it('creates a Success that narrows via isSuccess/isFailure', () => {

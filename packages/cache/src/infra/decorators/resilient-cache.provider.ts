@@ -26,9 +26,9 @@ import {
   type SetCacheProviderDTO,
   type SetIfNotExistsCacheProviderDTO,
   type SetScoreProviderDTO
-} from '../../domain'
+} from '../../domain/index.ts'
 
-import { CircuitBreaker } from './circuit-breaker'
+import { CircuitBreaker } from './circuit-breaker.ts'
 
 const INITIAL_VERSION = 1
 

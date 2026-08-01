@@ -7,14 +7,14 @@ import {
   type ISerializerStrategy,
   type SetCacheProviderDTO,
   type SetIfNotExistsCacheProviderDTO
-} from '../../../../domain'
-import { applyTtlJitter } from '../../../apply-ttl-jitter'
-import { type KeyBuilder } from '../../../key-builder'
-import { type NamespaceVersionResolver } from '../../../namespace-version.resolver'
-import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager'
-import { type PhysicalKeyResolver } from '../physical-key.resolver'
-import { GET_WITH_NAMESPACE_VERSION_SCRIPT } from '../scripts/lua-scripts'
-import { type ValkeyCommandExecutor } from '../valkey-command.executor'
+} from '../../../../domain/index.ts'
+import { applyTtlJitter } from '../../../apply-ttl-jitter.ts'
+import { type KeyBuilder } from '../../../key-builder.ts'
+import { type NamespaceVersionResolver } from '../../../namespace-version.resolver.ts'
+import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager.ts'
+import { type PhysicalKeyResolver } from '../physical-key.resolver.ts'
+import { GET_WITH_NAMESPACE_VERSION_SCRIPT } from '../scripts/lua-scripts.ts'
+import { type ValkeyCommandExecutor } from '../valkey-command.executor.ts'
 
 type ReadOutput<T> = Either<GetCacheProviderDTO.OutputError, GetCacheProviderDTO.OutputSuccess<T>>
 

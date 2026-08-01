@@ -7,9 +7,9 @@ import {
   type IReleaseLockProvider,
   LockNotAcquiredError,
   LockNotOwnedError
-} from '../../domain'
-import { ExecuteWithLockProvider } from '../execute-with-lock.provider'
-import { type OnCacheError } from '../on-cache-error'
+} from '../../domain/index.ts'
+import { ExecuteWithLockProvider } from '../execute-with-lock.provider.ts'
+import { type OnCacheError } from '../on-cache-error.ts'
 
 const grantingLock: IAcquireLockProvider = {
   acquire: () => {

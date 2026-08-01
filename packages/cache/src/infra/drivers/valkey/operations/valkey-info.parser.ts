@@ -1,4 +1,4 @@
-import { CacheHealthStatus, type HealthCheckProviderDTO } from '../../../../domain'
+import { CacheHealthStatus, type HealthCheckProviderDTO } from '../../../../domain/index.ts'
 
 export type ValkeyInfo = ReadonlyMap<string, string>
 

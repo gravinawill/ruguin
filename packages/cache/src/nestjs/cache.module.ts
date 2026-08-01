@@ -7,17 +7,15 @@ import {
   type OnModuleInit,
   type Provider
 } from '@nestjs/common'
+import { type ICacheProvider, type OnCacheError } from '@ruguin/cache'
+import { CacheFactory } from '@ruguin/cache'
 
-import { type OnCacheError } from '../application'
-import { type ICacheProvider } from '../domain'
-import { CacheFactory } from '../factory'
-
-import { CACHE_MODULE_OPTIONS, CACHE_PROVIDER, CONTRACT_TOKENS } from './cache.tokens'
+import { CACHE_MODULE_OPTIONS, CACHE_PROVIDER, CONTRACT_TOKENS } from './cache.tokens.ts'
 import {
   type CacheModuleAsyncOptions,
   type CacheModuleFactoryOptions,
   type CacheModuleOptions
-} from './cache-module.options'
+} from './cache-module.options.ts'
 
 const LOGGER_CONTEXT = 'CacheModule'
 

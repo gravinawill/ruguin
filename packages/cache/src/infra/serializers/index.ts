@@ -1,1 +1,1 @@
-export * from './json-serializer.strategy'
+export * from './json-serializer.strategy.ts'

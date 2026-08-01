@@ -1,6 +1,6 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheOperationError, type LockNotOwnedError } from '../../errors'
+import { type CacheOperationError, type LockNotOwnedError } from '../../errors/index.ts'
 
 export namespace ReleaseLockProviderDTO {
   export type Input = Readonly<{ key: string; namespace: string; token: string }>

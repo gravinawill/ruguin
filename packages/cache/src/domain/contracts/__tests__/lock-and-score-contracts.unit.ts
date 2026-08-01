@@ -10,7 +10,7 @@ import {
   type IGetTopScoresProvider,
   type IReleaseLockProvider,
   type ReleaseLockProviderDTO
-} from '../index'
+} from '../index.ts'
 
 class StubLock implements IAcquireLockProvider, IReleaseLockProvider {
   public acquire(input: AcquireLockProviderDTO.Input): AcquireLockProviderDTO.Output {

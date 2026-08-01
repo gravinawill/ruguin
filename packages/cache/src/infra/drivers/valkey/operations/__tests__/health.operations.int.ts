@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { CacheDriver, CacheHealthStatus, type ICacheProvider } from '../../../../../domain'
-import { createValkeyCache, REPLICA_URL, uniquePrefix } from '../../__tests__/valkey-test-context'
+import { CacheDriver, CacheHealthStatus, type ICacheProvider } from '../../../../../domain/index.ts'
+import { createValkeyCache, REPLICA_URL, uniquePrefix } from '../../__tests__/valkey-test-context.ts'
 
 /*
  * A holder rather than a bare `let`: the suite needs one connection shared by every case, and

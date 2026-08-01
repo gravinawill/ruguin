@@ -1,7 +1,7 @@
 import { type Either, failure, success } from '@ruguin/utils'
 import { describe, expect, it } from 'vitest'
 
-import { CacheLockOutcome, CacheSource } from '../../enums'
+import { CacheLockOutcome, CacheSource } from '../../enums/index.ts'
 import {
   type GetCacheProviderDTO,
   type GetOrSetCacheProviderDTO,
@@ -12,7 +12,7 @@ import {
   type ISerializerStrategy,
   type ISetCacheProvider,
   type SetCacheProviderDTO
-} from '../index'
+} from '../index.ts'
 
 class StubProvider implements IGetCacheProvider, ISetCacheProvider, IIncrementCounterProvider, IGetOrSetCacheProvider {
   public get<T>(): GetCacheProviderDTO.Output<T> {

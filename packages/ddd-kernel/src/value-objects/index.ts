@@ -1,1 +1,1 @@
-export * from './id'
+export * from './id/index.ts'

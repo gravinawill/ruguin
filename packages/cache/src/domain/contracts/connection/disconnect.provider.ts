@@ -1,6 +1,6 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheConnectionError } from '../../errors'
+import { type CacheConnectionError } from '../../errors/index.ts'
 
 export namespace DisconnectProviderDTO {
   export type OutputError = Readonly<CacheConnectionError>

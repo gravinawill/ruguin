@@ -7,8 +7,8 @@ import {
   CacheNotInitializedError,
   type HealthCheckProviderDTO,
   type IHealthCheckProvider
-} from '../../domain'
-import { CacheHealthIndicator } from '../cache-health.indicator'
+} from '../../domain/index.ts'
+import { CacheHealthIndicator } from '../cache-health.indicator.ts'
 
 const payload = (
   overrides: Partial<HealthCheckProviderDTO.OutputSuccess> = {}

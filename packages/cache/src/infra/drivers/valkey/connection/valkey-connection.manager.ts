@@ -1,7 +1,7 @@
 import { type Either, failure, success } from '@ruguin/utils'
 import { Redis, type RedisOptions } from 'iovalkey'
 
-import { CacheConnectionError, CacheNotInitializedError } from '../../../../domain'
+import { CacheConnectionError, CacheNotInitializedError } from '../../../../domain/index.ts'
 
 export type ValkeyReplica = Readonly<{ client: Redis; host: string }>
 

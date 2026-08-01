@@ -27,8 +27,8 @@
   "devDependencies": {
     "@ruguin/eslint-config": "workspace:*",
     "@ruguin/typescript-config": "workspace:*",
-    "@types/node": "^26.1.1",
-    "npm-check-updates": "22.2.9",
+    "@types/node": "^26.1.2",
+    "npm-check-updates": "23.0.0",
     "typescript": "6.0.3",
     "vitest": "^4.1.10"
   }

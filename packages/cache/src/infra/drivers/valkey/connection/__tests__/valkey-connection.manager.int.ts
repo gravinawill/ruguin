@@ -1,8 +1,8 @@
 import { Redis } from 'iovalkey'
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { MASTER_URL, REPLICA_URL } from '../../__tests__/valkey-test-context'
-import { ValkeyConnectionManager } from '../valkey-connection.manager'
+import { MASTER_URL, REPLICA_URL } from '../../__tests__/valkey-test-context.ts'
+import { ValkeyConnectionManager } from '../valkey-connection.manager.ts'
 
 const managers: ValkeyConnectionManager[] = []
 

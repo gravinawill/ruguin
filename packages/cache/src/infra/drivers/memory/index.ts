@@ -1,2 +1,2 @@
-export * from './memory.store'
-export * from './memory-cache.driver'
+export * from './memory.store.ts'
+export * from './memory-cache.driver.ts'

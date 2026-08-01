@@ -1,3 +1,3 @@
-export * from './circuit-breaker'
-export * from './observable-cache.provider'
-export * from './resilient-cache.provider'
+export * from './circuit-breaker.ts'
+export * from './observable-cache.provider.ts'
+export * from './resilient-cache.provider.ts'

@@ -1,1 +1,1 @@
-export * from './either.utility'
+export * from './either.utility.ts'

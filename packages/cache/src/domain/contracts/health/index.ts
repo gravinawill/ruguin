@@ -1,1 +1,1 @@
-export * from './health-check.provider'
+export * from './health-check.provider.ts'

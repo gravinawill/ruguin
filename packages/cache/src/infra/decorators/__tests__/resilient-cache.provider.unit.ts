@@ -6,10 +6,10 @@ import {
   type GetCacheProviderDTO,
   type InvalidateNamespaceProviderDTO,
   type SetCacheProviderDTO
-} from '../../../domain'
-import { NoopCacheDriver } from '../../drivers/noop/noop-cache.driver'
-import { CircuitBreakerState } from '../circuit-breaker'
-import { ResilientCacheProvider } from '../resilient-cache.provider'
+} from '../../../domain/index.ts'
+import { NoopCacheDriver } from '../../drivers/noop/noop-cache.driver.ts'
+import { CircuitBreakerState } from '../circuit-breaker.ts'
+import { ResilientCacheProvider } from '../resilient-cache.provider.ts'
 
 /*
  * Built on the noop driver so only the methods under test have to be spelled out: every other

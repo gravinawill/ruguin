@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { type ICacheProvider } from '../../../../../domain'
-import { createValkeyCache, uniquePrefix } from '../../__tests__/valkey-test-context'
+import { type ICacheProvider } from '../../../../../domain/index.ts'
+import { createValkeyCache, uniquePrefix } from '../../__tests__/valkey-test-context.ts'
 
 const NAMESPACE = 'job'
 

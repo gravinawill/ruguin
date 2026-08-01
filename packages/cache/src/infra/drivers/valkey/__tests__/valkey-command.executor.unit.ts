@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ValkeyCommandExecutor } from '../valkey-command.executor'
+import { ValkeyCommandExecutor } from '../valkey-command.executor.ts'
 
 const never = async (): Promise<string> =>
   new Promise<string>(() => {

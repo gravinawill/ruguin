@@ -6,11 +6,11 @@ import {
   LockNotAcquiredError,
   LockNotOwnedError,
   type ReleaseLockProviderDTO
-} from '../../../../domain'
-import { type KeyBuilder } from '../../../key-builder'
-import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager'
-import { EXTEND_LOCK_SCRIPT, RELEASE_LOCK_SCRIPT } from '../scripts/lua-scripts'
-import { type ValkeyCommandExecutor } from '../valkey-command.executor'
+} from '../../../../domain/index.ts'
+import { type KeyBuilder } from '../../../key-builder.ts'
+import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager.ts'
+import { EXTEND_LOCK_SCRIPT, RELEASE_LOCK_SCRIPT } from '../scripts/lua-scripts.ts'
+import { type ValkeyCommandExecutor } from '../valkey-command.executor.ts'
 
 // Floor for a caller-supplied poll interval. See AcquireLockProviderDTO.Wait.
 const MIN_POLL_INTERVAL_MS = 1

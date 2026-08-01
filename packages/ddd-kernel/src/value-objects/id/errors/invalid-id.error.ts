@@ -1,5 +1,5 @@
-import { StatusError } from '../../../enums'
-import { BaseError } from '../../../errors'
+import { StatusError } from '../../../enums/index.ts'
+import { BaseError } from '../../../errors/index.ts'
 
 type InvalidIDErrorInput = { id: string; modelName: string } | { id: string; valueObjectName: string }
 

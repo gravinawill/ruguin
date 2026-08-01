@@ -26,7 +26,7 @@ import {
   type SetCacheProviderDTO,
   type SetIfNotExistsCacheProviderDTO,
   type SetScoreProviderDTO
-} from '../../domain'
+} from '../../domain/index.ts'
 
 const TRACER_NAME = '@ruguin/cache'
 

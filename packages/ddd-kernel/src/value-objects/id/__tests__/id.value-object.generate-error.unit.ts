@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { ID } from '../id.value-object'
+import { ID } from '../id.value-object.ts'
 
 vi.mock('uuid', () => ({
   v7: () => {

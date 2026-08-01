@@ -9,7 +9,7 @@ import {
   InvalidCacheKeyError,
   LockNotAcquiredError,
   LockNotOwnedError
-} from '../index'
+} from '../index.ts'
 
 describe('cache errors', () => {
   it('reports a connection failure as internal and keeps the original cause', () => {

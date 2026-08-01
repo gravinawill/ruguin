@@ -1,2 +1,2 @@
-export * from './cache.factory'
-export * from './create-valkey-driver'
+export * from './cache.factory.ts'
+export * from './create-valkey-driver.ts'

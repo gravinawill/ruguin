@@ -1,6 +1,6 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheSerializationError } from '../../errors'
+import { type CacheSerializationError } from '../../errors/index.ts'
 
 export namespace SerializerStrategyDTO {
   export type SerializeInput<T> = Readonly<{ value: T }>

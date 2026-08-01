@@ -12,10 +12,10 @@ import {
   type IncrementScoreProviderDTO,
   type RemoveScoreProviderDTO,
   type SetScoreProviderDTO
-} from '../../../../domain'
-import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager'
-import { type PhysicalKeyResolver } from '../physical-key.resolver'
-import { type ValkeyCommandExecutor } from '../valkey-command.executor'
+} from '../../../../domain/index.ts'
+import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager.ts'
+import { type PhysicalKeyResolver } from '../physical-key.resolver.ts'
+import { type ValkeyCommandExecutor } from '../valkey-command.executor.ts'
 
 type PipelineReply = Array<[error: Error | null, result: unknown]> | null
 

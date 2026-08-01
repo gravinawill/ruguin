@@ -4,17 +4,21 @@ import {
   type IGetOrSetCacheProvider,
   type ISetCacheProvider,
   type ISetIfNotExistsCacheProvider
-} from './cache'
-import { type IConnectProvider, type IDisconnectProvider } from './connection'
-import { type IDecrementCounterProvider, type IGetCounterProvider, type IIncrementCounterProvider } from './counter'
-import { type IHealthCheckProvider } from './health'
+} from './cache/index.ts'
+import { type IConnectProvider, type IDisconnectProvider } from './connection/index.ts'
+import {
+  type IDecrementCounterProvider,
+  type IGetCounterProvider,
+  type IIncrementCounterProvider
+} from './counter/index.ts'
+import { type IHealthCheckProvider } from './health/index.ts'
 import {
   type IAcquireLockProvider,
   type IExecuteWithLockProvider,
   type IExtendLockProvider,
   type IReleaseLockProvider
-} from './lock'
-import { type IInvalidateNamespaceProvider, type IResolveNamespaceVersionProvider } from './namespace'
+} from './lock/index.ts'
+import { type IInvalidateNamespaceProvider, type IResolveNamespaceVersionProvider } from './namespace/index.ts'
 import {
   type ICountScoresProvider,
   type IGetRankProvider,
@@ -23,7 +27,7 @@ import {
   type IIncrementScoreProvider,
   type IRemoveScoreProvider,
   type ISetScoreProvider
-} from './score'
+} from './score/index.ts'
 
 /*
  * Split on purpose. A driver adapts one storage technology and implements only the leaf

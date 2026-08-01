@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { StatusError } from '../../enums'
-import { BaseError } from '../base-error'
+import { StatusError } from '../../enums/index.ts'
+import { BaseError } from '../base-error.ts'
 
 class StubError extends BaseError {
   readonly name = 'StubError'

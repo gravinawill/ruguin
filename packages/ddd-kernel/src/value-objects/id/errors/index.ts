@@ -1,2 +1,2 @@
-export * from './generate-id.error'
-export * from './invalid-id.error'
+export * from './generate-id.error.ts'
+export * from './invalid-id.error.ts'

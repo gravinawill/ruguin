@@ -1,6 +1,6 @@
-import { type OnCacheError } from '../../../../application/on-cache-error'
-import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager'
-import { type ValkeyCommandExecutor } from '../valkey-command.executor'
+import { type OnCacheError } from '../../../../application/on-cache-error.ts'
+import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager.ts'
+import { type ValkeyCommandExecutor } from '../valkey-command.executor.ts'
 
 export type InvalidationMessage = Readonly<{ namespace: string; version: number }>
 

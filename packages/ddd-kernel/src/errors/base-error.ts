@@ -1,4 +1,4 @@
-import { type StatusError } from '../enums'
+import { type StatusError } from '../enums/index.ts'
 
 export abstract class BaseError {
   readonly error?: unknown

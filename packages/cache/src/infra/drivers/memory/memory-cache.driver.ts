@@ -31,11 +31,11 @@ import {
   type SetCacheProviderDTO,
   type SetIfNotExistsCacheProviderDTO,
   type SetScoreProviderDTO
-} from '../../../domain'
-import { applyTtlJitter } from '../../apply-ttl-jitter'
-import { type KeyBuilder } from '../../key-builder'
+} from '../../../domain/index.ts'
+import { applyTtlJitter } from '../../apply-ttl-jitter.ts'
+import { type KeyBuilder } from '../../key-builder.ts'
 
-import { MemoryStore } from './memory.store'
+import { MemoryStore } from './memory.store.ts'
 
 const sleep = async (ms: number): Promise<void> =>
   new Promise<void>((resolve) => {

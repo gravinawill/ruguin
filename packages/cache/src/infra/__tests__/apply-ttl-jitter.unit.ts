@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyTtlJitter } from '../apply-ttl-jitter'
+import { applyTtlJitter } from '../apply-ttl-jitter.ts'
 
 describe('applyTtlJitter', () => {
   it('falls back to the configured default when the caller gives no ttl', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { pickReadyReplica } from '../valkey-connection.manager'
+import { pickReadyReplica } from '../valkey-connection.manager.ts'
 
 const replica = (input: { host: string; status: string }): { client: { status: string }; host: string } => ({
   client: { status: input.status },
