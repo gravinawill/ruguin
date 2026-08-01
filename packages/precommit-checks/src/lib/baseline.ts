@@ -6,15 +6,23 @@ export type Baseline = {
   dependencies: Record<string, { connections: number }>
 }
 
-const EMPTY_BASELINE: Baseline = { updatedAt: '', complexity: {}, dependencies: {} }
+/*
+ * A fresh object (including fresh nested `complexity`/`dependencies` objects — a shallow
+ * `{ ...emptyBaseline() }` alone would still share those two by reference) is constructed on
+ * every call below, never a shared module-level constant returned by reference, so a future
+ * mutating caller can't corrupt what every other missing/corrupt-baseline call also gets.
+ */
+function emptyBaseline(): Baseline {
+  return { updatedAt: '', complexity: {}, dependencies: {} }
+}
 
 export function readBaseline(path: string): Baseline {
-  if (!existsSync(path)) return EMPTY_BASELINE
+  if (!existsSync(path)) return emptyBaseline()
 
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as Baseline
   } catch {
-    return EMPTY_BASELINE
+    return emptyBaseline()
   }
 }
 

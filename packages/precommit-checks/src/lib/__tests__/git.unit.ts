@@ -30,4 +30,9 @@ describe('resolveGitDirectory', () => {
     const exec = vi.fn().mockReturnValue({ status: 0, stdout: '.git\n', stderr: '' })
     expect(resolveGitDirectory(exec, '/repo')).toBe('/repo/.git')
   })
+
+  it('throws instead of silently resolving to repoRoot when the git call fails', () => {
+    const exec = vi.fn().mockReturnValue({ status: 1, stdout: '', stderr: 'not a git repository' })
+    expect(() => resolveGitDirectory(exec, '/repo')).toThrow(/git rev-parse --git-dir failed/)
+  })
 })

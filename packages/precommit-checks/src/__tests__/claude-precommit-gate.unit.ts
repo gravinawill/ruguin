@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { execFileSync } from 'node:child_process'
 
-import { decideGate } from '../claude-precommit-gate'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { decideGate, runDeterministicChecksSubprocess } from '../claude-precommit-gate'
+
+vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }))
 
 describe('decideGate', () => {
   it('reruns and denies when there is no prior state', () => {
@@ -54,5 +58,68 @@ describe('decideGate', () => {
     const state = { diffHash: 'h1', deterministic: 'pass' as const, agenticReviewDone: false, overrideApproved: true }
     const result = decideGate({ diffHash: 'h1', state, runDeterministicChecks: vi.fn() })
     expect(result.allow).toBe(true)
+  })
+
+  it('denies when deterministic failed and no override is approved', () => {
+    const state = { diffHash: 'h1', deterministic: 'fail' as const, agenticReviewDone: false, overrideApproved: false }
+    const result = decideGate({ diffHash: 'h1', state, runDeterministicChecks: vi.fn() })
+    expect(result.allow).toBe(false)
+    expect(result.reason).toContain('Deterministic checks previously failed')
+    expect(result.nextState).toBe(state)
+  })
+
+  it('allows when deterministic failed but overrideApproved is true — an approved override must be able to unblock a deterministic failure, not only a pending agentic review', () => {
+    const state = { diffHash: 'h1', deterministic: 'fail' as const, agenticReviewDone: false, overrideApproved: true }
+    const result = decideGate({ diffHash: 'h1', state, runDeterministicChecks: vi.fn() })
+    expect(result.allow).toBe(true)
+    expect(result.reason).toContain('override')
+  })
+})
+
+describe('runDeterministicChecksSubprocess', () => {
+  const mockedExecFileSync = vi.mocked(execFileSync)
+
+  afterEach(() => {
+    mockedExecFileSync.mockReset()
+  })
+
+  it("passes an explicit timeout (comfortably under the PreToolUse hook's own 150000ms) and a maxBuffer to execFileSync", () => {
+    mockedExecFileSync
+      .mockReturnValueOnce('PRECOMMIT_RESULT=PASS\n') // npx tsx pre-commit-checks.ts
+      .mockReturnValueOnce('') // git diff --cached
+
+    runDeterministicChecksSubprocess()
+
+    const [command, arguments_, options] = mockedExecFileSync.mock.calls[0] as [
+      string,
+      string[],
+      Record<string, unknown>
+    ]
+    expect(command).toBe('npx')
+    expect(arguments_).toContain('tsx')
+    expect(options.timeout).toBeGreaterThan(0)
+    expect(options.timeout as number).toBeLessThan(150_000)
+    expect(options.maxBuffer).toBe(64 * 1024 * 1024)
+  })
+
+  it('treats a timeout-triggered kill (SIGTERM/ETIMEDOUT) as a clean deterministic-check failure with a clear message, instead of letting the exception propagate uncaught', () => {
+    const timeoutError = Object.assign(new Error('spawnSync npx ETIMEDOUT'), {
+      status: null,
+      signal: 'SIGTERM',
+      code: 'ETIMEDOUT',
+      stdout: '',
+      stderr: ''
+    })
+    mockedExecFileSync
+      .mockImplementationOnce(() => {
+        throw timeoutError
+      })
+      .mockReturnValueOnce('') // git diff --cached, still called to compute diffHashAfterChecks
+
+    const result = runDeterministicChecksSubprocess()
+
+    expect(result.pass).toBe(false)
+    expect(result.findings[0]).toContain('timed out')
+    expect(result.diffHashAfterChecks).toBeTruthy()
   })
 })

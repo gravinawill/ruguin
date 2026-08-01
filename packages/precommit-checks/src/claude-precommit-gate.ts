@@ -5,6 +5,22 @@ import { fileURLToPath } from 'node:url'
 import { realExec, resolveGitDirectory } from './lib/git'
 import { computeDiffHash, type PrecommitState, readState, writeState } from './lib/precommit-state'
 
+/*
+ * Kept comfortably under the PreToolUse hook's own 150000ms timeout (`.claude/settings.json`).
+ * Measured real runs of `pre-commit-checks.ts` take ~100-150s; without an explicit bound here,
+ * a slow run could hit Claude Code's own hook timeout FIRST — from Claude Code's side, not this
+ * process's — which kills this script before `writeState` ever runs. No state is persisted, so
+ * the next attempt reruns the entire ~150s check suite from scratch: a livelock, not a clean
+ * failure. This timeout gives this script a chance to fail cleanly (and persist state) before
+ * that outer timeout can fire.
+ */
+const DETERMINISTIC_CHECKS_TIMEOUT_MS = 140_000
+/*
+ * Matches `realExec`'s own maxBuffer (see `./lib/git`) — `pre-commit-checks.ts` can produce a
+ * large report (report-only subcommands over a big diff), same rationale applies here.
+ */
+const DETERMINISTIC_CHECKS_MAX_BUFFER_BYTES = 64 * 1024 * 1024
+
 type DecideGateInput = {
   diffHash: string
   state: PrecommitState | null
@@ -51,6 +67,19 @@ export function decideGate({ diffHash, state, runDeterministicChecks }: DecideGa
     }
   }
 
+  /*
+   * `overrideApproved` is checked BEFORE `state.deterministic`, so an approved override can
+   * unblock either a deterministic failure or a pending agentic review — "zero-tolerance: ANY
+   * finding blocks, but an explicit user-confirmed override unblocks it" applies universally,
+   * not only to the pending-review state. `mark-review-done.ts --override "<reason>"` already
+   * allows setting `overrideApproved: true` regardless of `state.deterministic`, so this check
+   * must honor it regardless too, or the override could never actually take effect on a
+   * deterministic failure.
+   */
+  if (state.overrideApproved) {
+    return { allow: true, reason: 'Gate satisfied (override approved).', nextState: state }
+  }
+
   if (state.deterministic === 'fail') {
     return {
       allow: false,
@@ -59,7 +88,11 @@ export function decideGate({ diffHash, state, runDeterministicChecks }: DecideGa
     }
   }
 
-  if (state.agenticReviewDone || state.overrideApproved) {
+  /*
+   * You can't "review" a change that failed deterministic checks — only override past it — so
+   * `agenticReviewDone` is only meaningful once `state.deterministic === 'pass'`, reached here.
+   */
+  if (state.agenticReviewDone) {
     return { allow: true, reason: 'Gate satisfied.', nextState: state }
   }
 
@@ -87,25 +120,45 @@ export function decideGate({ diffHash, state, runDeterministicChecks }: DecideGa
  * (not only on pass) so this stays correct even if a future change adds a side effect on the
  * failure path too.
  */
-function runDeterministicChecksSubprocess(): { pass: boolean; findings: string[]; diffHashAfterChecks: string } {
+export function runDeterministicChecksSubprocess(): {
+  pass: boolean
+  findings: string[]
+  diffHashAfterChecks: string
+} {
   const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
   const preCommitChecksPath = path.resolve(currentDirectory, 'pre-commit-checks.ts')
 
   const result = ((): { pass: boolean; findings: string[] } => {
     try {
       // eslint-disable-next-line sonarjs/no-os-command-from-path -- `npx`/`tsx` resolve via PATH by design; trusted, well-known project tooling, not user input.
-      const stdout = execFileSync('npx', ['tsx', preCommitChecksPath], { encoding: 'utf8' })
+      const stdout = execFileSync('npx', ['tsx', preCommitChecksPath], {
+        encoding: 'utf8',
+        timeout: DETERMINISTIC_CHECKS_TIMEOUT_MS,
+        maxBuffer: DETERMINISTIC_CHECKS_MAX_BUFFER_BYTES
+      })
       return { pass: stdout.includes('PRECOMMIT_RESULT=PASS'), findings: [] }
     } catch (error) {
-      const execError = error as { stdout?: string; stderr?: string }
+      const execError = error as { stdout?: string; stderr?: string; signal?: string | null; code?: string }
       /*
        * stderr carries the actual `✖ Pre-commit checks failed:\n<findings>` text (see
        * pre-commit-checks.ts's `console.error`); stdout only carries the PRECOMMIT_RESULT
        * marker. Both are included so nothing useful is dropped, with String(error) as an
        * ultimate fallback for the (unexpected) case where the child process produced neither.
+       *
+       * When `execFileSync`'s `timeout` kills the process, stdout/stderr are typically empty
+       * (the process was killed mid-run, before it could flush a useful report) and Node
+       * surfaces `signal: 'SIGTERM'` + `code: 'ETIMEDOUT'` instead of a normal exit — that
+       * combination is treated as a failure like any other (`pass: false`), just with a clearer
+       * message than the raw `Error: spawnSync npx ETIMEDOUT` would otherwise produce.
        */
+      const isTimedOut = execError.code === 'ETIMEDOUT' && execError.signal === 'SIGTERM'
       const output = [execError.stdout, execError.stderr].filter(Boolean).join('\n') || String(error)
-      return { pass: false, findings: [output] }
+      return {
+        pass: false,
+        findings: [
+          isTimedOut ? `Deterministic checks timed out after ${DETERMINISTIC_CHECKS_TIMEOUT_MS}ms.\n${output}` : output
+        ]
+      }
     }
   })()
 
