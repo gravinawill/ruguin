@@ -11,11 +11,12 @@ export default defineConfig(
          */
         'unicorn/name-replacements': ['error', { replacements: { repository: false, fn: false } }],
         /*
-         * `CheckResult.blocking`/`.warning` (and the local `clean`) are an established
-         * check-result contract read throughout this package's checks and their tests —
-         * renaming would ripple widely for no real clarity gain.
+         * `complexityRegressed`/`dependenciesRegressed` are exported from baseline.ts and
+         * imported by ruflo-checks.ts and read throughout baseline.unit.ts — renaming would
+         * ripple across all three for no real clarity gain. Scoped to just these two names
+         * (not a blanket rule-off) via the rule's own `ignore` option.
          */
-        'unicorn/consistent-boolean-name': 'off'
+        'unicorn/consistent-boolean-name': ['error', { ignore: ['^complexityRegressed$', '^dependenciesRegressed$'] }]
       }
     }
   },
@@ -27,6 +28,16 @@ export default defineConfig(
     files: ['src/pre-commit-checks.ts'],
     rules: {
       'unicorn/no-process-exit': 'off'
+    }
+  },
+  {
+    /*
+     * index.ts is intentionally a comment-only placeholder describing the package layout —
+     * its real public entrypoints are designed in a later task, not this remediation.
+     */
+    files: ['src/index.ts'],
+    rules: {
+      'unicorn/no-empty-file': ['error', { allowComments: true }]
     }
   }
 )

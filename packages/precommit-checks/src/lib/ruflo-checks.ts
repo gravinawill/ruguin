@@ -47,8 +47,8 @@ export function runSecretsScan(exec: ExecFn): CheckResult {
     return { blocking: false, warning: true, message: `ruflo security secrets unavailable: ${stderr || 'no output'}` }
   }
 
-  const clean = stdout.includes('No secrets detected.')
-  return { blocking: !clean, warning: false, message: clean ? 'No secrets detected.' : stdout.trim() }
+  const isClean = stdout.includes('No secrets detected.')
+  return { blocking: !isClean, warning: false, message: isClean ? 'No secrets detected.' : stdout.trim() }
 }
 
 export function runComplexityRegression(
