@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { type Baseline, readBaseline, writeBaseline } from './lib/baseline'
+import { realExec, resolveGitDirectory } from './lib/git'
 import { runCycleCheck, runDetectChanges, runImpactForSymbol } from './lib/gitnexus-checks'
 import {
   runComplexityRegression,
@@ -58,31 +59,6 @@ export function runAllChecks(exec: ExecFn, repoRoot: string, stagedFiles: string
   return { pass: findings.length === 0, findings, warnings, report, currentMetrics }
 }
 
-function realExec(command: string, arguments_: string[]) {
-  try {
-    const stdout = execFileSync(command, arguments_, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-    return { status: 0, stdout, stderr: '' }
-  } catch (error) {
-    const execError = error as { status?: number; stdout?: string; stderr?: string }
-    return { status: execError.status ?? 1, stdout: execError.stdout ?? '', stderr: execError.stderr ?? String(error) }
-  }
-}
-
-/**
- * Resolves the real git directory via `git rev-parse --git-dir`, instead of assuming
- * `<repoRoot>/.git` is always a directory. Inside a git worktree, `.git` is a plain text
- * pointer file (not a directory), so writing to `resolve(repoRoot, '.git/...')` throws
- * ENOTDIR. `git rev-parse --git-dir` returns the correct path in both cases — e.g.
- * `/main-repo/.git/worktrees/<name>` for a worktree — and per git's own docs/behavior it
- * may be relative to the cwd it was invoked from, so it's resolved against `repoRoot` here
- * (a no-op when the returned path is already absolute, since `path.resolve` discards
- * earlier segments once it hits an absolute one).
- */
-export function resolveGitDirectory(exec: ExecFn, repoRoot: string): string {
-  const { stdout } = exec('git', ['rev-parse', '--git-dir'])
-  return path.resolve(repoRoot, stdout.trim())
-}
-
 function main(): void {
   const repoRoot = process.cwd()
 
@@ -127,11 +103,11 @@ function main(): void {
 }
 
 /*
- * `claude-precommit-gate.ts` imports `resolveGitDirectory` from this module. Without this
- * check, evaluating that import would also run the guard below purely as a side effect of
+ * `runAllChecks` is exported from this module for other files (and tests) to import. Without
+ * this check, evaluating that import would also run the guard below purely as a side effect of
  * module evaluation (ESM top-level code runs once on first import, regardless of who imports
  * it) — triggering this file's own `main()` and `process.exit()` before the importer's own
- * `main()` ever gets a chance to run. Comparing `import.meta.url` against `process.argv[1]`
+ * logic ever gets a chance to run. Comparing `import.meta.url` against `process.argv[1]`
  * restricts the auto-run to only when this file is the directly-executed entrypoint (e.g. via
  * `npx tsx src/pre-commit-checks.ts` from Husky), not merely imported for its exports.
  */

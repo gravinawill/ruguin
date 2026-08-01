@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { resolveGitDirectory, runAllChecks } from '../pre-commit-checks'
+import { runAllChecks } from '../pre-commit-checks'
 
 function execReturning(mapping: Record<string, { status: number; stdout: string; stderr?: string }>) {
   return vi.fn((_command: string, arguments_: string[]) => {
@@ -75,21 +75,5 @@ describe('runAllChecks', () => {
     expect(result.pass).toBe(true)
     expect(result.currentMetrics.complexity).toEqual({ 'src/a.ts': { cyclomatic: 3, cognitive: 2 } })
     expect(result.currentMetrics.dependencies).toEqual({ 'src/a.ts': { connections: 1 } })
-  })
-})
-
-describe('resolveGitDirectory', () => {
-  it('returns an absolute git-dir path unchanged (e.g. a worktree pointing outside repoRoot)', () => {
-    const exec = vi.fn().mockReturnValue({
-      status: 0,
-      stdout: '/main-repo/.git/worktrees/my-worktree\n',
-      stderr: ''
-    })
-    expect(resolveGitDirectory(exec, '/repo')).toBe('/main-repo/.git/worktrees/my-worktree')
-  })
-
-  it('resolves a relative git-dir path against repoRoot (normal checkout)', () => {
-    const exec = vi.fn().mockReturnValue({ status: 0, stdout: '.git\n', stderr: '' })
-    expect(resolveGitDirectory(exec, '/repo')).toBe('/repo/.git')
   })
 })
