@@ -31,4 +31,14 @@ describe('GET /health (e2e)', () => {
     expect(response.status).toBe(200)
     expect(response.body).toMatchObject({ status: 'ok' })
   })
+
+  /* The endpoint used to answer `ok` with an empty indicator list — an answer about nothing. */
+  it('reports the cache as an indicator rather than an empty check list', async () => {
+    const response = await request(app.getHttpServer() as Parameters<typeof request>[0]).get('/health')
+
+    expect(response.body).toMatchObject({
+      details: { cache: { cacheStatus: 'healthy', driver: 'memory', status: 'up' } },
+      info: { cache: { status: 'up' } }
+    })
+  })
 })

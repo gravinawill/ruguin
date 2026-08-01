@@ -1,9 +1,13 @@
 import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common'
 import { HealthCheck, type HealthCheckResult, HealthCheckService } from '@nestjs/terminus'
+import { CacheHealthIndicator } from '@ruguin/cache/nestjs'
 
 @Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {
-  constructor(private readonly health: HealthCheckService) {}
+  constructor(
+    private readonly health: HealthCheckService,
+    private readonly cacheHealth: CacheHealthIndicator
+  ) {}
 
   /*
    * The return type is spelled out rather than inferred. @ruguin/cache carries @nestjs/terminus as
@@ -14,6 +18,6 @@ export class HealthController {
   @Get()
   @HealthCheck()
   check(): Promise<HealthCheckResult> {
-    return this.health.check([])
+    return this.health.check([() => this.cacheHealth.isHealthy('cache')])
   }
 }
