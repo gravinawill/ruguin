@@ -1,2 +1,2 @@
-export * from './connect.provider'
-export * from './disconnect.provider'
+export * from './connect.provider.ts'
+export * from './disconnect.provider.ts'

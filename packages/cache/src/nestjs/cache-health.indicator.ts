@@ -1,9 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { type HealthIndicatorResult } from '@nestjs/terminus'
+import { CacheHealthStatus, type HealthCheckProviderDTO, type IHealthCheckProvider } from '@ruguin/cache'
 
-import { CacheHealthStatus, type HealthCheckProviderDTO, type IHealthCheckProvider } from '../domain'
-
-import { HEALTH_CHECK_PROVIDER } from './cache.tokens'
+import { HEALTH_CHECK_PROVIDER } from './cache.tokens.ts'
 
 /*
  * Flattened deliberately: Terminus renders whatever object it is handed straight into the /health

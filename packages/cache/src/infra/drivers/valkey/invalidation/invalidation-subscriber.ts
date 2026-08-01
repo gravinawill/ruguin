@@ -1,13 +1,17 @@
 import { type Either, failure, success } from '@ruguin/utils'
 import { type Redis } from 'iovalkey'
 
-import { type OnCacheError } from '../../../../application/on-cache-error'
-import { type CacheConnectionError, type CacheNotInitializedError, type CacheTimeoutError } from '../../../../domain'
-import { type NamespaceVersionResolver } from '../../../namespace-version.resolver'
-import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager'
-import { type ValkeyCommandExecutor } from '../valkey-command.executor'
+import { type OnCacheError } from '../../../../application/on-cache-error.ts'
+import {
+  type CacheConnectionError,
+  type CacheNotInitializedError,
+  type CacheTimeoutError
+} from '../../../../domain/index.ts'
+import { type NamespaceVersionResolver } from '../../../namespace-version.resolver.ts'
+import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager.ts'
+import { type ValkeyCommandExecutor } from '../valkey-command.executor.ts'
 
-import { decodeInvalidation, invalidationChannelOf, type InvalidationMessage } from './invalidation-publisher'
+import { decodeInvalidation, invalidationChannelOf, type InvalidationMessage } from './invalidation-publisher.ts'
 
 type StartOutput = Promise<Either<CacheConnectionError | CacheNotInitializedError | CacheTimeoutError, true>>
 

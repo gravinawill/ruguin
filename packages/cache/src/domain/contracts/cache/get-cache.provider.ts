@@ -1,7 +1,7 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheConsistency } from '../../enums'
-import { type CacheOperationError, type CacheSerializationError } from '../../errors'
+import { type CacheConsistency } from '../../enums/index.ts'
+import { type CacheOperationError, type CacheSerializationError } from '../../errors/index.ts'
 
 export namespace GetCacheProviderDTO {
   export type Input = Readonly<{

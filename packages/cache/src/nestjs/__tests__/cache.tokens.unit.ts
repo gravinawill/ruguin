@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CACHE_MODULE_OPTIONS, CACHE_PROVIDER, CONTRACT_TOKENS } from '../cache.tokens'
+import { CACHE_MODULE_OPTIONS, CACHE_PROVIDER, CONTRACT_TOKENS } from '../cache.tokens.ts'
 
 describe('cache tokens', () => {
   it('gives every contract its own symbol', () => {

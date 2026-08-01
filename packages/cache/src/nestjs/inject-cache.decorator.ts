@@ -1,6 +1,6 @@
 import { Inject } from '@nestjs/common'
 
-import { CACHE_PROVIDER } from './cache.tokens'
+import { CACHE_PROVIDER } from './cache.tokens.ts'
 
 /*
  * Sugar for @Inject(CACHE_PROVIDER). It exists so the common case reads as a declaration rather

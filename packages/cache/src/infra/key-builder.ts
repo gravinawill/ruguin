@@ -1,6 +1,6 @@
 import { type Either, failure, success } from '@ruguin/utils'
 
-import { InvalidCacheKeyError } from '../domain'
+import { InvalidCacheKeyError } from '../domain/index.ts'
 
 type BuildOutput = Either<InvalidCacheKeyError, Readonly<{ physicalKey: string }>>
 

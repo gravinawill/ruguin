@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { type AcquireLockProviderDTO, CacheDriver, CacheHealthStatus, InvalidCacheKeyError } from '../../../../domain'
-import { KeyBuilder } from '../../../key-builder'
-import { JsonSerializerStrategy } from '../../../serializers'
-import { MemoryCacheDriver } from '../memory-cache.driver'
+import {
+  type AcquireLockProviderDTO,
+  CacheDriver,
+  CacheHealthStatus,
+  InvalidCacheKeyError
+} from '../../../../domain/index.ts'
+import { KeyBuilder } from '../../../key-builder.ts'
+import { JsonSerializerStrategy } from '../../../serializers/index.ts'
+import { MemoryCacheDriver } from '../memory-cache.driver.ts'
 
 const buildDriver = (input: { jitterRatio?: number } = {}): MemoryCacheDriver =>
   new MemoryCacheDriver({

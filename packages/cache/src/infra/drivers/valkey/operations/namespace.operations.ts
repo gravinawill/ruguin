@@ -1,11 +1,15 @@
 import { type Either, failure, success } from '@ruguin/utils'
 
-import { CacheConsistency, type CacheOperationError, type InvalidateNamespaceProviderDTO } from '../../../../domain'
-import { type KeyBuilder } from '../../../key-builder'
-import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager'
-import { type InvalidationPublisher } from '../invalidation/invalidation-publisher'
-import { BUMP_NAMESPACE_VERSION_SCRIPT } from '../scripts/lua-scripts'
-import { type ValkeyCommandExecutor } from '../valkey-command.executor'
+import {
+  CacheConsistency,
+  type CacheOperationError,
+  type InvalidateNamespaceProviderDTO
+} from '../../../../domain/index.ts'
+import { type KeyBuilder } from '../../../key-builder.ts'
+import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager.ts'
+import { type InvalidationPublisher } from '../invalidation/invalidation-publisher.ts'
+import { BUMP_NAMESPACE_VERSION_SCRIPT } from '../scripts/lua-scripts.ts'
+import { type ValkeyCommandExecutor } from '../valkey-command.executor.ts'
 
 const INITIAL_VERSION = 1
 

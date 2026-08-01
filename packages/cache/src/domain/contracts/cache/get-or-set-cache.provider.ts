@@ -1,6 +1,6 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheConsistency, type CacheLockOutcome, type CacheSource } from '../../enums'
+import { type CacheConsistency, type CacheLockOutcome, type CacheSource } from '../../enums/index.ts'
 
 export namespace GetOrSetCacheProviderDTO {
   export type Input<T, E> = Readonly<{

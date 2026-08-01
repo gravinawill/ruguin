@@ -28,7 +28,7 @@ import {
   type SetCacheProviderDTO,
   type SetIfNotExistsCacheProviderDTO,
   type SetScoreProviderDTO
-} from '../../../domain'
+} from '../../../domain/index.ts'
 
 /*
  * This driver keeps no state, so it can never own a lock. The key only exists to make the

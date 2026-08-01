@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { CacheSerializationError } from '../../../domain'
-import { JsonSerializerStrategy } from '../json-serializer.strategy'
+import { CacheSerializationError } from '../../../domain/index.ts'
+import { JsonSerializerStrategy } from '../json-serializer.strategy.ts'
 
 describe('JsonSerializerStrategy', () => {
   const serializer = new JsonSerializerStrategy()

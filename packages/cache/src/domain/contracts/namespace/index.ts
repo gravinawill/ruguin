@@ -1,2 +1,2 @@
-export * from './invalidate-namespace.provider'
-export * from './resolve-namespace-version.provider'
+export * from './invalidate-namespace.provider.ts'
+export * from './resolve-namespace-version.provider.ts'

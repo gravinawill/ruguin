@@ -1,13 +1,13 @@
 import { success } from '@ruguin/utils'
 import { describe, expect, it } from 'vitest'
 
-import { CacheSource, type IGetCacheProvider } from '../../domain'
-import { MemoryCacheDriver } from '../../infra/drivers/memory'
-import { KeyBuilder } from '../../infra/key-builder'
-import { JsonSerializerStrategy } from '../../infra/serializers'
-import { CacheProviderFacade } from '../cache-provider.facade'
-import { ExecuteWithLockProvider } from '../execute-with-lock.provider'
-import { GetOrSetCacheProvider } from '../get-or-set-cache.provider'
+import { CacheSource, type IGetCacheProvider } from '../../domain/index.ts'
+import { MemoryCacheDriver } from '../../infra/drivers/memory/index.ts'
+import { KeyBuilder } from '../../infra/key-builder.ts'
+import { JsonSerializerStrategy } from '../../infra/serializers/index.ts'
+import { CacheProviderFacade } from '../cache-provider.facade.ts'
+import { ExecuteWithLockProvider } from '../execute-with-lock.provider.ts'
+import { GetOrSetCacheProvider } from '../get-or-set-cache.provider.ts'
 
 const noop = (): void => undefined
 

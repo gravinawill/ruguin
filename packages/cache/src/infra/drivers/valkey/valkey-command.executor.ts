@@ -1,6 +1,6 @@
 import { type Either, failure, success } from '@ruguin/utils'
 
-import { CacheConnectionError, CacheTimeoutError } from '../../../domain'
+import { CacheConnectionError, CacheTimeoutError } from '../../../domain/index.ts'
 
 export type ValkeyCommandOutput<T> = Promise<Either<CacheConnectionError | CacheTimeoutError, T>>
 

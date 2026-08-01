@@ -1,8 +1,8 @@
 import { success } from '@ruguin/utils'
 import { describe, expect, it, vi } from 'vitest'
 
-import { CacheConsistency, CacheDriver, CacheLockOutcome, CacheSource } from '../../domain'
-import { CacheFactory, type CacheFactoryDTO } from '../cache.factory'
+import { CacheConsistency, CacheDriver, CacheLockOutcome, CacheSource } from '../../domain/index.ts'
+import { CacheFactory, type CacheFactoryDTO } from '../cache.factory.ts'
 
 const baseConfig = (overrides: Partial<CacheFactoryDTO.Config>): CacheFactoryDTO.Config => ({
   breaker: { failureThreshold: 5, resetTimeoutInMs: 10_000 },

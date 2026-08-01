@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CacheConsistency, CacheDriver, CacheHealthStatus, CacheLockOutcome, CacheSource } from '../index'
+import { CacheConsistency, CacheDriver, CacheHealthStatus, CacheLockOutcome, CacheSource } from '../index.ts'
 
 describe('cache enums', () => {
   it('lists every supported driver', () => {

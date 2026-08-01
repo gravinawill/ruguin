@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { StatusError } from '../../../../enums'
-import { GenerateIDError } from '../generate-id.error'
+import { StatusError } from '../../../../enums/index.ts'
+import { GenerateIDError } from '../generate-id.error.ts'
 
 describe('GenerateIDError', () => {
   it('builds the message from a modelName owner and carries the original error', () => {

@@ -11,11 +11,11 @@ import {
   CacheDriver,
   type ICacheProvider,
   type IGetCacheProvider
-} from '../../domain'
-import { CacheModule } from '../cache.module'
-import { CACHE_PROVIDER, CONTRACT_TOKENS, GET_CACHE_PROVIDER, HEALTH_CHECK_PROVIDER } from '../cache.tokens'
-import { type CacheModuleFactoryOptions } from '../cache-module.options'
-import { InjectCache } from '../inject-cache.decorator'
+} from '../../domain/index.ts'
+import { CacheModule } from '../cache.module.ts'
+import { CACHE_PROVIDER, CONTRACT_TOKENS, GET_CACHE_PROVIDER, HEALTH_CHECK_PROVIDER } from '../cache.tokens.ts'
+import { type CacheModuleFactoryOptions } from '../cache-module.options.ts'
+import { InjectCache } from '../inject-cache.decorator.ts'
 
 const baseOptions = (overrides: Partial<CacheModuleFactoryOptions> = {}): CacheModuleFactoryOptions => ({
   breaker: { failureThreshold: 5, resetTimeoutInMs: 10_000 },

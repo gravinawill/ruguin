@@ -1,8 +1,8 @@
 import { type Either, failure, success } from '@ruguin/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { CacheConnectionError, CacheConsistency } from '../../domain'
-import { NamespaceVersionResolver, type NamespaceVersionSource } from '../namespace-version.resolver'
+import { CacheConnectionError, CacheConsistency } from '../../domain/index.ts'
+import { NamespaceVersionResolver, type NamespaceVersionSource } from '../namespace-version.resolver.ts'
 
 const sourceReturning = (versions: number[]): { source: NamespaceVersionSource; calls: () => number } => {
   let index = 0

@@ -1,7 +1,7 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheConsistency } from '../../enums'
-import { type CacheOperationError } from '../../errors'
+import { type CacheConsistency } from '../../enums/index.ts'
+import { type CacheOperationError } from '../../errors/index.ts'
 
 export namespace ResolveNamespaceVersionProviderDTO {
   export type Input = Readonly<{ namespace: string; consistency?: CacheConsistency }>

@@ -1,6 +1,6 @@
 import { failure, success } from '@ruguin/utils'
 
-import { CacheSerializationError, type ISerializerStrategy, type SerializerStrategyDTO } from '../../domain'
+import { CacheSerializationError, type ISerializerStrategy, type SerializerStrategyDTO } from '../../domain/index.ts'
 
 export class JsonSerializerStrategy implements ISerializerStrategy {
   public serialize<T>(input: SerializerStrategyDTO.SerializeInput<T>): SerializerStrategyDTO.SerializeOutput {

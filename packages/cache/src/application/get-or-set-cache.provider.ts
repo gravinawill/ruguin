@@ -9,9 +9,9 @@ import {
   type IGetOrSetCacheProvider,
   type IReleaseLockProvider,
   type ISetCacheProvider
-} from '../domain'
+} from '../domain/index.ts'
 
-import { type OnCacheError } from './on-cache-error'
+import { type OnCacheError } from './on-cache-error.ts'
 
 type CacheRead<T> = Readonly<{ found: boolean; value: T | null }>
 

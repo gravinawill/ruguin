@@ -10,9 +10,9 @@ import {
 import { failure, success } from '@ruguin/utils'
 import { describe, expect, it } from 'vitest'
 
-import { CacheConnectionError, CacheDriver, type GetCacheProviderDTO } from '../../../domain'
-import { NoopCacheDriver } from '../../drivers/noop/noop-cache.driver'
-import { ObservableCacheProvider } from '../observable-cache.provider'
+import { CacheConnectionError, CacheDriver, type GetCacheProviderDTO } from '../../../domain/index.ts'
+import { NoopCacheDriver } from '../../drivers/noop/noop-cache.driver.ts'
+import { ObservableCacheProvider } from '../observable-cache.provider.ts'
 
 type Recorded = { attributes: Attributes; name: string; status: SpanStatusCode | null; wasEnded: boolean }
 

@@ -1,1 +1,1 @@
-export * from './status-error.enum'
+export * from './status-error.enum.ts'

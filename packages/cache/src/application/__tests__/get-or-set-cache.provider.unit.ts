@@ -12,12 +12,12 @@ import {
   type ISetCacheProvider,
   LockNotAcquiredError,
   LockNotOwnedError
-} from '../../domain'
-import { MemoryCacheDriver } from '../../infra/drivers/memory'
-import { KeyBuilder } from '../../infra/key-builder'
-import { JsonSerializerStrategy } from '../../infra/serializers'
-import { GetOrSetCacheProvider } from '../get-or-set-cache.provider'
-import { type OnCacheError } from '../on-cache-error'
+} from '../../domain/index.ts'
+import { MemoryCacheDriver } from '../../infra/drivers/memory/index.ts'
+import { KeyBuilder } from '../../infra/key-builder.ts'
+import { JsonSerializerStrategy } from '../../infra/serializers/index.ts'
+import { GetOrSetCacheProvider } from '../get-or-set-cache.provider.ts'
+import { type OnCacheError } from '../on-cache-error.ts'
 
 type Reported = Parameters<OnCacheError>[0]
 

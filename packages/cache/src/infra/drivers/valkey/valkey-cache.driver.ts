@@ -1,6 +1,6 @@
 import { failure, success } from '@ruguin/utils'
 
-import { type OnCacheError } from '../../../application/on-cache-error'
+import { type OnCacheError } from '../../../application/on-cache-error.ts'
 import {
   type AcquireLockProviderDTO,
   type ConnectProviderDTO,
@@ -25,17 +25,17 @@ import {
   type SetCacheProviderDTO,
   type SetIfNotExistsCacheProviderDTO,
   type SetScoreProviderDTO
-} from '../../../domain'
-import { type NamespaceVersionResolver } from '../../namespace-version.resolver'
+} from '../../../domain/index.ts'
+import { type NamespaceVersionResolver } from '../../namespace-version.resolver.ts'
 
-import { type ValkeyConnectionManager } from './connection/valkey-connection.manager'
-import { type InvalidationSubscriber } from './invalidation/invalidation-subscriber'
-import { type CounterOperations } from './operations/counter.operations'
-import { type HealthOperations } from './operations/health.operations'
-import { type KeyValueOperations } from './operations/key-value.operations'
-import { type LockOperations } from './operations/lock.operations'
-import { type NamespaceOperations } from './operations/namespace.operations'
-import { type ScoreOperations } from './operations/score.operations'
+import { type ValkeyConnectionManager } from './connection/valkey-connection.manager.ts'
+import { type InvalidationSubscriber } from './invalidation/invalidation-subscriber.ts'
+import { type CounterOperations } from './operations/counter.operations.ts'
+import { type HealthOperations } from './operations/health.operations.ts'
+import { type KeyValueOperations } from './operations/key-value.operations.ts'
+import { type LockOperations } from './operations/lock.operations.ts'
+import { type NamespaceOperations } from './operations/namespace.operations.ts'
+import { type ScoreOperations } from './operations/score.operations.ts'
 
 /*
  * The driver owns no logic of its own: it routes each leaf contract to the operation object that

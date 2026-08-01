@@ -4,10 +4,10 @@ import {
   type DecrementCounterProviderDTO,
   type GetCounterProviderDTO,
   type IncrementCounterProviderDTO
-} from '../../../../domain'
-import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager'
-import { type PhysicalKeyResolver } from '../physical-key.resolver'
-import { type ValkeyCommandExecutor } from '../valkey-command.executor'
+} from '../../../../domain/index.ts'
+import { type ValkeyConnectionManager } from '../connection/valkey-connection.manager.ts'
+import { type PhysicalKeyResolver } from '../physical-key.resolver.ts'
+import { type ValkeyCommandExecutor } from '../valkey-command.executor.ts'
 
 /*
  * Counters go to the master on reads too, unlike `get`. The use case is rate limiting, and a

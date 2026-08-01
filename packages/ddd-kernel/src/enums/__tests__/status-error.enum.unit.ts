@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { StatusError } from '../status-error.enum'
+import { StatusError } from '../status-error.enum.ts'
 
 describe('StatusError', () => {
   it('exposes one member per HTTP-mappable error category', () => {

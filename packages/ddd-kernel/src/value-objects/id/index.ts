@@ -1,2 +1,2 @@
-export * from './errors'
-export * from './id.value-object'
+export * from './errors/index.ts'
+export * from './id.value-object.ts'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { decodeInvalidation, encodeInvalidation, invalidationChannelOf } from '../invalidation-publisher'
+import { decodeInvalidation, encodeInvalidation, invalidationChannelOf } from '../invalidation-publisher.ts'
 
 describe('invalidation payload', () => {
   it('namespaces the channel by prefix, so two services never cross-invalidate', () => {

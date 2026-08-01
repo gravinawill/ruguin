@@ -1,6 +1,6 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheOperationError } from '../../errors'
+import { type CacheOperationError } from '../../errors/index.ts'
 
 export namespace InvalidateNamespaceProviderDTO {
   export type Input = Readonly<{ namespace: string }>

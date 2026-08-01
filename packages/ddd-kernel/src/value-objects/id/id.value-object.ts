@@ -1,7 +1,7 @@
 import { type Either, failure, success } from '@ruguin/utils'
 import { v7 as uuidv7 } from 'uuid'
 
-import { GenerateIDError, InvalidIDError } from './errors'
+import { GenerateIDError, InvalidIDError } from './errors/index.ts'
 
 export class ID {
   private static readonly UUID_V7_REGEX: RegExp =

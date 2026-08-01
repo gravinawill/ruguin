@@ -5,9 +5,9 @@ import {
   type IAcquireLockProvider,
   type IExecuteWithLockProvider,
   type IReleaseLockProvider
-} from '../domain'
+} from '../domain/index.ts'
 
-import { type OnCacheError } from './on-cache-error'
+import { type OnCacheError } from './on-cache-error.ts'
 
 export class ExecuteWithLockProvider implements IExecuteWithLockProvider {
   private readonly lockAcquirer: IAcquireLockProvider

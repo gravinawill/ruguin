@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { StatusError } from '../../../enums'
-import { ID } from '../id.value-object'
+import { StatusError } from '../../../enums/index.ts'
+import { ID } from '../id.value-object.ts'
 
 const VALID_UUID_V7 = '018f4d2a-7c3b-7000-8abc-1234567890ab'
 

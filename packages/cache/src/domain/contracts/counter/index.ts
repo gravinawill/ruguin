@@ -1,3 +1,3 @@
-export * from './decrement-counter.provider'
-export * from './get-counter.provider'
-export * from './increment-counter.provider'
+export * from './decrement-counter.provider.ts'
+export * from './get-counter.provider.ts'
+export * from './increment-counter.provider.ts'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { type ICacheProvider, type IGetCacheProvider, type IHealthCheckProvider } from '../index'
+import { type ICacheProvider, type IGetCacheProvider, type IHealthCheckProvider } from '../index.ts'
 
 const assertGet = (provider: IGetCacheProvider): IGetCacheProvider => provider
 const assertHealth = (provider: IHealthCheckProvider): IHealthCheckProvider => provider

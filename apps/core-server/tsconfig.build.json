@@ -1,5 +1,13 @@
 {
   "extends": "./tsconfig.json",
+  /*
+   * SWC emits; tsc only type-checks (`typeCheck: true` in nest-cli.json). Saying so removes the
+   * output-layout question entirely — without it TypeScript demands an explicit `rootDir`, and
+   * setting one makes the SWC builder emit to dist/src/ instead of dist/.
+   */
+  "compilerOptions": {
+    "noEmit": true
+  },
   "exclude": [
     "node_modules",
     "test",

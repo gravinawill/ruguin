@@ -1,8 +1,8 @@
 import { type Either, failure, success } from '@ruguin/utils'
 
-import { type CacheConsistency, type CacheOperationError } from '../../../domain'
-import { type KeyBuilder } from '../../key-builder'
-import { type NamespaceVersionResolver } from '../../namespace-version.resolver'
+import { type CacheConsistency, type CacheOperationError } from '../../../domain/index.ts'
+import { type KeyBuilder } from '../../key-builder.ts'
+import { type NamespaceVersionResolver } from '../../namespace-version.resolver.ts'
 
 type PhysicalKeyOutput = Promise<Either<CacheOperationError, string>>
 

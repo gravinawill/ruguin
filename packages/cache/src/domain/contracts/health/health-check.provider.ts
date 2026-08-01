@@ -1,7 +1,7 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheDriver, type CacheHealthStatus } from '../../enums'
-import { type CacheNotInitializedError } from '../../errors'
+import { type CacheDriver, type CacheHealthStatus } from '../../enums/index.ts'
+import { type CacheNotInitializedError } from '../../errors/index.ts'
 
 export namespace HealthCheckProviderDTO {
   export type NodeHealth = Readonly<{

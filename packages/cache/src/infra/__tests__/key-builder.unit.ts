@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { InvalidCacheKeyError } from '../../domain'
-import { KeyBuilder } from '../key-builder'
+import { InvalidCacheKeyError } from '../../domain/index.ts'
+import { KeyBuilder } from '../key-builder.ts'
 
 describe('KeyBuilder', () => {
   const builder = new KeyBuilder({ prefix: 'ruguin:iam' })

@@ -1,15 +1,15 @@
 import { type Either, success } from '@ruguin/utils'
 import { describe, expect, it, vi } from 'vitest'
 
-import { ExecuteWithLockProvider } from '../../../../application'
+import { ExecuteWithLockProvider } from '../../../../application/index.ts'
 import {
   CacheDriver,
   CacheHealthStatus,
   type ICacheDriver,
   LockNotAcquiredError,
   LockNotOwnedError
-} from '../../../../domain'
-import { NoopCacheDriver } from '../noop-cache.driver'
+} from '../../../../domain/index.ts'
+import { NoopCacheDriver } from '../noop-cache.driver.ts'
 
 describe('NoopCacheDriver', () => {
   // Typed as the contract it exists to satisfy, the same way a consumer would inject it.

@@ -1,8 +1,8 @@
 import { type Either } from '@ruguin/utils'
 
-import { type CacheOperationError, type LockNotAcquiredError } from '../../errors'
+import { type CacheOperationError, type LockNotAcquiredError } from '../../errors/index.ts'
 
-import { type AcquireLockProviderDTO } from './acquire-lock.provider'
+import { type AcquireLockProviderDTO } from './acquire-lock.provider.ts'
 
 export namespace ExecuteWithLockProviderDTO {
   export type Input<T, E> = Readonly<{

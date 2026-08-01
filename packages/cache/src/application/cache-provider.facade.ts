@@ -27,7 +27,7 @@ import {
   type SetCacheProviderDTO,
   type SetIfNotExistsCacheProviderDTO,
   type SetScoreProviderDTO
-} from '../domain'
+} from '../domain/index.ts'
 
 export class CacheProviderFacade implements ICacheProvider {
   private readonly driver: ICacheDriver

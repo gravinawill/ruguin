@@ -6,7 +6,7 @@ import {
   GET_WITH_NAMESPACE_VERSION_SCRIPT,
   type LuaScript,
   RELEASE_LOCK_SCRIPT
-} from '../lua-scripts'
+} from '../lua-scripts.ts'
 
 const highestKeyIndex = (input: { source: string }): number => {
   const matches: readonly string[] = input.source.match(/KEYS\[\d+\]/gu) ?? []

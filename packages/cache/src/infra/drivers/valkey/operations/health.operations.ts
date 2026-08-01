@@ -1,9 +1,9 @@
 import { failure, success } from '@ruguin/utils'
 import { type Redis } from 'iovalkey'
 
-import { CacheDriver, type HealthCheckProviderDTO } from '../../../../domain'
-import { type ValkeyConnectionManager, type ValkeyReplica } from '../connection/valkey-connection.manager'
-import { type ValkeyCommandExecutor } from '../valkey-command.executor'
+import { CacheDriver, type HealthCheckProviderDTO } from '../../../../domain/index.ts'
+import { type ValkeyConnectionManager, type ValkeyReplica } from '../connection/valkey-connection.manager.ts'
+import { type ValkeyCommandExecutor } from '../valkey-command.executor.ts'
 
 import {
   clientsHealthFrom,
@@ -14,7 +14,7 @@ import {
   replicationLagFrom,
   serverInfoFrom,
   type ValkeyInfo
-} from './valkey-info.parser'
+} from './valkey-info.parser.ts'
 
 /*
  * `stats` carries `evicted_keys` and `rejected_connections`, which are the two signals that
