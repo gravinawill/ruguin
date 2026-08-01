@@ -27,4 +27,3 @@ The gate state file and the precommit report file both live inside the real git 
 - No real CLI calls in `*.unit.ts` — mock `node:child_process`. Exception: `git.ts`'s own timeout-kill test spawns a real short-lived subprocess, since a signal/timeout interaction can't be meaningfully mocked.
 - A tool failing, timing out, or being unavailable (missing binary, network, hung process) is a warning, never a blocking finding — every real `ExecFn` call is bounded by `realExec`'s 30s timeout so no single check can hang the whole script.
 - Raw TS, no build — run via `tsx path/to/entrypoint.ts`.
-# Task 13 scenario 3 probe Sat Aug  1 00:35:03 -03 2026
