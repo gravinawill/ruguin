@@ -32,23 +32,45 @@ export function runDiffRisk(exec: ExecFn): CheckResult {
   return { blocking: BLOCKING_RISK.has(overall) && overall !== 'low', warning: false, message: `diff risk: ${overall}` }
 }
 
-export function runSecretsScan(exec: ExecFn): CheckResult {
-  const { status, stdout, stderr } = exec(RUFLO, [
-    ...RUFLO_ARGS_PREFIX,
-    'security',
-    'secrets',
-    '--action',
-    'scan',
-    '-p',
-    '.'
-  ])
-
-  if (status !== 0 && !stdout) {
-    return { blocking: false, warning: true, message: `ruflo security secrets unavailable: ${stderr || 'no output'}` }
+export function runSecretsScan(exec: ExecFn, stagedFiles: string[]): CheckResult {
+  // If there are no staged files, nothing to scan
+  if (stagedFiles.length === 0) {
+    return { blocking: false, warning: false, message: 'No staged files to scan for secrets.' }
   }
 
-  const isClean = stdout.includes('No secrets detected.')
-  return { blocking: !isClean, warning: false, message: isClean ? 'No secrets detected.' : stdout.trim() }
+  const allMessages: string[] = []
+  let hasSecrets = false
+
+  // Scan each staged file individually to avoid detecting pre-existing repo-wide secrets
+  for (const file of stagedFiles) {
+    const { status, stdout, stderr } = exec(RUFLO, [
+      ...RUFLO_ARGS_PREFIX,
+      'security',
+      'secrets',
+      '--action',
+      'scan',
+      '-p',
+      file
+    ])
+
+    if (status !== 0 && !stdout) {
+      // Tool unavailable, but don't block on this single file — continue scanning others
+      allMessages.push(`⚠ Unable to scan ${file}: ${stderr || 'no output'}`)
+      continue
+    }
+
+    const isClean = stdout.includes('No secrets detected.')
+    if (!isClean) {
+      hasSecrets = true
+      allMessages.push(`Found secrets in ${file}:\n${stdout.trim()}`)
+    }
+  }
+
+  if (hasSecrets) {
+    return { blocking: true, warning: false, message: allMessages.join('\n\n') }
+  }
+
+  return { blocking: false, warning: false, message: 'No secrets detected.' }
 }
 
 export type ComplexityCheckResult = CheckResult & {

@@ -35,7 +35,7 @@ export function runAllChecks(exec: ExecFn, repoRoot: string, stagedFiles: string
   }
 
   record(runDiffRisk(exec))
-  record(runSecretsScan(exec))
+  record(runSecretsScan(exec, stagedFiles))
 
   const complexityResult = runComplexityRegression(exec, repoRoot, stagedFiles, baseline)
   record(complexityResult)

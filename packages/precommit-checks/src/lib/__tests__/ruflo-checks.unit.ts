@@ -27,20 +27,40 @@ describe('runDiffRisk', () => {
 })
 
 describe('runSecretsScan', () => {
-  it('does not block when "No secrets detected." is present', () => {
-    const exec = vi
-      .fn()
-      .mockReturnValue({ status: 0, stdout: 'Scanned 10 files\n\nNo secrets detected.\n', stderr: '' })
-    expect(runSecretsScan(exec).blocking).toBe(false)
+  it('does not call exec when stagedFiles is empty', () => {
+    const exec = vi.fn()
+    const result = runSecretsScan(exec, [])
+    expect(result.blocking).toBe(false)
+    expect(exec).not.toHaveBeenCalled()
   })
 
-  it('blocks when the pass message is absent', () => {
-    const exec = vi.fn().mockReturnValue({
-      status: 0,
-      stdout: 'Scanned 10 files\n\n1 potential secret found in src/config.ts',
-      stderr: ''
-    })
-    expect(runSecretsScan(exec).blocking).toBe(true)
+  it('does not block when all staged files have no secrets', () => {
+    const exec = vi.fn().mockReturnValue({ status: 0, stdout: 'Scanned 1 file\n\nNo secrets detected.\n', stderr: '' })
+    const result = runSecretsScan(exec, ['src/a.ts', 'src/b.ts'])
+    expect(result.blocking).toBe(false)
+    expect(exec).toHaveBeenCalledTimes(2)
+  })
+
+  it('blocks when any staged file has secrets', () => {
+    const exec = vi
+      .fn()
+      .mockReturnValueOnce({ status: 0, stdout: 'Scanned 1 file\n\nNo secrets detected.\n', stderr: '' })
+      .mockReturnValueOnce({
+        status: 0,
+        stdout: 'Scanned 1 file\n\n1 potential secret found: password',
+        stderr: ''
+      })
+    const result = runSecretsScan(exec, ['src/a.ts', 'src/b.ts'])
+    expect(result.blocking).toBe(true)
+    expect(exec).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not block when the tool is unavailable', () => {
+    const exec = vi.fn().mockReturnValue({ status: 1, stdout: '', stderr: 'tool not found' })
+    const result = runSecretsScan(exec, ['src/a.ts'])
+    expect(result.blocking).toBe(false)
+    // Tool error messages are still generated, so exec is called
+    expect(exec).toHaveBeenCalled()
   })
 })
 
