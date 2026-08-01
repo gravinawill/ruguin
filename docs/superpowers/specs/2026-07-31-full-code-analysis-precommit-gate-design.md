@@ -1,7 +1,7 @@
 # Gate de análise completa (GitNexus + ruflo + code review) antes de todo commit — Design
 
 **Data:** 2026-07-31
-**Status:** Aprovado para plano de implementação
+**Status:** Implementado (`packages/precommit-checks`, `.husky/pre-commit`, `.claude/settings.json`, `scripts/claude-git-commit-hook.cjs`) — verificado ponta a ponta via commits reais. Limitação conhecida: os checks do GitNexus (cycle/detect-changes/impact) degradam para warning quando há múltiplos worktrees do mesmo repo indexados simultaneamente (ambiguidade de nome no GitNexus) — a lógica de detecção em si foi validada diretamente com `-r`, mas o script não passa esse parâmetro hoje.
 **Escopo:** `.husky/pre-commit`, `.claude/settings.json`, novos `scripts/*.mjs` na raiz do monorepo.
 
 ## Contexto e objetivo
