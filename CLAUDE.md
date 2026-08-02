@@ -167,6 +167,45 @@ npx @claude-flow/cli@latest hooks worker dispatch --trigger audit
 
 Any string works as a custom agent type.
 
+## Git Flow
+
+O repositório usa git flow (`git-flow-next`, já inicializado). **Toda branch nova nasce por
+comando do git flow, nunca por `git checkout -b`** — o comando é o que garante o startpoint certo
+e registra o parent que a finalização vai usar.
+
+`develop` é a base do trabalho do dia a dia; `master` recebe só release e hotfix.
+
+```bash
+git flow feature start <nome>    # sai de develop  -> feature/<nome>
+git flow bugfix start <nome>     # sai de develop  -> bugfix/<nome>
+git flow release start <versao>  # sai de develop  -> release/<versao>, fecha em master com tag
+git flow hotfix start <versao>   # sai de master   -> hotfix/<versao>, fecha em master com tag
+git flow support start <nome>    # sai de master   -> support/<nome>
+
+git flow <tipo> finish <nome>    # integra no parent e remove a branch
+```
+
+| Tipo | Nasce de | Integra em | Cria tag |
+| --------- | -------- | ---------- | -------- |
+| `feature` | develop  | develop    | não      |
+| `bugfix`  | develop  | develop    | não      |
+| `release` | develop  | master     | sim      |
+| `hotfix`  | master   | master     | sim      |
+| `support` | master   | —          | não      |
+
+### Regras
+
+- **Pull request de feature e bugfix aponta para `develop`**, não para `master`. O branch default
+  no GitHub continua sendo `master`, então o alvo precisa ser trocado na hora de abrir o PR — o
+  padrão da interface está errado para este fluxo.
+- **`master` só avança por release ou hotfix.** Um merge direto de feature em `master` pula a
+  integração em `develop` e faz as duas divergirem em silêncio.
+- **`develop` tem `autoupdate true`**: ela acompanha `master` sozinha após um hotfix, então não é
+  preciso reintegrar à mão.
+- **`feature` e `bugfix` reintegram por rebase** (`downstreamstrategy rebase`); `release` e
+  `hotfix`, por merge. Não force um rebase em release.
+- Antes de abrir um PR, confirme o alvo: `git config gitflow.branch.<tipo>.parent`.
+
 ## Build & Test
 
 - ALWAYS run tests after code changes

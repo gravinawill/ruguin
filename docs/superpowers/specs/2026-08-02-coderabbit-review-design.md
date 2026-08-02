@@ -78,6 +78,11 @@ avisar é coerente com a decisão de não bloquear.
 revisão em PR que já foi fechado, e `auto_incremental_review` revisa cada push em vez de só o
 primeiro.
 
+`base_branches: ['.*']` revisa PR para qualquer base. Sem isso, só o branch default (`master`)
+seria revisado automaticamente — e com git flow o trabalho do dia a dia abre PR contra `develop`,
+que ficaria sem revisão nenhuma. O curinga também cobre `release/*` e `support/*` sem precisar
+manter uma lista à medida que os prefixos aparecem.
+
 ### 5. PRs do dependabot são revisados
 
 Sem `ignore_usernames`. Um bump costuma render pouco comentário, mas o resumo de mudanças entre
