@@ -1,0 +1,124 @@
+import { randomUUID } from 'node:crypto'
+
+import { Inject, Injectable } from '@nestjs/common'
+import { type BaseError } from '@ruguin/ddd-kernel'
+import {
+  EMAIL_SEND_REQUESTED_DLQ_TOPIC,
+  EMAIL_SEND_REQUESTED_RETRY_TOPIC,
+  EMAIL_STATUS_UPDATED_TOPIC
+} from '@ruguin/event-schemas'
+import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '@ruguin/message-broker'
+import { type Either, failure, success } from '@ruguin/utils'
+
+import { DEDUP_CLAIM_PROVIDER, type DedupClaimPort } from '../providers/dedup-claim.port.ts'
+import { EMAIL_SENDER_PROVIDER, type EmailSenderPort } from '../providers/email-sender.port.ts'
+import { RATE_LIMITER_PROVIDER, type RateLimiterPort } from '../providers/rate-limiter.port.ts'
+import { computeNextRetryAt, hasExhaustedRetries } from '../retry-backoff.ts'
+
+const DEDUP_CLAIM_TTL_MS = 60_000
+const SES_RATE_LIMIT_KEY = 'ses-account'
+const SES_RATE_LIMIT_PER_SECOND = 14
+
+export type SendEmailUseCaseInput = Readonly<{
+  emailId: string
+  from: string
+  to: string
+  subject: string
+  html: string
+  attempt: number
+}>
+
+export type SendEmailUseCaseOutput = Readonly<{
+  outcome: 'sent' | 'skipped-duplicate' | 'retry-scheduled' | 'exhausted'
+}>
+
+@Injectable()
+export class SendEmailUseCase {
+  constructor(
+    @Inject(DEDUP_CLAIM_PROVIDER) private readonly dedupClaim: DedupClaimPort,
+    @Inject(RATE_LIMITER_PROVIDER) private readonly rateLimiter: RateLimiterPort,
+    @Inject(EMAIL_SENDER_PROVIDER) private readonly emailSender: EmailSenderPort,
+    @Inject(MESSAGE_PRODUCER_PORT) private readonly messageProducer: MessageProducerPort
+  ) {}
+
+  public async execute(input: SendEmailUseCaseInput): Promise<Either<BaseError, SendEmailUseCaseOutput>> {
+    const claimed = await this.dedupClaim.claim({
+      key: `${input.emailId}:${input.attempt}`,
+      ttlInMs: DEDUP_CLAIM_TTL_MS
+    })
+    if (claimed.isFailure()) return failure(claimed.value)
+    if (!claimed.value.claimed) return success({ outcome: 'skipped-duplicate' })
+
+    const rateLimit = await this.rateLimiter.check({
+      key: SES_RATE_LIMIT_KEY,
+      limit: SES_RATE_LIMIT_PER_SECOND,
+      windowInMs: 1000
+    })
+    if (rateLimit.isFailure()) return failure(rateLimit.value)
+    if (!rateLimit.value.allowed) return this.scheduleRetryOrGiveUp(input)
+
+    const sent = await this.emailSender.send({
+      from: input.from,
+      to: input.to,
+      subject: input.subject,
+      html: input.html
+    })
+
+    if (sent.isSuccess()) {
+      const published = await this.publishStatusUpdated(input.emailId, 'sent', sent.value.sesMessageId)
+      if (published.isFailure()) return failure(published.value)
+
+      return success({ outcome: 'sent' })
+    }
+
+    return this.scheduleRetryOrGiveUp(input)
+  }
+
+  private async scheduleRetryOrGiveUp(
+    input: SendEmailUseCaseInput
+  ): Promise<Either<BaseError, SendEmailUseCaseOutput>> {
+    const nextAttempt = input.attempt + 1
+
+    if (hasExhaustedRetries(nextAttempt)) {
+      const publishedFailed = await this.publishStatusUpdated(input.emailId, 'failed')
+      if (publishedFailed.isFailure()) return failure(publishedFailed.value)
+
+      const publishedDlq = await this.messageProducer.publish({
+        topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC,
+        key: input.emailId,
+        message: { eventId: randomUUID(), name: 'email.send.requested', payload: input }
+      })
+      if (publishedDlq.isFailure()) return failure(publishedDlq.value)
+
+      return success({ outcome: 'exhausted' })
+    }
+
+    const nextAttemptAt = computeNextRetryAt(nextAttempt)
+
+    const publishedRetry = await this.messageProducer.publish({
+      topic: EMAIL_SEND_REQUESTED_RETRY_TOPIC,
+      key: input.emailId,
+      message: { eventId: randomUUID(), name: 'email.send.requested', payload: input },
+      headers: { attempt: String(nextAttempt), nextAttemptAt: nextAttemptAt.toISOString() }
+    })
+    if (publishedRetry.isFailure()) return failure(publishedRetry.value)
+
+    return success({ outcome: 'retry-scheduled' })
+  }
+
+  private async publishStatusUpdated(
+    emailId: string,
+    status: 'sent' | 'failed',
+    sesMessageId?: string
+  ): Promise<Either<BaseError, void>> {
+    return this.messageProducer.publish({
+      topic: EMAIL_STATUS_UPDATED_TOPIC,
+      key: emailId,
+      message: {
+        eventId: randomUUID(),
+        name: 'email.status.updated',
+        payload: { emailId, status, ...(sesMessageId !== undefined && { sesMessageId }) }
+      }
+    })
+  }
+}
