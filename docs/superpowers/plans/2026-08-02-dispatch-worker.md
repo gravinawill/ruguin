@@ -3438,6 +3438,104 @@ git commit -m "test(dispatch-worker): add end-to-end coverage for the success an
 
 ---
 
+## Part 4 — Production readiness
+
+### Task 19: Fix the production build pipeline for `apps/dispatch-worker`
+
+**Files:**
+
+- Modify: `apps/dispatch-worker/tsconfig.json`
+- Create: `apps/dispatch-worker/nest-cli.json`
+- Modify: `apps/core-server/scripts/fix-esm-imports.mjs`
+
+**Interfaces:** none — this is build tooling, not application code. No new exports, no new types.
+
+Task 8's review found that `pnpm --filter @ruguin/dispatch-worker build` silently produces an empty `dist/` — nothing through Task 18 exercises `build`/`start`/`dev` for this app, so the gap went unnoticed until now. Two root causes, both already solved elsewhere in this repo:
+
+1. `apps/dispatch-worker/tsconfig.json` extends `@ruguin/typescript-config/base.json`, which sets `noEmit: true`. `apps/core-server/tsconfig.json` avoids this by extending `@ruguin/typescript-config/nestjs.json` instead, which flips `noEmit` to `false` (among other NestJS-appropriate compiler options) — `dispatch-worker`'s tsconfig was copied from `packages/message-broker` (a `tsdown`-built library, never compiled by `nest build`) instead of from `apps/core-server`.
+2. There's no `nest-cli.json`, so `nest build` has no builder configuration and falls back to a no-op pass. `apps/core-server/nest-cli.json` already has the correct SWC builder config to copy.
+3. `apps/dispatch-worker/package.json`'s `build` script (Task 8) reuses `../core-server/scripts/fix-esm-imports.mjs`, but that script resolves its target directory from its own file location (`path.dirname(fileURLToPath(import.meta.url))`), not the caller's working directory — so it always post-processes `apps/core-server/dist`, never `apps/dispatch-worker/dist`, regardless of which app's `build` script invoked it.
+
+- [ ] **Step 1: Fix `apps/dispatch-worker/tsconfig.json` to extend the NestJS config**
+
+```json
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@ruguin/typescript-config/nestjs.json",
+  "compilerOptions": {
+    "outDir": "./dist"
+  }
+}
+```
+
+(byte-for-byte the same shape as `apps/core-server/tsconfig.json`)
+
+- [ ] **Step 2: Create `apps/dispatch-worker/nest-cli.json`**
+
+```json
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "builder": {
+      "type": "swc",
+      "options": {
+        "ignore": ["**/*.spec.ts", "**/*.unit.ts", "**/*.e2e.ts", "**/*.int.ts"]
+      }
+    },
+    "typeCheck": true
+  }
+}
+```
+
+(byte-for-byte the same as `apps/core-server/nest-cli.json`)
+
+- [ ] **Step 3: Fix `fix-esm-imports.mjs` to resolve the target directory from the caller's cwd, not its own file location**
+
+Change the top of `apps/core-server/scripts/fix-esm-imports.mjs`:
+
+```ts
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
+
+const distributionDirectory = path.join(process.cwd(), 'dist')
+```
+
+(drops the now-unused `fileURLToPath`/`import.meta.url` resolution entirely — `pnpm --filter <package> <script>` always runs with `cwd` set to that package's own directory, so `process.cwd()` resolves correctly whichever app's `build` script invokes this file, including `apps/core-server` itself, unchanged from before)
+
+- [ ] **Step 4: Verify the fix for `apps/core-server` first (regression check)**
+
+Run: `pnpm --filter @ruguin/core-server build`
+Expected: succeeds, `apps/core-server/dist/main.js` exists and is non-empty — confirms Step 3 didn't break the app this script was written for.
+
+- [ ] **Step 5: Verify the fix for `apps/dispatch-worker`**
+
+Run: `pnpm --filter @ruguin/dispatch-worker build`
+Expected: succeeds, `apps/dispatch-worker/dist/main.js` exists and is non-empty.
+
+- [ ] **Step 6: Verify the built app actually boots and answers `/health`**
+
+Ensure Redis is reachable (`pnpm infra:up` or confirm `ruguin-redis-1` is already healthy), then:
+
+Run: `CACHE_PREFIX=dispatch-worker CACHE_DRIVER=memory pnpm --filter @ruguin/dispatch-worker start &` (background), wait ~2s, then `curl -s http://localhost:3334/health`, then kill the background process.
+Expected: `curl` returns `{"status":"ok","info":{"cache":{"status":"up"}},...}` (or similar Terminus shape) with HTTP 200 — proves the compiled `dist/main.js` actually runs, not just that files exist on disk.
+
+- [ ] **Step 7: Run the full check suite**
+
+Run: `pnpm run check`
+Expected: types, lint, format, spelling all pass.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add apps/dispatch-worker/tsconfig.json apps/dispatch-worker/nest-cli.json apps/core-server/scripts/fix-esm-imports.mjs
+git commit -m "fix: make the build pipeline actually produce a runnable dist/ for dispatch-worker"
+```
+
+---
+
 ## Self-Review Notes
 
 - **Spec coverage:** every numbered section of `docs/superpowers/specs/2026-08-02-dispatch-worker-design.md` maps to a task — `event-schemas` (Tasks 1–3), `message-broker` producer/consumer/module (Tasks 4–7), core-server rewiring (Task 9), `dispatch-worker` scaffold/health (Task 8), rate limit + idempotency (Tasks 11–12), SES (Task 13), retry queue + DLQ (Tasks 14–15, 17), main consumer (Task 16), end-to-end (Task 18).
