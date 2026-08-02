@@ -970,6 +970,26 @@ describe('KafkaMessageConsumer', () => {
       expect(result.value.name).toBe('MessageConsumeError')
     }
   })
+
+  it('does not stop consuming after a message with malformed JSON', async () => {
+    const stream = fakeStream([
+      { value: 'not valid json', headers: new Map() },
+      {
+        value: JSON.stringify({ eventId: 'evt-2', name: 'email.send.requested', payload: { emailId: 'e2' } }),
+        headers: new Map()
+      }
+    ])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue({ consume } as unknown as StringConsumer)
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({ topic: 'email.send.requested', groupId: 'dispatch-worker', onMessage })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledTimes(1)
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'evt-2' }))
+  })
 })
 ```
 
@@ -996,7 +1016,7 @@ export class MessageConsumeError extends BaseError {
 - [ ] **Step 4: Create `src/infra/kafka/kafka-message-consumer.ts`**
 
 ```ts
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { type Consumer } from '@platformatic/kafka'
 import { type BaseError } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'
@@ -1014,6 +1034,8 @@ function decodeHeaders(headers: Map<string, string> | undefined): Record<string,
 
 @Injectable()
 export class KafkaMessageConsumer implements MessageConsumerPort {
+  private readonly logger = new Logger(KafkaMessageConsumer.name)
+
   constructor(private readonly createConsumer: CreateConsumer) {}
 
   public async subscribe(input: SubscribeInput): Promise<Either<BaseError, void>> {
@@ -1031,15 +1053,29 @@ export class KafkaMessageConsumer implements MessageConsumerPort {
     }
   }
 
+  /*
+   * Runs detached from subscribe() for the lifetime of the consumer, so a single bad message
+   * (malformed JSON, or onMessage rejecting/throwing) must never escape this loop uncaught — an
+   * unhandled rejection here would crash the whole process under Node's default behavior, taking
+   * down every other topic this worker consumes along with it.
+   */
   private async forwardMessages(
     stream: AsyncIterable<{ value: string; headers: Map<string, string> }>,
     onMessage: MessageHandler
   ): Promise<void> {
     for await (const message of stream) {
-      const parsed = JSON.parse(message.value) as { eventId: string; name: string; payload: unknown }
-      const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
+      try {
+        const parsed = JSON.parse(message.value) as { eventId: string; name: string; payload: unknown }
+        const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
 
-      await onMessage(inbound)
+        const result = await onMessage(inbound)
+
+        if (result.isFailure()) {
+          this.logger.error(`Message handler failed: ${result.value.message}`)
+        }
+      } catch (error: unknown) {
+        this.logger.error(`Failed to process a consumed message: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
   }
 }
