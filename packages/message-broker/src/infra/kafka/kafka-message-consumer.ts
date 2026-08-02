@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { type Consumer } from '@platformatic/kafka'
 import { type BaseError } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'
@@ -21,6 +21,8 @@ function decodeHeaders(headers: Map<string, string> | undefined): Record<string,
 
 @Injectable()
 export class KafkaMessageConsumer implements MessageConsumerPort {
+  private readonly logger = new Logger(KafkaMessageConsumer.name)
+
   constructor(private readonly createConsumer: CreateConsumer) {}
 
   public async subscribe(input: SubscribeInput): Promise<Either<BaseError, void>> {
@@ -46,10 +48,22 @@ export class KafkaMessageConsumer implements MessageConsumerPort {
     onMessage: MessageHandler
   ): Promise<void> {
     for await (const message of stream) {
-      const parsed = JSON.parse(message.value) as { eventId: string; name: string; payload: unknown }
-      const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
+      try {
+        const parsed = JSON.parse(message.value) as { eventId: string; name: string; payload: unknown }
+        const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
 
-      await onMessage(inbound)
+        const result = await onMessage(inbound)
+
+        if (result.isFailure()) {
+          this.logger.error(
+            `Failed to handle message "${inbound.eventId}": ${result.value.message}`,
+            result.value.error
+          )
+        }
+      } catch (error: unknown) {
+        // A single malformed message or a throwing handler must not crash this detached loop and take every topic with it.
+        this.logger.error('Failed to process a message from the consumer stream.', error)
+      }
     }
   }
 }

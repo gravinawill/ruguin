@@ -70,4 +70,32 @@ describe('KafkaMessageConsumer', () => {
       expect(result.value.name).toBe('MessageConsumeError')
     }
   })
+
+  it('does not stop consuming after a message with malformed JSON', async () => {
+    const stream = fakeStream([
+      { value: 'not-valid-json', headers: new Map() },
+      {
+        value: JSON.stringify({ eventId: 'evt-2', name: 'email.send.requested', payload: { emailId: 'e2' } }),
+        headers: new Map()
+      }
+    ])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
+
+    await kafkaConsumer.subscribe({ topic: 'email.send.requested', groupId: 'dispatch-worker', onMessage })
+
+    // Message forwarding runs on a detached loop — give it a tick to process the fake stream.
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledTimes(1)
+    expect(onMessage).toHaveBeenCalledWith({
+      eventId: 'evt-2',
+      name: 'email.send.requested',
+      payload: { emailId: 'e2' },
+      headers: {}
+    })
+  })
 })
