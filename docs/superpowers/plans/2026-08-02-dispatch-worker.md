@@ -743,6 +743,8 @@ git commit -m "feat(message-broker): scaffold package and define producer/consum
 
 `@platformatic/kafka`'s `Producer.send()` takes one `{ messages }` call where each message carries its own `topic` — unlike KafkaJS, there's no separate top-level `topic` field on the `send()` call itself.
 
+`Producer<Key, Value, HeaderKey, HeaderValue>` defaults all four generic parameters to `Buffer` at the class level — TypeScript does **not** infer them from the `serializers` option passed to the constructor. Since this package always uses `stringSerializers`/`stringDeserializers` (string key/value/headers), every reference to `Producer`/`Consumer` types must be explicitly parametrized as `Producer<string, string, string, string>` / `Consumer<string, string, string, string>` — a bare `Producer`/`Consumer` type-checks against `Buffer` generics and breaks on any `string` usage.
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -752,8 +754,10 @@ import { type Producer } from '@platformatic/kafka'
 
 import { KafkaMessageProducer } from '../kafka-message-producer.ts'
 
-function fakeProducer(send: Producer['send']): Producer {
-  return { send } as unknown as Producer
+type StringProducer = Producer<string, string, string, string>
+
+function fakeProducer(send: StringProducer['send']): StringProducer {
+  return { send } as unknown as StringProducer
 }
 
 describe('KafkaMessageProducer', () => {
@@ -832,7 +836,7 @@ import { type MessageProducerPort, type OutboundMessage } from '../../domain/con
 
 @Injectable()
 export class KafkaMessageProducer implements MessageProducerPort {
-  constructor(private readonly producer: Producer) {}
+  constructor(private readonly producer: Producer<string, string, string, string>) {}
 
   public async publish(input: OutboundMessage): Promise<Either<BaseError, void>> {
     try {
@@ -896,6 +900,8 @@ git commit -m "feat(message-broker): add @platformatic/kafka producer adapter"
 
 `@platformatic/kafka` has no shared "client" object like KafkaJS's `Kafka` — `groupId` is fixed per `Consumer` instance at construction time. Since `MessageConsumerPort.subscribe()` is called once per (topic, groupId) pair — the main consumer and the retry consumer use different group IDs (Tasks 16/17) — `KafkaMessageConsumer` takes a factory function that builds a fresh `Consumer` for whatever `groupId` a given `subscribe()` call needs, instead of a single pre-built client. `consumer.consume({ topics })` returns an async-iterable stream; iterating it never resolves for a live consumer, so `subscribe()` starts the iteration in a detached background loop rather than awaiting it — otherwise `subscribe()` itself would never return.
 
+Like `Producer`, `Consumer<Key, Value, HeaderKey, HeaderValue>` defaults all four generics to `Buffer` — every reference must be explicitly parametrized `Consumer<string, string, string, string>` (see Task 5's note).
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -906,7 +912,8 @@ import { success } from '@ruguin/utils'
 
 import { KafkaMessageConsumer } from '../kafka-message-consumer.ts'
 
-type FakeStreamMessage = { value: string; headers?: Map<string, string> }
+type StringConsumer = Consumer<string, string, string, string>
+type FakeStreamMessage = { value: string; headers: Map<string, string> }
 
 function fakeStream(messages: FakeStreamMessage[]): AsyncIterable<FakeStreamMessage> {
   return {
@@ -925,7 +932,7 @@ describe('KafkaMessageConsumer', () => {
       }
     ])
     const consume = vi.fn().mockResolvedValue(stream)
-    const createConsumer = vi.fn().mockReturnValue({ consume } as unknown as Consumer)
+    const createConsumer = vi.fn().mockReturnValue({ consume } as unknown as StringConsumer)
 
     const onMessage = vi.fn().mockResolvedValue(success(undefined))
     const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
@@ -950,7 +957,7 @@ describe('KafkaMessageConsumer', () => {
   it('returns a MessageConsumeError when consume() rejects', async () => {
     const createConsumer = vi.fn().mockReturnValue({
       consume: vi.fn().mockRejectedValue(new Error('unreachable'))
-    } as unknown as Consumer)
+    } as unknown as StringConsumer)
 
     const result = await new KafkaMessageConsumer(createConsumer).subscribe({
       topic: 'email.send.requested',
@@ -997,7 +1004,7 @@ import { type Either, failure, success } from '@ruguin/utils'
 import { type InboundMessage, type MessageConsumerPort, type MessageHandler, type SubscribeInput } from '../../domain/contracts/message-consumer.port.ts'
 import { MessageConsumeError } from '../../domain/errors/message-consume.error.ts'
 
-export type CreateConsumer = (groupId: string) => Consumer
+export type CreateConsumer = (groupId: string) => Consumer<string, string, string, string>
 
 function decodeHeaders(headers: Map<string, string> | undefined): Record<string, string> {
   if (headers === undefined) return {}
@@ -1025,11 +1032,11 @@ export class KafkaMessageConsumer implements MessageConsumerPort {
   }
 
   private async forwardMessages(
-    stream: AsyncIterable<{ value: string | null; headers?: Map<string, string> }>,
+    stream: AsyncIterable<{ value: string; headers: Map<string, string> }>,
     onMessage: MessageHandler
   ): Promise<void> {
     for await (const message of stream) {
-      const parsed = JSON.parse(message.value ?? '{}') as { eventId: string; name: string; payload: unknown }
+      const parsed = JSON.parse(message.value) as { eventId: string; name: string; payload: unknown }
       const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
 
       await onMessage(inbound)
@@ -1078,6 +1085,8 @@ git commit -m "feat(message-broker): add @platformatic/kafka consumer adapter"
 - Produces: `type MessageBrokerModuleOptions`, `class MessageBrokerModule` with `static forRoot(options): DynamicModule` — consumed by `apps/dispatch-worker`'s `email.module.ts` (Task 16) and, later, by `apps/core-server`'s `app.module.ts` (Task 9).
 
 This task also registers `@platformatic/kafka-opentelemetry`'s `KafkaInstrumentation`, so every `Producer.send` and consumed message this package handles gets an OpenTelemetry span — consistent with `apps/core-server`'s existing OTel setup, without requiring `packages/message-broker`'s consumers to do anything extra.
+
+As in Tasks 5/6, `Producer`/`Consumer` default all four generics to `Buffer` — explicit type arguments on both the `new Producer<...>(...)`/`new Consumer<...>(...)` calls themselves are required, not just on the surrounding variable/return-type annotations (TypeScript does not infer class generic parameters for a `new` expression from an enclosing contextual type).
 
 - [ ] **Step 1: Start the local Kafka stack (needed for the integration test in this task)**
 
@@ -1196,8 +1205,8 @@ export class MessageBrokerModule {
       providers: [
         {
           provide: KAFKA_PRODUCER,
-          useFactory: (): Producer =>
-            new Producer({
+          useFactory: (): Producer<string, string, string, string> =>
+            new Producer<string, string, string, string>({
               clientId: config.clientId,
               bootstrapBrokers: [...config.brokers],
               serializers: stringSerializers,
@@ -1206,14 +1215,15 @@ export class MessageBrokerModule {
         },
         {
           provide: MESSAGE_PRODUCER_PORT,
-          useFactory: (producer: Producer): KafkaMessageProducer => new KafkaMessageProducer(producer),
+          useFactory: (producer: Producer<string, string, string, string>): KafkaMessageProducer =>
+            new KafkaMessageProducer(producer),
           inject: [KAFKA_PRODUCER]
         },
         {
           provide: MESSAGE_CONSUMER_PORT,
           useFactory: (): KafkaMessageConsumer => {
             const createConsumer: CreateConsumer = (groupId) =>
-              new Consumer({
+              new Consumer<string, string, string, string>({
                 groupId,
                 clientId: config.clientId,
                 bootstrapBrokers: [...config.brokers],
