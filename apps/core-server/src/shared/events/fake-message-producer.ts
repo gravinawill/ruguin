@@ -8,7 +8,8 @@ import { type MessageProducerPort, type OutboundMessage } from '../contracts/mes
 export class FakeMessageProducer implements MessageProducerPort {
   private readonly published: OutboundMessage[] = []
 
-  public publish(input: OutboundMessage): Promise<Either<BaseError, void>> {
+  // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async interface contract; fake impl has nothing to await
+  public async publish(input: OutboundMessage): Promise<Either<BaseError, void>> {
     this.published.push(input)
 
     return success(undefined)
