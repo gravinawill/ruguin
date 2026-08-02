@@ -45,6 +45,7 @@
     "@ruguin/cache": "workspace:*",
     "@ruguin/ddd-kernel": "workspace:*",
     "@ruguin/env": "workspace:*",
+    "@ruguin/message-broker": "workspace:*",
     "@ruguin/utils": "workspace:*",
     "@scalar/nestjs-api-reference": "1.2.12",
     "nestjs-pino": "^4.6.1",

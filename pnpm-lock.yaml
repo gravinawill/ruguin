@@ -173,6 +173,9 @@ importers:
       '@ruguin/env':
         specifier: workspace:*
         version: link:../../packages/env
+      '@ruguin/message-broker':
+        specifier: workspace:*
+        version: link:../../packages/message-broker
       '@ruguin/utils':
         specifier: workspace:*
         version: link:../../packages/utils
