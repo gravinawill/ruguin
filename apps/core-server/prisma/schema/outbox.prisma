@@ -1,0 +1,20 @@
+model OutboxMessage {
+  id          String       @id @default(uuid(7))
+  topic       String
+  key         String
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  createdAt   DateTime     @default(now())
+  publishedAt DateTime?
+  lastError   String?
+
+  @@index([status, createdAt])
+  @@map("outbox_messages")
+}
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}

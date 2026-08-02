@@ -2,14 +2,19 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'configs/*'
+minimumReleaseAge: 1440
 onlyBuiltDependencies:
+  - '@prisma/engines'
   - '@swc/core'
   - esbuild
+  - prisma
   - unrs-resolver
 blockExoticSubdeps: true
 allowBuilds:
+  '@prisma/engines': true
   '@scarf/scarf': false
   '@swc/core': true
   esbuild: true
+  prisma: true
   protobufjs: true
   unrs-resolver: true

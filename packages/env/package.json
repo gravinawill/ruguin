@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./cache": "./src/packages/cache.environment.ts",
+    "./database": "./src/packages/database.environment.ts",
     "./docs": "./src/packages/docs.environment.ts"
   },
   "main": "./src/index.ts",

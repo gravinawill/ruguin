@@ -53,6 +53,7 @@ export default defineConfig({
         test: {
           name: 'e2e',
           include: ['src/**/__tests__/**/*.e2e.ts'],
+          setupFiles: ['./vitest.setup.e2e.ts'],
           testTimeout: 30_000
         }
       }

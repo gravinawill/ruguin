@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common'
 import { CacheModule } from '@ruguin/cache/nestjs'
 import { cacheENV } from '@ruguin/env/cache'
+import { databaseENV } from '@ruguin/env/database'
 import { LoggerModule } from 'nestjs-pino'
 
 import { createCacheModuleOptions } from './cache/cache-module-options'
 import { HealthModule } from './health/health.module'
 import { createPinoHttpOptions } from './logger/pino-http-options'
+import { DatabaseModule } from './shared/database/database.module'
 
 @Module({
   imports: [
@@ -17,6 +19,7 @@ import { createPinoHttpOptions } from './logger/pino-http-options'
       isGlobal: true,
       ...createCacheModuleOptions(cacheENV)
     }),
+    DatabaseModule.forRoot({ connectionString: databaseENV.DATABASE_URL }),
     HealthModule
   ],
   controllers: [],
