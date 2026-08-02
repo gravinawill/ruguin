@@ -12,7 +12,8 @@ const RUFLO = 'npx'
  * deliberately, not silently on every run.
  */
 const RUFLO_ARGS_PREFIX = ['@claude-flow/cli@3.34.0']
-const BLOCKING_RISK = new Set(['medium', 'high', 'critical'])
+const BLOCKING_RISK = new Set(['high', 'critical'])
+const WARNING_RISK = new Set(['medium'])
 
 export function runDiffRisk(exec: ExecFn): CheckResult {
   const { status, stdout, stderr } = exec(RUFLO, [
@@ -34,7 +35,12 @@ export function runDiffRisk(exec: ExecFn): CheckResult {
   }
 
   const overall = (parsed.risk?.overall ?? 'low').toLowerCase()
-  return { blocking: BLOCKING_RISK.has(overall) && overall !== 'low', warning: false, message: `diff risk: ${overall}` }
+
+  return {
+    blocking: BLOCKING_RISK.has(overall),
+    warning: WARNING_RISK.has(overall),
+    message: `diff risk: ${overall}`
+  }
 }
 
 type SecretFinding = { type: string; file: string; line: number; risk: string }
