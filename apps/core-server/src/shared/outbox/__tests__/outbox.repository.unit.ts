@@ -2,7 +2,6 @@ import { Event } from '@ruguin/ddd-kernel'
 import { describe, expect, it } from 'vitest'
 
 import { type TransactionContext } from '../../contracts/transaction-context.contract'
-import { DuplicateOutboxEventError } from '../../errors/duplicate-outbox-event.error'
 import { EnqueueOutboxMessageError } from '../../errors/enqueue-outbox-message.error'
 import { OutboxRepository } from '../outbox.repository'
 
@@ -36,20 +35,7 @@ describe('OutboxRepository#enqueue', () => {
     })
   })
 
-  it('maps a unique constraint violation on eventId into DuplicateOutboxEventError', async () => {
-    const tx = createTransactionStub(() => {
-      throw Object.assign(new Error('Unique constraint failed on the fields: (`eventId`)'), { code: 'P2002' })
-    })
-    const repository = new OutboxRepository('health')
-    const event = Event.create('health.degraded', { reason: 'timeout' })
-
-    const result = await repository.enqueue(event, { key: 'service-a', topic: 'health-events' }, tx)
-
-    expect(result.isFailure()).toBe(true)
-    if (result.isFailure()) expect(result.value).toBeInstanceOf(DuplicateOutboxEventError)
-  })
-
-  it('maps any other infra failure into EnqueueOutboxMessageError', async () => {
+  it('maps any thrown error during create into EnqueueOutboxMessageError', async () => {
     const tx = createTransactionStub(() => {
       throw new Error('connection terminated unexpectedly')
     })
