@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { KafkaMessageProducer } from '../kafka-message-producer.ts'
 
-function fakeProducer(send: Producer['send']): Producer {
-  return { send } as unknown as Producer
+type StringProducer = Producer<string, string, string, string>
+
+function fakeProducer(send: StringProducer['send']): StringProducer {
+  return { send } as unknown as StringProducer
 }
 
 describe('KafkaMessageProducer', () => {

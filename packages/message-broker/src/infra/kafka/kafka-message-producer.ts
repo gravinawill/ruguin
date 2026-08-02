@@ -8,7 +8,7 @@ import { MessagePublishError } from '../../domain/errors/message-publish.error.t
 
 @Injectable()
 export class KafkaMessageProducer implements MessageProducerPort {
-  constructor(private readonly producer: Producer) {}
+  constructor(private readonly producer: Producer<string, string, string, string>) {}
 
   public async publish(input: OutboundMessage): Promise<Either<BaseError, void>> {
     try {
