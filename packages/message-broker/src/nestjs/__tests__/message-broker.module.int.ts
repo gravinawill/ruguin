@@ -13,7 +13,9 @@ describe('MessageBrokerModule (real Kafka)', () => {
       imports: [
         MessageBrokerModule.forRoot({
           brokers: ['localhost:9092'],
-          clientId: 'message-broker-int-test'
+          clientId: 'message-broker-int-test',
+          // The test topic doesn't pre-exist on a clean broker; auto-create it on first publish/subscribe.
+          autoCreateTopics: true
         })
       ]
     }).compile()

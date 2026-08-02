@@ -14,6 +14,14 @@ export type MessageBrokerModuleOptions = Readonly<{
   brokers: readonly string[]
   clientId: string
   ssl?: boolean
+  /**
+   * @platformatic/kafka defaults to false — publishing/subscribing to a topic that doesn't exist
+   * yet then hangs instead of creating it. Each app's own options builder decides this explicitly
+   * (see apps/core-server and apps/dispatch-worker's createMessageBrokerModuleOptions()) rather
+   * than this package defaulting it — a production broker with deliberate topic provisioning
+   * should be able to turn this off without touching shared code.
+   */
+  autoCreateTopics?: boolean
   isGlobal?: boolean
 }>
 
@@ -32,17 +40,13 @@ export class MessageBrokerModule {
   public static forRoot(options: MessageBrokerModuleOptions): DynamicModule {
     const { isGlobal = false, ...config } = options
 
-    /*
-     * @platformatic/kafka defaults autocreateTopics to false; without it, subscribing or
-     * publishing to a topic that doesn't exist yet hangs instead of creating it.
-     */
     const createConsumer: CreateConsumer = (groupId) =>
       new Consumer<string, string, string, string>({
         groupId,
         clientId: config.clientId,
         bootstrapBrokers: [...config.brokers],
         deserializers: stringDeserializers,
-        autocreateTopics: true,
+        autocreateTopics: config.autoCreateTopics ?? false,
         ...(config.ssl === true && { tls: {} })
       })
 
@@ -57,7 +61,7 @@ export class MessageBrokerModule {
               clientId: config.clientId,
               bootstrapBrokers: [...config.brokers],
               serializers: stringSerializers,
-              autocreateTopics: true,
+              autocreateTopics: config.autoCreateTopics ?? false,
               ...(config.ssl === true && { tls: {} })
             })
         },
