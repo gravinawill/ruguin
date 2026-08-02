@@ -2,6 +2,9 @@
   "name": "@ruguin/core-server",
   "version": "0.0.1",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "prisma generate && nest build && node scripts/fix-esm-imports.mjs",
     "check:lint": "eslint . --max-warnings 0",
