@@ -52,6 +52,7 @@
     "@cspell/dict-lorem-ipsum": "^4.0.5",
     "@cspell/dict-node": "^5.0.9",
     "@cspell/dict-npm": "^5.2.43",
+    "@cspell/dict-pt-br": "^2.4.2",
     "@cspell/dict-redis": "^1.0.7",
     "@cspell/dict-software-terms": "^5.2.4",
     "@cspell/dict-typescript": "^3.2.3",

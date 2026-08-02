@@ -10,3 +10,4 @@ docs/superpowers/
 **/generated/
 AGENTS.md
 CLAUDE.md
+.remember/
