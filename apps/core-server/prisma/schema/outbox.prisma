@@ -21,8 +21,13 @@ model OutboxMessage {
   @@id([id, createdAt])
   @@unique([eventId, createdAt])
   @@index([status, createdAt])
-  @@index([module, key, status, createdAt])
+  @@index([module, key, status, createdAt, id])
   @@index([status, publishedAt])
+  // Matches the relay's PARTITION BY module, key ORDER BY createdAt, id exactly, with status
+  // leading (unlike the index above) because the relay scans every module/key, not one — this
+  // lets Postgres satisfy the WHERE status = 'PENDING' filter and the window function's ordering
+  // from the same index scan instead of a separate sort over the whole pending set.
+  @@index([status, module, key, createdAt, id])
   @@map("outbox_messages")
 }
 

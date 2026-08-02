@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common'
+import { Injectable, Logger, type OnApplicationBootstrap, Optional } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
 
 import { PrismaService } from '../database/prisma.service'
@@ -26,7 +26,15 @@ function toSqlDate(date: Date): string {
 export class OutboxPartitionMaintenanceService implements OnApplicationBootstrap {
   private readonly logger = new Logger(OutboxPartitionMaintenanceService.name)
 
-  constructor(private readonly prisma: PrismaService) {}
+  /*
+   * `now` has no design:paramtypes token Nest can resolve (a function type reflects to the
+   * global `Function`), so @Optional() is required — without it, DI throws on boot instead of
+   * falling through to the default.
+   */
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly now: () => Date = () => new Date()
+  ) {}
 
   /*
    * Runs once at boot, in addition to the daily cron below: if the app starts in an environment
@@ -59,7 +67,7 @@ export class OutboxPartitionMaintenanceService implements OnApplicationBootstrap
   }
 
   private async ensureFuturePartitionsExist(): Promise<void> {
-    const now = new Date()
+    const now = this.now()
     const schema = this.prisma.schema
 
     for (let offset = 0; offset <= MONTHS_AHEAD; offset += 1) {
@@ -83,7 +91,7 @@ export class OutboxPartitionMaintenanceService implements OnApplicationBootstrap
   }
 
   private async dropStalePartitions(): Promise<void> {
-    const now = new Date()
+    const now = this.now()
     const cutoff = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - RETENTION_MONTHS, 1))
     /*
      * Partition names are zero-padded `outbox_messages_YYYY_MM`, so lexicographic and chronological
@@ -126,7 +134,11 @@ export class OutboxPartitionMaintenanceService implements OnApplicationBootstrap
       `SELECT count(*)::bigint AS count FROM "${schema}"."${partitionName}" WHERE status IN ('PENDING', 'FAILED')`
     )
 
-    if (row !== undefined && Number(row.count) > 0) {
+    /*
+     * Every other check in this function fails toward "don't drop" — a missing/unreadable count
+     * row must too, instead of falling through to DROP TABLE.
+     */
+    if (row === undefined || Number(row.count) > 0) {
       this.logger.warn(`Skipping drop of ${partitionName}: it still has non-terminal rows.`)
       return
     }

@@ -324,6 +324,19 @@ git commit -m "feat(core-server): partition the outbox table by month and add mo
   EnqueueOutboxMessageError, void>>`; `OutboxRepository` (constructor `(module: string)`) implementing
   it. Task 5 (relay) reads the rows this writes; Task 7 (`OutboxModule.forFeature`) constructs it.
 
+**NOTA PÓS-IMPLEMENTAÇÃO:** `DuplicateOutboxEventError` (todas as referências abaixo) foi removido
+por completo durante a execução desta task, num fix round de revisão. `@@unique([eventId,
+createdAt])` (Task 2) não consegue detectar duplicata de enqueue de verdade: `createdAt` é gerado
+por linha no client (não é `CURRENT_TIMESTAMP` da transação), então duas chamadas genuinamente
+duplicadas quase sempre caem em `createdAt` diferentes e o índice único nunca acusa conflito — o
+erro que o brief abaixo descreve é, na prática, inalcançável. A decisão final: `eventId` serve para
+dedup do lado do consumer (quando o relay publica a mesma linha duas vezes após um crash entre
+publish e marcar `PUBLISHED`), não para bloquear enqueue duplicado na origem. Qualquer falha do
+Prisma no `enqueue` — incluindo violação de constraint única — vira `EnqueueOutboxMessageError`
+genérico. O código de `duplicate-outbox-event.error.ts` e o branch de detecção de P2002 nunca
+chegaram a existir na versão final; o texto abaixo é o brief original, mantido como registro
+histórico do que foi tentado primeiro.
+
 - [ ] **Step 1: Write the failing unit test**
 
 ```ts
@@ -986,6 +999,26 @@ export class OutboxRelayService {
     })
   }
 
+  // NOTA PÓS-IMPLEMENTAÇÃO (não estava no brief original acima): a query final difere desta em
+  // dois pontos, achados na revisão final de branch e num ciclo posterior de revisão do PR.
+  //
+  // 1. `ORDER BY "createdAt"` sozinho não é suficiente: `createdAt` é TIMESTAMP(3) e o Prisma
+  //    grava @default(now()) no client, uma linha por vez, então enqueues rápidos (o caso comum
+  //    de um use case que enfileira mais de um evento na mesma transação) colidem no milissegundo
+  //    com frequência — medido em 13-16 colisões a cada 40 enqueues consecutivos. Sem desempate,
+  //    o ROW_NUMBER() resolve o empate pela posição física da linha no heap, que muda quando um
+  //    retry faz UPDATE na linha, invertendo a ordem no tick seguinte. A query final ordena por
+  //    `"createdAt", id` (window function e ORDER BY externo) — id é uuid(7), monotônico mesmo
+  //    dentro do mesmo milissegundo, e como (id, createdAt) já é a chave primária composta, isso
+  //    vira uma ordem total dentro de cada (module, key).
+  // 2. O filtro `nextAttemptAt` dentro do WHERE da CTE `ranked` (linha 972 acima) estava errado:
+  //    ele remove uma linha em backoff da partição inteira, deixando o ROW_NUMBER() reordenar em
+  //    torno dela e promover a próxima mensagem da mesma key — publicando fora de ordem depois de
+  //    uma única falha transitória, sem concorrência nenhuma. O filtro de nextAttemptAt precisa
+  //    ficar no WHERE externo, aplicado só sobre a linha vencedora (rn = 1), não dentro da CTE.
+  //
+  // Ambos os pontos são cobertos por teste de integração (aggregate-same-timestamp,
+  // aggregate-retry em outbox-relay.service.int.ts).
   private async processRow(tx: Prisma.TransactionClient, row: EligibleRow): Promise<void> {
     const published = await this.messageProducer.publish({
       key: row.key,

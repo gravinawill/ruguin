@@ -135,27 +135,22 @@ describe('OutboxRelayService#relay', () => {
     expect(updates).toHaveLength(0)
   })
 
-  it('checks nextAttemptAt only after ranking, not inside the ranked CTE, so a row in backoff cannot be ranked around', async () => {
-    const row = createRow()
-    const { prisma, queries } = createPrismaStub([row])
-    // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async publish contract; stub has nothing to await
-    const publish = vi.fn(async (): Promise<Either<SamplePublishError, void>> => success(undefined))
-    const messageProducer: MessageProducerPort = { publish }
+  it('treats a rejected publish() the same as a returned failure, persisting attempts and nextAttemptAt', async () => {
+    const row = createRow({ attempts: 1 })
+    const { prisma, updates } = createPrismaStub([row])
+    const messageProducer: MessageProducerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async publish contract; this stub rejects instead of awaiting
+      publish: vi.fn(async (): Promise<Either<SamplePublishError, void>> => {
+        throw new Error('broker client crashed')
+      })
+    }
 
     const relay = new OutboxRelayService(prisma, messageProducer)
     await relay.relay()
 
-    const sql = queries[0] ?? ''
-    const rankedCte = sql.slice(sql.indexOf('WITH ranked'), sql.indexOf('SELECT o.id'))
-    const rankedWhere = rankedCte.slice(rankedCte.indexOf('WHERE'))
-    const outerQuery = sql.slice(sql.indexOf('SELECT o.id'))
-
-    /*
-     * A row still in backoff must stay in its (module, key) partition so ROW_NUMBER() cannot rank
-     * a later message ahead of it — filtering nextAttemptAt inside the CTE's WHERE would remove it
-     * entirely (nextAttemptAt is still selected as a column, just not filtered on, here).
-     */
-    expect(rankedWhere).not.toContain('nextAttemptAt')
-    expect(outerQuery).toMatch(/rn = 1[\s\S]*nextAttemptAt/)
+    expect(updates).toHaveLength(1)
+    expect(updates[0]?.data).toMatchObject({ attempts: 2, lastError: 'broker client crashed' })
+    expect((updates[0]?.data as { nextAttemptAt: Date }).nextAttemptAt).toBeInstanceOf(Date)
+    expect((updates[0]?.data as { status?: unknown }).status).toBeUndefined()
   })
 })

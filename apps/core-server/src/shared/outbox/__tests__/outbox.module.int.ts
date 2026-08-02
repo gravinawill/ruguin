@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { OUTBOX_PORT } from '../../contracts/outbox.port'
 import { DatabaseModule } from '../../database/database.module'
@@ -12,6 +12,10 @@ import { TEST_DATABASE_URL } from './outbox-test-context'
 const database = (): ReturnType<typeof DatabaseModule.forRoot> =>
   DatabaseModule.forRoot({ connectionString: TEST_DATABASE_URL })
 
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 describe('OutboxModule composition', () => {
   it('forRoot() runs partition maintenance once the app finishes booting', async () => {
     const runMaintenance = vi.spyOn(OutboxPartitionMaintenanceService.prototype, 'runMaintenance')
@@ -19,18 +23,19 @@ describe('OutboxModule composition', () => {
     const moduleReference = await Test.createTestingModule({ imports: [database(), OutboxModule.forRoot()] }).compile()
     const app = moduleReference.createNestApplication()
 
-    expect(runMaintenance).not.toHaveBeenCalled()
+    try {
+      expect(runMaintenance).not.toHaveBeenCalled()
 
-    await app.init()
+      await app.init()
 
-    /*
-     * Exactly once, not once per import: partitions are created and dropped with raw DDL, so a
-     * second concurrent instance in the same process would race against this one.
-     */
-    expect(runMaintenance).toHaveBeenCalledTimes(1)
-
-    await app.close()
-    runMaintenance.mockRestore()
+      /*
+       * Exactly once, not once per import: partitions are created and dropped with raw DDL, so a
+       * second concurrent instance in the same process would race against this one.
+       */
+      expect(runMaintenance).toHaveBeenCalledTimes(1)
+    } finally {
+      await app.close()
+    }
   })
 
   it('forFeature() contributes only the module OUTBOX_PORT, never a second relay or maintenance cron', async () => {
@@ -44,10 +49,12 @@ describe('OutboxModule composition', () => {
       imports: [database(), OutboxModule.forFeature({ module: 'outbox-module-int-test' })]
     }).compile()
 
-    expect(moduleReference.get(OUTBOX_PORT, { strict: false })).toBeDefined()
-    expect(() => moduleReference.get(OutboxRelayService, { strict: false })).toThrow()
-    expect(() => moduleReference.get(OutboxPartitionMaintenanceService, { strict: false })).toThrow()
-
-    await moduleReference.close()
+    try {
+      expect(moduleReference.get(OUTBOX_PORT, { strict: false })).toBeDefined()
+      expect(() => moduleReference.get(OutboxRelayService, { strict: false })).toThrow()
+      expect(() => moduleReference.get(OutboxPartitionMaintenanceService, { strict: false })).toThrow()
+    } finally {
+      await moduleReference.close()
+    }
   })
 })

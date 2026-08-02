@@ -166,14 +166,23 @@ atual + os 2 seguintes).
 
 ### 6. Ordem garantida por `(module, key)` via window function
 
-Índice `[module, key, status, createdAt]` sustenta uma query que seleciona só a mensagem mais antiga
-`PENDING` de cada `(module, key)` como elegível:
+Índice `[module, key, status, createdAt, id]` sustenta uma query que seleciona só a mensagem mais
+antiga `PENDING` de cada `(module, key)` como elegível:
 
 ```sql
 -- dentro de uma CTE, antes do FOR UPDATE SKIP LOCKED
-ROW_NUMBER() OVER (PARTITION BY module, key ORDER BY createdAt) AS rn
+ROW_NUMBER() OVER (PARTITION BY module, key ORDER BY createdAt, id) AS rn
 -- elegível: rn = 1 AND status = 'PENDING' AND (nextAttemptAt IS NULL OR nextAttemptAt <= now())
 ```
+
+`createdAt` sozinho não é suficiente: é `TIMESTAMP(3)` e o Prisma grava `@default(now())` no
+client, uma linha por vez, então enqueues rápidos (o caso comum de um use case que enfileira mais de
+um evento na mesma transação) colidem no milissegundo com frequência. Sem desempate, o
+`ROW_NUMBER()` resolveria o empate pela posição física da linha no heap — que muda quando um retry
+faz `UPDATE` na linha, invertendo a ordem no próximo tick. `id` (`uuid(7)`, gerado no client) é
+monotônico mesmo dentro do mesmo milissegundo, e como `(id, createdAt)` já é a chave primária
+composta, `ORDER BY createdAt, id` vira uma ordem total dentro de cada `(module, key)` — determinística
+independente do plano de execução.
 
 Combinado com `FOR UPDATE SKIP LOCKED`, isso garante que nunca duas mensagens da mesma key sejam
 publicadas fora de ordem, mesmo com múltiplas instâncias do relay: só existe uma linha elegível por

@@ -38,9 +38,11 @@ describe('OutboxPartitionMaintenanceService against a live Postgres', () => {
       }
     })
 
-    expect(created.id).toBeDefined()
-
-    await prisma().outboxMessage.delete({ where: { id_createdAt: { createdAt: created.createdAt, id: created.id } } })
+    try {
+      expect(created.id).toBeDefined()
+    } finally {
+      await prisma().outboxMessage.delete({ where: { id_createdAt: { createdAt: created.createdAt, id: created.id } } })
+    }
   })
 
   it('drops an old, empty partition but keeps one that still has PENDING rows', async () => {
@@ -60,22 +62,25 @@ describe('OutboxPartitionMaintenanceService against a live Postgres', () => {
     )
 
     const service = new OutboxPartitionMaintenanceService(prisma())
-    await service.runMaintenance()
 
-    const remaining = await prisma().$queryRaw<Array<{ relname: string }>>`
-      SELECT child.relname
-      FROM pg_inherits
-      JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
-      JOIN pg_class child ON pg_inherits.inhrelid = child.oid
-      JOIN pg_namespace ns ON parent.relnamespace = ns.oid
-      WHERE parent.relname = 'outbox_messages'
-        AND ns.nspname = ${schema}
-    `
-    const names = remaining.map((row) => row.relname)
+    try {
+      await service.runMaintenance()
 
-    expect(names).not.toContain(dropCandidate)
-    expect(names).toContain(keepCandidate)
+      const remaining = await prisma().$queryRaw<Array<{ relname: string }>>`
+        SELECT child.relname
+        FROM pg_inherits
+        JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
+        JOIN pg_class child ON pg_inherits.inhrelid = child.oid
+        JOIN pg_namespace ns ON parent.relnamespace = ns.oid
+        WHERE parent.relname = 'outbox_messages'
+          AND ns.nspname = ${schema}
+      `
+      const names = remaining.map((row) => row.relname)
 
-    await prisma().$executeRawUnsafe(`DROP TABLE IF EXISTS "${schema}"."${keepCandidate}"`)
+      expect(names).not.toContain(dropCandidate)
+      expect(names).toContain(keepCandidate)
+    } finally {
+      await prisma().$executeRawUnsafe(`DROP TABLE IF EXISTS "${schema}"."${keepCandidate}"`)
+    }
   })
 })

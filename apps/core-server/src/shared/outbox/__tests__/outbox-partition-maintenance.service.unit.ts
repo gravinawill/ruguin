@@ -6,8 +6,10 @@ import { OutboxPartitionMaintenanceService } from '../outbox-partition-maintenan
 function createPrismaStub(input: { stalePartitions?: string[]; nonTerminalCounts?: Record<string, number> } = {}): {
   prisma: PrismaService
   executed: string[]
+  queryRawValues: unknown[][]
 } {
   const executed: string[] = []
+  const queryRawValues: unknown[][] = []
   const stalePartitions = input.stalePartitions ?? []
   const nonTerminalCounts = input.nonTerminalCounts ?? {}
 
@@ -17,8 +19,15 @@ function createPrismaStub(input: { stalePartitions?: string[]; nonTerminalCounts
       executed.push(sql)
       return 0
     },
+    /*
+     * Captures the tagged template's interpolated values (schema, cutoffName), not just the
+     * static SQL text, so a test can assert what dropStalePartitions actually computed.
+     */
     // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async $queryRaw contract; stub has nothing to await
-    $queryRaw: async () => stalePartitions.map((partitionName) => ({ partitionName })),
+    $queryRaw: async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      queryRawValues.push(values)
+      return stalePartitions.map((partitionName) => ({ partitionName }))
+    },
     // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async $queryRawUnsafe contract; stub has nothing to await
     $queryRawUnsafe: async (sql: string) => {
       const match = /FROM "[^"]+"\."([^"]+)"/.exec(sql)
@@ -28,7 +37,7 @@ function createPrismaStub(input: { stalePartitions?: string[]; nonTerminalCounts
     schema: 'core_server'
   } as unknown as PrismaService
 
-  return { executed, prisma }
+  return { executed, prisma, queryRawValues }
 }
 
 describe('OutboxPartitionMaintenanceService#runMaintenance', () => {
@@ -65,5 +74,32 @@ describe('OutboxPartitionMaintenanceService#runMaintenance', () => {
     await service.runMaintenance()
 
     expect(executed.some((sql) => sql.startsWith('DROP TABLE'))).toBe(false)
+  })
+
+  it('rolls the year over when creating future partitions from December', async () => {
+    const { prisma, executed } = createPrismaStub()
+    const service = new OutboxPartitionMaintenanceService(prisma, () => new Date(Date.UTC(2026, 11, 15)))
+
+    await service.runMaintenance()
+
+    const creates = executed.filter((sql) => sql.includes('CREATE TABLE IF NOT EXISTS'))
+    expect(creates.map((sql) => /"([^"]+)" PARTITION OF/.exec(sql)?.[1])).toEqual([
+      'outbox_messages_2026_12',
+      'outbox_messages_2027_01',
+      'outbox_messages_2027_02'
+    ])
+  })
+
+  it('rolls the year over when computing the retention cutoff from January', async () => {
+    const { prisma, queryRawValues } = createPrismaStub()
+    const service = new OutboxPartitionMaintenanceService(prisma, () => new Date(Date.UTC(2026, 0, 15)))
+
+    await service.runMaintenance()
+
+    /*
+     * RETENTION_MONTHS=3 back from January 2026 is October 2025 — the query's own [schema,
+     * cutoffName] bind values are what dropStalePartitions actually computed, not fixture data.
+     */
+    expect(queryRawValues[0]).toEqual(['core_server', 'outbox_messages_2025_10'])
   })
 })

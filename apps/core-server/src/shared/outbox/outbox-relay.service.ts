@@ -120,13 +120,9 @@ export class OutboxRelayService {
   }
 
   private async processRow(tx: Prisma.TransactionClient, row: EligibleRow): Promise<void> {
-    const published = await this.messageProducer.publish({
-      key: row.key,
-      message: { eventId: row.eventId, name: row.name, payload: row.payload },
-      topic: row.topic
-    })
+    const publishError = await this.publish(row)
 
-    if (published.isSuccess()) {
+    if (publishError === null) {
       await tx.outboxMessage.update({
         data: { publishedAt: new Date(), status: OutboxStatus.PUBLISHED },
         where: { id_createdAt: { createdAt: row.createdAt, id: row.id } }
@@ -143,7 +139,7 @@ export class OutboxRelayService {
        * message permanently failed would be worse than this documented ordering exception.
        */
       await tx.outboxMessage.update({
-        data: { attempts, lastError: published.value.message, status: OutboxStatus.FAILED },
+        data: { attempts, lastError: publishError, status: OutboxStatus.FAILED },
         where: { id_createdAt: { createdAt: row.createdAt, id: row.id } }
       })
       this.logger.error(`Outbox message ${row.id} moved to FAILED after ${attempts} attempts.`)
@@ -151,8 +147,32 @@ export class OutboxRelayService {
     }
 
     await tx.outboxMessage.update({
-      data: { attempts, lastError: published.value.message, nextAttemptAt: computeNextAttemptAt(attempts) },
+      data: { attempts, lastError: publishError, nextAttemptAt: computeNextAttemptAt(attempts) },
       where: { id_createdAt: { createdAt: row.createdAt, id: row.id } }
     })
+  }
+
+  /*
+   * MessageProducerPort.publish() is typed to return Either, but a real broker client can still
+   * reject instead of catching its own failure — a DNS error, a serialization bug, anything the
+   * producer author didn't anticipate. Left uncaught, that rejection propagates out of the
+   * $transaction callback: the whole batch rolls back, attempts/nextAttemptAt are never persisted
+   * for ANY row in it, and the next tick retries the same row immediately — a hot loop with no
+   * backoff instead of the failure path this method already models. Converting a thrown error into
+   * the same publishError shape it already handles keeps that one behavior true regardless of
+   * which failure mode the producer hits.
+   */
+  private async publish(row: EligibleRow): Promise<string | null> {
+    try {
+      const published = await this.messageProducer.publish({
+        key: row.key,
+        message: { eventId: row.eventId, name: row.name, payload: row.payload },
+        topic: row.topic
+      })
+
+      return published.isFailure() ? published.value.message : null
+    } catch (error: unknown) {
+      return error instanceof Error ? error.message : String(error)
+    }
   }
 }

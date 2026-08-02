@@ -1,20 +1,45 @@
 import { ID } from './value-objects/index.ts'
 
-export class Event<TPayload> {
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value
+  if (Object.isFrozen(value)) return value
+
+  Object.freeze(value)
+
+  for (const nested of Object.values(value)) {
+    deepFreeze(nested)
+  }
+
+  return value
+}
+
+export class Event<TPayload extends JsonValue> {
   readonly id: ID
   readonly name: string
   readonly payload: TPayload
-  readonly occurredAt: Date
+  readonly #occurredAtEpoch: number
 
-  private constructor(input: { id: ID; name: string; payload: TPayload; occurredAt: Date }) {
+  private constructor(input: { id: ID; name: string; payload: TPayload; occurredAtEpoch: number }) {
     this.id = input.id
     this.name = input.name
-    this.payload = input.payload
-    this.occurredAt = input.occurredAt
+    this.payload = deepFreeze(input.payload)
+    this.#occurredAtEpoch = input.occurredAtEpoch
     Object.freeze(this)
   }
 
-  public static create<TPayload>(name: string, payload: TPayload): Event<TPayload> {
+  /*
+   * A getter, not a stored Date: exposing the field directly would let a caller mutate the
+   * instance's notion of when it occurred via `event.occurredAt.setTime(...)` — Object.freeze(this)
+   * does not reach into a Date object referenced by a frozen property. Returning a fresh Date from
+   * the private epoch on every read closes that without a caller-observable difference.
+   */
+  get occurredAt(): Date {
+    return new Date(this.#occurredAtEpoch)
+  }
+
+  public static create<TPayload extends JsonValue>(name: string, payload: TPayload): Event<TPayload> {
     const generated = ID.generate({ valueObjectName: 'Event' })
 
     /*
@@ -25,6 +50,6 @@ export class Event<TPayload> {
       throw new Error(`Failed to generate an id for event "${name}": ${generated.value.message}`)
     }
 
-    return new Event({ id: generated.value.idGenerated, name, occurredAt: new Date(), payload })
+    return new Event({ id: generated.value.idGenerated, name, occurredAtEpoch: Date.now(), payload })
   }
 }

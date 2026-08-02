@@ -1,4 +1,4 @@
-import { type Event } from '@ruguin/ddd-kernel'
+import { type Event, type JsonValue } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import { type Prisma } from '../../generated/prisma/client'
@@ -9,7 +9,7 @@ import { EnqueueOutboxMessageError } from '../errors/enqueue-outbox-message.erro
 export class OutboxRepository implements OutboxPort {
   constructor(private readonly module: string) {}
 
-  public async enqueue<TPayload>(
+  public async enqueue<TPayload extends JsonValue>(
     event: Event<TPayload>,
     options: { topic: string; key: string },
     tx: TransactionContext

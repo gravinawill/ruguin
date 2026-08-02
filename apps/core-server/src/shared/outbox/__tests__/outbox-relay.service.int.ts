@@ -9,7 +9,7 @@ import { FakeMessageProducer } from '../../events/fake-message-producer'
 import { OutboxRepository } from '../outbox.repository'
 import { OutboxRelayService } from '../outbox-relay.service'
 
-import { createTestPrismaService, sleep } from './outbox-test-context'
+import { createTestPrismaService, relayUntil, sleep } from './outbox-test-context'
 
 class FlakyPublishError extends BaseError {
   readonly name = 'FlakyPublishError'
@@ -130,15 +130,13 @@ describe('OutboxRelayService against a live Postgres, with two concurrent instan
     expect(publishedBeforeBackoffElapses).toHaveLength(0)
 
     /*
-     * nextAttemptAt = now + 1000ms * 2^1 = +2000ms for a single failed attempt; wait past it with a
-     * buffer, then drain remaining ticks.
+     * Polls the relay until the backoff elapses and both messages drain, instead of sleeping past
+     * a hand-computed margin between the app clock (writes nextAttemptAt) and Postgres's now().
      */
-    await sleep(2500)
-    await relay.relay()
-    await relay.relay()
-
-    const remaining = await prisma().outboxMessage.count({ where: { module: MODULE, status: 'PENDING' } })
-    expect(remaining).toBe(0)
+    await relayUntil(
+      relay,
+      async () => (await prisma().outboxMessage.count({ where: { module: MODULE, status: 'PENDING' } })) === 0
+    )
 
     const sequences = fake
       .getPublished()
@@ -194,12 +192,10 @@ describe('OutboxRelayService against a live Postgres, with two concurrent instan
     const publishedBeforeBackoffElapses = fake.getPublished().filter((message) => message.key === key)
     expect(publishedBeforeBackoffElapses).toHaveLength(0)
 
-    await sleep(2500)
-    await relay.relay()
-    await relay.relay()
-
-    const remaining = await prisma().outboxMessage.count({ where: { module: MODULE, status: 'PENDING' } })
-    expect(remaining).toBe(0)
+    await relayUntil(
+      relay,
+      async () => (await prisma().outboxMessage.count({ where: { module: MODULE, status: 'PENDING' } })) === 0
+    )
 
     const sequences = fake
       .getPublished()
