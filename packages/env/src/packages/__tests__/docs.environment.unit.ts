@@ -22,12 +22,16 @@ describe('docsENV', () => {
   it('throws when DOCS_USERNAME is missing', async () => {
     setEnvironment({ DOCS_USERNAME: '', DOCS_PASSWORD: 'super-secret' })
 
-    await expect(import('../docs.environment')).rejects.toThrow()
+    const { docsENV } = await import('../docs.environment')
+
+    expect(() => ({ ...docsENV })).toThrow()
   })
 
   it('throws when DOCS_PASSWORD is missing', async () => {
     setEnvironment({ DOCS_USERNAME: 'admin', DOCS_PASSWORD: '' })
 
-    await expect(import('../docs.environment')).rejects.toThrow()
+    const { docsENV } = await import('../docs.environment')
+
+    expect(() => ({ ...docsENV })).toThrow()
   })
 })

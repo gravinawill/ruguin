@@ -3,10 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./cache": "./src/packages/cache.environment.ts",
-    "./database": "./src/packages/database.environment.ts",
-    "./docs": "./src/packages/docs.environment.ts"
+    ".": "./src/index.ts"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",

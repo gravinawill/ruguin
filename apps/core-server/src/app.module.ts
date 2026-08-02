@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common'
-import { CacheModule } from '@ruguin/cache/nestjs'
-import { cacheENV } from '@ruguin/env/cache'
-import { databaseENV } from '@ruguin/env/database'
+import { CacheModule } from '@ruguin/cache'
+import { cacheENV, databaseENV } from '@ruguin/env'
 import { LoggerModule } from 'nestjs-pino'
 
 import { createCacheModuleOptions } from './cache/cache-module-options'

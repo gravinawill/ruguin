@@ -48,7 +48,9 @@ describe('messageBrokerENV', () => {
 
   it('throws when the required brokers var is missing', async () => {
     setEnvironment({ KAFKA_BOOTSTRAP_BROKERS: '', KAFKA_CONSUMER_GROUP_ID: 'g' })
-    await expect(import('../message-broker.environment')).rejects.toThrow()
+    const { messageBrokerENV } = await import('../message-broker.environment')
+
+    expect(() => ({ ...messageBrokerENV })).toThrow()
   })
 
   it('parses the literal string "false" to boolean false (guards against z.coerce.boolean regression)', async () => {

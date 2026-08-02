@@ -1,10 +1,14 @@
 import { createEnv } from '@t3-oss/env-core'
 import { z } from 'zod'
 
-export const databaseENV = createEnv({
-  server: {
-    DATABASE_URL: z.url()
-  },
-  runtimeEnv: process.env,
-  emptyStringAsUndefined: true
-})
+import { lazyEnvironment as lazyEnvironmentironment } from '../shared/lazy-environment.ts'
+
+export const databaseENV = lazyEnvironmentironment(() =>
+  createEnv({
+    server: {
+      DATABASE_URL: z.url()
+    },
+    runtimeEnv: process.env,
+    emptyStringAsUndefined: true
+  })
+)

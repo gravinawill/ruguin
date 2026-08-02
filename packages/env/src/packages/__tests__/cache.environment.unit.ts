@@ -60,7 +60,9 @@ describe('cacheENV', () => {
   it('rejects an unknown driver instead of silently falling back', async () => {
     setEnvironment({ CACHE_PREFIX: 'ruguin:ledger', CACHE_DRIVER: 'redis' })
 
-    await expect(import('../cache.environment')).rejects.toThrow()
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(() => ({ ...cacheENV })).toThrow()
   })
 
   it('accepts the valkey driver when a master url is present', async () => {
@@ -79,7 +81,9 @@ describe('cacheENV', () => {
   it('rejects the valkey driver without a master url', async () => {
     setEnvironment({ CACHE_PREFIX: 'ruguin:iam', CACHE_DRIVER: 'valkey' })
 
-    await expect(import('../cache.environment')).rejects.toThrow()
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(() => ({ ...cacheENV })).toThrow()
   })
 
   it('allows the memory driver without a master url', async () => {
@@ -141,12 +145,16 @@ describe('cacheENV', () => {
   it('throws when the required prefix is missing', async () => {
     setEnvironment({ CACHE_PREFIX: '' })
 
-    await expect(import('../cache.environment')).rejects.toThrow()
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(() => ({ ...cacheENV })).toThrow()
   })
 
   it('rejects a jitter ratio outside 0..1', async () => {
     setEnvironment({ CACHE_PREFIX: 'ruguin:ledger', CACHE_JITTER_RATIO: '1.5' })
 
-    await expect(import('../cache.environment')).rejects.toThrow()
+    const { cacheENV } = await import('../cache.environment')
+
+    expect(() => ({ ...cacheENV })).toThrow()
   })
 })

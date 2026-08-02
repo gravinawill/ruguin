@@ -1,6 +1,6 @@
 import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common'
 import { HealthCheck, type HealthCheckResult, HealthCheckService } from '@nestjs/terminus'
-import { CacheHealthIndicator } from '@ruguin/cache/nestjs'
+import { CacheHealthIndicator } from '@ruguin/cache'
 
 import { DatabaseHealthIndicator } from '../shared/database/database-health.indicator'
 

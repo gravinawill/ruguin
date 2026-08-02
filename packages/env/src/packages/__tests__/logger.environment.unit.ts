@@ -31,6 +31,8 @@ describe('loggerENV', () => {
   it('rejects an invalid driver', async () => {
     setEnvironment({ LOGGER_DRIVER: 'bunyan' })
 
-    await expect(import('../logger.environment')).rejects.toThrow()
+    const { loggerENV } = await import('../logger.environment')
+
+    expect(() => ({ ...loggerENV })).toThrow()
   })
 })

@@ -1,4 +1,4 @@
-import { type cacheENV } from '@ruguin/env/cache'
+import { type cacheENV } from '@ruguin/env'
 import { describe, expect, it } from 'vitest'
 
 import { createCacheModuleOptions } from '../cache-module-options'

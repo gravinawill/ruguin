@@ -7,7 +7,7 @@ import helmet from '@fastify/helmet'
 import { UnauthorizedException, VersioningType } from '@nestjs/common'
 import { type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
-import { docsENV } from '@ruguin/env/docs'
+import { docsENV } from '@ruguin/env'
 import { apiReference } from '@scalar/nestjs-api-reference'
 
 /* Origin of the standalone bundle Scalar's rendered HTML loads via <script src>. */

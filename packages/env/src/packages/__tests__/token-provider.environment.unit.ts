@@ -56,7 +56,9 @@ describe('tokenProviderENV', () => {
       JWT_REFRESH_TOKEN_SECRET: 'super-secret-refresh'
     })
 
-    await expect(import('../token-provider.environment')).rejects.toThrow()
+    const { tokenProviderENV } = await import('../token-provider.environment')
+
+    expect(() => ({ ...tokenProviderENV })).toThrow()
   })
 
   it('throws when the required refresh token secret is missing', async () => {
@@ -65,6 +67,8 @@ describe('tokenProviderENV', () => {
       JWT_REFRESH_TOKEN_SECRET: ''
     })
 
-    await expect(import('../token-provider.environment')).rejects.toThrow()
+    const { tokenProviderENV } = await import('../token-provider.environment')
+
+    expect(() => ({ ...tokenProviderENV })).toThrow()
   })
 })

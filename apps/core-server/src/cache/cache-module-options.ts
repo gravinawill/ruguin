@@ -1,5 +1,5 @@
-import { type CacheModuleFactoryOptions } from '@ruguin/cache/nestjs'
-import { type cacheENV } from '@ruguin/env/cache'
+import { type CacheModuleFactoryOptions } from '@ruguin/cache'
+import { type cacheENV } from '@ruguin/env'
 
 export function createCacheModuleOptions(environment: typeof cacheENV): CacheModuleFactoryOptions {
   return {

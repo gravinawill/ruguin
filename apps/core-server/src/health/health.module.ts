@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common'
 import { TerminusModule } from '@nestjs/terminus'
-import { CacheHealthIndicator } from '@ruguin/cache/nestjs'
+import { CacheHealthIndicator } from '@ruguin/cache'
 
 import { DatabaseHealthIndicator } from '../shared/database/database-health.indicator'
 
