@@ -193,6 +193,20 @@ pnpm with-env pnpm --filter @ruguin/core-server start
 Remover isso faz o TypeScript exigir um `rootDir` explícito, e defini-lo move a saída para
 `dist/src/`.
 
+## Imagem
+
+A imagem publicada é assinada com cosign em modo keyless:
+
+```bash
+cosign verify ghcr.io/gravinawill/ruguin/core-server:latest \
+  --certificate-identity-regexp '^https://github.com/gravinawill/ruguin/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Sem `--certificate-identity-regexp` a verificação aceita qualquer assinatura válida do Sigstore,
+inclusive de outro repositório — o que responde *isto foi assinado*, não *isto foi assinado por
+nós*.
+
 ## Relacionados
 
 - `docs/superpowers/specs/2026-08-01-core-server-modular-architecture-design.md` — a decisão desta
