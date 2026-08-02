@@ -1,15 +1,23 @@
 model OutboxMessage {
-  id          String       @id @default(uuid(7))
-  topic       String
-  key         String
-  payload     Json
-  status      OutboxStatus @default(PENDING)
-  attempts    Int          @default(0)
-  createdAt   DateTime     @default(now())
-  publishedAt DateTime?
-  lastError   String?
+  id            String       @default(uuid(7))
+  eventId       String
+  module        String
+  topic         String
+  key           String
+  name          String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime?
+  createdAt     DateTime     @default(now())
+  publishedAt   DateTime?
+  lastError     String?
 
+  @@id([id, createdAt])
+  @@unique([eventId, createdAt])
   @@index([status, createdAt])
+  @@index([module, key, status, createdAt])
+  @@index([status, publishedAt])
   @@map("outbox_messages")
 }
 
