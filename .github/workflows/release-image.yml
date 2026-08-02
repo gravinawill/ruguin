@@ -65,7 +65,13 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan the image
+      # steps.build.outputs.digest is the OCI image *index*, covering both platforms.
+      # Neither trivy-action nor sbom-action iterates a multi-arch index on its own —
+      # both resolve an index reference to the host runner's platform (linux/amd64)
+      # unless pinned — so each tool runs once per platform via its underlying CLI's
+      # env-driven platform flag (TRIVY_PLATFORM / SYFT_PLATFORM; neither action
+      # exposes it as a formal `with:` input, but both forward step env to the CLI).
+      - name: Scan the image (linux/amd64)
         if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -74,14 +80,40 @@ jobs:
           exit-code: '1'
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+        env:
+          TRIVY_PLATFORM: linux/amd64
 
-      - name: Generate SBOM
+      - name: Scan the image (linux/arm64)
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+        env:
+          TRIVY_PLATFORM: linux/arm64
+
+      - name: Generate SBOM (linux/amd64)
         if: github.event_name != 'pull_request'
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
           format: cyclonedx-json
-          artifact-name: core-server-sbom.cdx.json
+          artifact-name: core-server-sbom-linux-amd64.cdx.json
+        env:
+          SYFT_PLATFORM: linux/amd64
+
+      - name: Generate SBOM (linux/arm64)
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          artifact-name: core-server-sbom-linux-arm64.cdx.json
+        env:
+          SYFT_PLATFORM: linux/arm64
 
       - name: Install cosign
         if: github.event_name != 'pull_request'
