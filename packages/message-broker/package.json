@@ -1,0 +1,48 @@
+{
+  "name": "@ruguin/message-broker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "check:lint": "eslint . --max-warnings 0",
+    "check:types": "tsc --noEmit --pretty",
+    "clean": "rm -rf .claude-flow .swarm .superpowers .remember .gitnexus .turbo coverage node_modules dist build",
+    "fix:lint": "eslint --fix .",
+    "test:all": "vitest run",
+    "test:integration": "vitest run --project integration",
+    "test:unit": "vitest run --project unit",
+    "update:deps": "ncu -u"
+  },
+  "lint-staged": {
+    "*.ts": "eslint --fix"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.28",
+    "@opentelemetry/instrumentation": "^0.202.0",
+    "@platformatic/kafka": "^2.8.0",
+    "@platformatic/kafka-opentelemetry": "^0.2.0",
+    "@ruguin/ddd-kernel": "workspace:*",
+    "@ruguin/env": "workspace:*",
+    "@ruguin/utils": "workspace:*",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@ruguin/eslint-config": "workspace:*",
+    "@ruguin/typescript-config": "workspace:*",
+    "@swc/core": "^1.15.47",
+    "@types/node": "^26.1.2",
+    "npm-check-updates": "23.0.0",
+    "tsdown": "^0.22.14",
+    "typescript": "6.0.3",
+    "unplugin-swc": "^1.5.9",
+    "vitest": "^4.1.10"
+  }
+}
