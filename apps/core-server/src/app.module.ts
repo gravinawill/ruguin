@@ -20,7 +20,7 @@ import { OutboxModule } from './shared/outbox/outbox.module'
       ...createCacheModuleOptions(cacheENV)
     }),
     DatabaseModule.forRoot({ connectionString: databaseENV.DATABASE_URL }),
-    OutboxModule,
+    OutboxModule.forRoot(),
     HealthModule
   ],
   controllers: [],

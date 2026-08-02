@@ -5,7 +5,20 @@ import { OutboxStatus, Prisma } from '../../generated/prisma/client'
 import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '../contracts/message-producer.port'
 import { PrismaService } from '../database/prisma.service'
 
+/*
+ * Known limitations, tracked for whoever plugs in the real Kafka producer:
+ * - publish() runs INSIDE the row-locking DB transaction (below), sequentially, for up to
+ *   BATCH_SIZE rows. With a fast in-memory fake this is instant; with a real broker at ~250ms per
+ *   publish, a full batch can approach the transaction timeout, aborting the whole batch and
+ *   republishing already-delivered messages on the next tick (still at-least-once, but noisier).
+ *   Splitting "publish" from "mark published" into separate short transactions removes this
+ *   coupling without changing the delivery semantics — worth doing before this carries real
+ *   traffic.
+ * - MESSAGE_PRODUCER_PORT defaults to FakeMessageProducer (see OutboxModule) until that real
+ *   producer lands — see FakeMessageProducer's own warning log.
+ */
 const RELAY_INTERVAL_MS = 1000
+const RELAY_TRANSACTION_TIMEOUT_MS = 5000
 const BATCH_SIZE = 20
 const MAX_ATTEMPTS = 5
 const BASE_BACKOFF_MS = 1000
@@ -29,6 +42,7 @@ function computeNextAttemptAt(attempts: number): Date {
 @Injectable()
 export class OutboxRelayService {
   private readonly logger = new Logger(OutboxRelayService.name)
+  private isRunning = false
 
   constructor(
     private readonly prisma: PrismaService,
@@ -37,45 +51,71 @@ export class OutboxRelayService {
 
   @Interval(RELAY_INTERVAL_MS)
   public async relay(): Promise<void> {
+    /*
+     * A slow tick (broker latency, DB contention) must not stack a second transaction on top of
+     * the first — @Interval has no built-in overlap guard.
+     */
+    if (this.isRunning) return
+
+    this.isRunning = true
+
     try {
-      await this.prisma.$transaction(async (tx) => {
-        const table = Prisma.raw(`"${this.prisma.schema}"."outbox_messages"`)
+      await this.prisma.$transaction(
+        async (tx) => {
+          const table = Prisma.raw(`"${this.prisma.schema}"."outbox_messages"`)
 
-        /*
-         * The due-ness check (nextAttemptAt) must apply AFTER ranking, not inside the ranked CTE's
-         * WHERE — filtering it there would drop a row still in backoff out of its partition
-         * entirely, letting ROW_NUMBER() re-rank around it and publish a later message of the same
-         * key first. Ranking over every PENDING row (backoff or not) and checking due-ness only on
-         * the winner gives real head-of-line blocking: a key whose oldest message is in backoff
-         * yields nothing until that message is due again.
-         *
-         * The table is interpolated via Prisma.raw() because raw SQL doesn't inherit the PrismaPg
-         * adapter's `schema` option the way `prisma.<model>.*` calls do — it needs the schema
-         * identifier spelled out explicitly, derived the same way PrismaService derives it.
-         */
-        const rows = await tx.$queryRaw<EligibleRow[]>`
-          WITH ranked AS (
-            SELECT id, "createdAt", "nextAttemptAt",
-                   ROW_NUMBER() OVER (PARTITION BY module, key ORDER BY "createdAt") AS rn
-            FROM ${table}
-            WHERE status = 'PENDING'
-          )
-          SELECT o.id, o."createdAt", o."eventId", o.module, o.topic, o.key, o.name, o.payload, o.attempts
-          FROM ${table} o
-          JOIN ranked r ON r.id = o.id AND r."createdAt" = o."createdAt"
-          WHERE r.rn = 1
-            AND (r."nextAttemptAt" IS NULL OR r."nextAttemptAt" <= now())
-          ORDER BY o."createdAt"
-          LIMIT ${BATCH_SIZE}
-          FOR UPDATE OF o SKIP LOCKED
-        `
+          /*
+           * The due-ness check (nextAttemptAt) must apply AFTER ranking, not inside the ranked
+           * CTE's WHERE — filtering it there would drop a row still in backoff out of its
+           * partition entirely, letting ROW_NUMBER() re-rank around it and publish a later
+           * message of the same key first. Ranking over every PENDING row (backoff or not) and
+           * checking due-ness only on the winner gives real head-of-line blocking: a key whose
+           * oldest message is in backoff yields nothing until that message is due again.
+           *
+           * The ORDER BY tiebreaks on id after createdAt because createdAt alone is not unique:
+           * it is TIMESTAMP(3) and Prisma stamps @default(now()) client-side on each insert, so a
+           * use case enqueueing several events in one transaction collides on the millisecond
+           * routinely (measured at 13-16 collisions per 40 consecutive enqueues). Ties are not
+           * benign — this query ranks over a Seq Scan feeding a Sort, so a tie resolves by physical
+           * heap position, and any UPDATE (a retry bumping attempts) rewrites the row at the end of
+           * the heap, silently inverting publish order on the following tick. id is a UUID v7 from
+           * the schema's @default(uuid(7)), verified monotonic within a millisecond, so ordering by
+           * it restores enqueue order.
+           *
+           * The table is interpolated via Prisma.raw() because raw SQL doesn't inherit the
+           * PrismaPg adapter's `schema` option the way `prisma.<model>.*` calls do — it needs the
+           * schema identifier spelled out explicitly, derived the same way PrismaService derives
+           * it.
+           */
+          const rows = await tx.$queryRaw<EligibleRow[]>`
+            WITH ranked AS (
+              SELECT id, "createdAt", "nextAttemptAt",
+                     ROW_NUMBER() OVER (PARTITION BY module, key ORDER BY "createdAt", id) AS rn
+              FROM ${table}
+              WHERE status = 'PENDING'
+            )
+            SELECT o.id, o."createdAt", o."eventId", o.module, o.topic, o.key, o.name, o.payload, o.attempts
+            FROM ${table} o
+            JOIN ranked r ON r.id = o.id AND r."createdAt" = o."createdAt"
+            WHERE r.rn = 1
+              AND (r."nextAttemptAt" IS NULL OR r."nextAttemptAt" <= now())
+            ORDER BY o."createdAt", o.id
+            LIMIT ${BATCH_SIZE}
+            FOR UPDATE OF o SKIP LOCKED
+          `
 
-        for (const row of rows) {
-          await this.processRow(tx, row)
-        }
-      })
+          for (const row of rows) {
+            await this.processRow(tx, row)
+          }
+        },
+        { timeout: RELAY_TRANSACTION_TIMEOUT_MS }
+      )
     } catch (error: unknown) {
-      this.logger.error(`Outbox relay tick failed: ${error instanceof Error ? error.message : String(error)}`)
+      const message = error instanceof Error ? error.message : String(error)
+      const stack = error instanceof Error ? error.stack : undefined
+      this.logger.error(`Outbox relay tick failed: ${message}`, stack)
+    } finally {
+      this.isRunning = false
     }
   }
 

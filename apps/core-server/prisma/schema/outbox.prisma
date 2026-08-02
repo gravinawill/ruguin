@@ -1,3 +1,8 @@
+// This table is RANGE-partitioned by createdAt (see the hand-written
+// prisma/migrations/20260802060821_add_outbox_partitioning/migration.sql) — Prisma's schema DSL
+// cannot express PARTITION BY, so any future migration that changes this model must have its
+// generated SQL edited by hand to preserve partitioning, or partitioning (and the partitions
+// themselves) will silently be lost.
 model OutboxMessage {
   id            String       @default(uuid(7))
   eventId       String

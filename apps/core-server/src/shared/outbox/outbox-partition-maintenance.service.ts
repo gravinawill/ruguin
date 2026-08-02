@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
 
 import { PrismaService } from '../database/prisma.service'
@@ -23,10 +23,34 @@ function toSqlDate(date: Date): string {
 }
 
 @Injectable()
-export class OutboxPartitionMaintenanceService {
+export class OutboxPartitionMaintenanceService implements OnApplicationBootstrap {
   private readonly logger = new Logger(OutboxPartitionMaintenanceService.name)
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /*
+   * Runs once at boot, in addition to the daily cron below: if the app starts in an environment
+   * whose existing partitions have already expired (a fresh deploy of an old migration, or the app
+   * coming back up after being down for months), every outbox INSERT would fail until midnight —
+   * and since enqueue runs inside the use case's own transaction, that takes the business
+   * operation down with it, not just the outbox.
+   */
+  public async onApplicationBootstrap(): Promise<void> {
+    /*
+     * Never let this abort startup. Maintenance races with itself across app instances — two pods
+     * booting together can both see the same stale partition and one loses the drop, and any DDL
+     * hiccup would otherwise crashloop the whole service. A process that starts and serves traffic
+     * with a stale partition set is strictly better than one that never starts: the daily cron
+     * retries, and this log is the alert the design asked for.
+     */
+    try {
+      await this.runMaintenance()
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      const stack = error instanceof Error ? error.stack : undefined
+      this.logger.error(`Outbox partition maintenance failed at bootstrap: ${message}`, stack)
+    }
+  }
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   public async runMaintenance(): Promise<void> {
@@ -80,7 +104,19 @@ export class OutboxPartitionMaintenanceService {
     `
 
     for (const { partitionName } of partitions) {
-      await this.dropIfEmpty(partitionName)
+      /*
+       * Listing and dropping are two statements, so another instance running the same maintenance
+       * — every pod does, and they all boot together on a deploy — can drop a partition in
+       * between, making the emptiness check below fail on a relation that no longer exists. That
+       * is the desired end state reached by someone else, not an error, and one stale partition
+       * must not abort the rest of the sweep either.
+       */
+      try {
+        await this.dropIfEmpty(partitionName)
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.logger.warn(`Could not drop stale outbox partition ${partitionName}: ${message}`)
+      }
     }
   }
 

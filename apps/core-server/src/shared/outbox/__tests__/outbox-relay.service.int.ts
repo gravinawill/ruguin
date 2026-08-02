@@ -147,4 +147,65 @@ describe('OutboxRelayService against a live Postgres, with two concurrent instan
 
     expect(sequences).toEqual([0, 1])
   })
+
+  it('never publishes a later message of the same key before an earlier one sharing its createdAt', async () => {
+    const key = 'aggregate-same-timestamp'
+
+    /*
+     * Two messages that share a createdAt to the millisecond. This is not contrived: createdAt is
+     * TIMESTAMP(3) and Prisma stamps @default(now()) client-side per insert, so a use case that
+     * enqueues several events in one transaction collides constantly — measured at 13-16 collisions
+     * per 40 consecutive enqueues. Writing the timestamp explicitly just makes the collision
+     * deterministic instead of leaving it to how fast the machine ran.
+     *
+     * Enqueueing directly rather than through OutboxRepository is deliberate for the same reason:
+     * the repository cannot be made to produce a guaranteed tie. id still comes from the schema's
+     * own @default(uuid(7)), so the tiebreak under test is exactly the production one.
+     */
+    const sharedCreatedAt = new Date()
+    for (let sequence = 0; sequence < 2; sequence += 1) {
+      await prisma().outboxMessage.create({
+        data: {
+          createdAt: sharedCreatedAt,
+          eventId: Event.create('test.sequenced', { sequence }).id.toString(),
+          key,
+          module: MODULE,
+          name: 'test.sequenced',
+          payload: { sequence },
+          topic: 'test-topic'
+        }
+      })
+    }
+
+    const fake = new FakeMessageProducer()
+    const producer = new FlakyOnceProducer(fake, 0)
+    const relay = new OutboxRelayService(prisma(), producer)
+
+    /*
+     * The single transient failure is what makes the tie observable: marking sequence 0 as retrying
+     * UPDATEs it, and Postgres MVCC writes the new row version at the end of the heap — physically
+     * after sequence 1. The relay ranks over a Seq Scan feeding a Sort, so with createdAt alone the
+     * next tick ranks sequence 1 first and publishes it ahead of sequence 0. Ranking has to survive
+     * that reordering, which is what the id tiebreak buys.
+     */
+    await relay.relay()
+    await relay.relay()
+
+    const publishedBeforeBackoffElapses = fake.getPublished().filter((message) => message.key === key)
+    expect(publishedBeforeBackoffElapses).toHaveLength(0)
+
+    await sleep(2500)
+    await relay.relay()
+    await relay.relay()
+
+    const remaining = await prisma().outboxMessage.count({ where: { module: MODULE, status: 'PENDING' } })
+    expect(remaining).toBe(0)
+
+    const sequences = fake
+      .getPublished()
+      .filter((message) => message.key === key)
+      .map((message) => (message.message.payload as { sequence: number }).sequence)
+
+    expect(sequences).toEqual([0, 1])
+  })
 })
