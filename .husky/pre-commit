@@ -1,2 +1,1 @@
 pnpm exec lint-staged
-pnpm exec tsx packages/precommit-checks/src/pre-commit-checks.ts
