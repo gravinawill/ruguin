@@ -7,8 +7,9 @@ import {
   type OnModuleInit,
   type Provider
 } from '@nestjs/common'
-import { type ICacheProvider, type OnCacheError } from '@ruguin/cache'
-import { CacheFactory } from '@ruguin/cache'
+
+import { CacheFactory } from '../factory/index.ts'
+import { type ICacheProvider, type OnCacheError } from '../index.ts'
 
 import { CACHE_MODULE_OPTIONS, CACHE_PROVIDER, CONTRACT_TOKENS } from './cache.tokens.ts'
 import {

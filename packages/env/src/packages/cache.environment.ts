@@ -1,9 +1,9 @@
 import { createEnv } from '@t3-oss/env-core'
 import { z } from 'zod'
 
-import { lazyEnvironment as lazyEnvironmentironment } from '../shared/lazy-environment.ts'
+import { lazyEnvironment } from '../shared/lazy-environment.ts'
 
-export const cacheENV = lazyEnvironmentironment(() =>
+export const cacheENV = lazyEnvironment(() =>
   createEnv({
     server: {
       CACHE_PREFIX: z.string().min(1),
