@@ -1338,6 +1338,210 @@ git add packages/message-broker
 git commit -m "feat(message-broker): add MessageBrokerModule with OpenTelemetry-instrumented Kafka producer/consumer"
 ```
 
+### Task 7 addendum: graceful shutdown for the Kafka producer/consumer
+
+This task's review found a real gap: neither `KafkaMessageProducer` (Task 5) nor `KafkaMessageConsumer` (Task 6) closes its `@platformatic/kafka` client on app shutdown — `Producer`/`Consumer` both expose `close(force?: boolean): Promise<void>`, but nothing calls it. On SIGTERM, connections and consumer-group sessions drop ungracefully instead of leaving cleanly, matching the pattern already used by `packages/cache`'s `OnApplicationShutdown` and `apps/core-server`'s `PrismaService.onModuleDestroy()`.
+
+This fix touches the two already-completed files from Tasks 5 and 6 directly — NestJS calls `onModuleDestroy()` on any provider instance that implements it (including instances returned by a `useFactory`, which is how `KafkaMessageProducer`/`KafkaMessageConsumer` are provided in `message-broker.module.ts`), so the fix belongs on the classes that actually hold the client instances, not on the module.
+
+**Files:**
+
+- Modify: `packages/message-broker/src/infra/kafka/kafka-message-producer.ts`
+- Modify: `packages/message-broker/src/infra/kafka/kafka-message-consumer.ts`
+- Modify: `packages/message-broker/src/infra/kafka/__tests__/kafka-message-producer.unit.ts`
+- Modify: `packages/message-broker/src/infra/kafka/__tests__/kafka-message-consumer.unit.ts`
+- Modify: `packages/message-broker/package.json` (move `@nestjs/core` from `dependencies` to `devDependencies` — this package's own shipped code only imports `@nestjs/common`; `@nestjs/core` is only needed to satisfy `@nestjs/testing`'s peer dependency for this package's own test suite, not something every consumer of `@ruguin/message-broker` should be forced to install)
+
+- [ ] **Step 1: Add a failing test for `KafkaMessageProducer.onModuleDestroy()`**
+
+Add to `kafka-message-producer.unit.ts`:
+
+```ts
+it('closes the underlying producer on module destroy', async () => {
+  const close = vi.fn().mockResolvedValue(undefined)
+  const producer = new KafkaMessageProducer({ send: vi.fn(), close } as unknown as StringProducer)
+
+  await producer.onModuleDestroy()
+
+  expect(close).toHaveBeenCalledWith()
+})
+```
+
+Run: `pnpm --filter @ruguin/message-broker test:unit`
+Expected: FAIL — `onModuleDestroy` is not a function.
+
+- [ ] **Step 2: Add `OnModuleDestroy` to `KafkaMessageProducer`**
+
+```ts
+import { Injectable, type OnModuleDestroy } from '@nestjs/common'
+import { type BaseError } from '@ruguin/ddd-kernel'
+import { type Either, failure, success } from '@ruguin/utils'
+import { type Producer } from '@platformatic/kafka'
+
+import { MessagePublishError } from '../../domain/errors/message-publish.error.ts'
+import { type MessageProducerPort, type OutboundMessage } from '../../domain/contracts/message-producer.port.ts'
+
+@Injectable()
+export class KafkaMessageProducer implements MessageProducerPort, OnModuleDestroy {
+  constructor(private readonly producer: Producer<string, string, string, string>) {}
+
+  public async publish(input: OutboundMessage): Promise<Either<BaseError, void>> {
+    try {
+      await this.producer.send({
+        messages: [
+          {
+            topic: input.topic,
+            key: input.key,
+            value: JSON.stringify(input.message),
+            ...(input.headers !== undefined && { headers: input.headers })
+          }
+        ]
+      })
+
+      return success(undefined)
+    } catch (error: unknown) {
+      return failure(
+        new MessagePublishError({ error, message: `Failed to publish to topic "${input.topic}".` })
+      )
+    }
+  }
+
+  public async onModuleDestroy(): Promise<void> {
+    await this.producer.close()
+  }
+}
+```
+
+- [ ] **Step 3: Run the producer test again**
+
+Run: `pnpm --filter @ruguin/message-broker test:unit`
+Expected: PASS.
+
+- [ ] **Step 4: Add a failing test for `KafkaMessageConsumer.onModuleDestroy()`**
+
+Add to `kafka-message-consumer.unit.ts`:
+
+```ts
+it('closes every consumer it created, on module destroy', async () => {
+  const closeA = vi.fn().mockResolvedValue(undefined)
+  const closeB = vi.fn().mockResolvedValue(undefined)
+  const consumeA = vi.fn().mockResolvedValue(fakeStream([]))
+  const consumeB = vi.fn().mockResolvedValue(fakeStream([]))
+  const createConsumer = vi
+    .fn()
+    .mockReturnValueOnce({ consume: consumeA, close: closeA } as unknown as StringConsumer)
+    .mockReturnValueOnce({ consume: consumeB, close: closeB } as unknown as StringConsumer)
+
+  const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
+  await kafkaConsumer.subscribe({ topic: 'email.send.requested', groupId: 'dispatch-worker', onMessage: vi.fn() })
+  await kafkaConsumer.subscribe({ topic: 'email.send.requested.retry', groupId: 'dispatch-worker-retry', onMessage: vi.fn() })
+
+  await kafkaConsumer.onModuleDestroy()
+
+  expect(closeA).toHaveBeenCalledWith()
+  expect(closeB).toHaveBeenCalledWith()
+})
+```
+
+Run: `pnpm --filter @ruguin/message-broker test:unit`
+Expected: FAIL — `onModuleDestroy` is not a function.
+
+- [ ] **Step 5: Add `OnModuleDestroy` to `KafkaMessageConsumer`, tracking every consumer it creates**
+
+```ts
+import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common'
+import { type Consumer } from '@platformatic/kafka'
+import { type BaseError } from '@ruguin/ddd-kernel'
+import { type Either, failure, success } from '@ruguin/utils'
+
+import { type InboundMessage, type MessageConsumerPort, type MessageHandler, type SubscribeInput } from '../../domain/contracts/message-consumer.port.ts'
+import { MessageConsumeError } from '../../domain/errors/message-consume.error.ts'
+
+export type CreateConsumer = (groupId: string) => Consumer<string, string, string, string>
+
+function decodeHeaders(headers: Map<string, string> | undefined): Record<string, string> {
+  if (headers === undefined) return {}
+
+  return Object.fromEntries(headers)
+}
+
+@Injectable()
+export class KafkaMessageConsumer implements MessageConsumerPort, OnModuleDestroy {
+  private readonly logger = new Logger(KafkaMessageConsumer.name)
+  private readonly consumers: Array<Consumer<string, string, string, string>> = []
+
+  constructor(private readonly createConsumer: CreateConsumer) {}
+
+  public async subscribe(input: SubscribeInput): Promise<Either<BaseError, void>> {
+    try {
+      const consumer = this.createConsumer(input.groupId)
+      this.consumers.push(consumer)
+
+      const stream = await consumer.consume({ topics: [input.topic] })
+
+      void this.forwardMessages(stream, input.onMessage)
+
+      return success(undefined)
+    } catch (error: unknown) {
+      return failure(
+        new MessageConsumeError({ error, message: `Failed to subscribe to topic "${input.topic}" (group "${input.groupId}").` })
+      )
+    }
+  }
+
+  public async onModuleDestroy(): Promise<void> {
+    await Promise.all(this.consumers.map((consumer) => consumer.close()))
+  }
+
+  /*
+   * Runs detached from subscribe() for the lifetime of the consumer, so a single bad message
+   * (malformed JSON, or onMessage rejecting/throwing) must never escape this loop uncaught — an
+   * unhandled rejection here would crash the whole process under Node's default behavior, taking
+   * down every other topic this worker consumes along with it.
+   */
+  private async forwardMessages(
+    stream: AsyncIterable<{ value: string; headers: Map<string, string> }>,
+    onMessage: MessageHandler
+  ): Promise<void> {
+    for await (const message of stream) {
+      try {
+        const parsed = JSON.parse(message.value) as { eventId: string; name: string; payload: unknown }
+        const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
+
+        const result = await onMessage(inbound)
+
+        if (result.isFailure()) {
+          this.logger.error(`Message handler failed: ${result.value.message}`)
+        }
+      } catch (error: unknown) {
+        this.logger.error(`Failed to process a consumed message: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  }
+}
+```
+
+- [ ] **Step 6: Move `@nestjs/core` to `devDependencies`**
+
+In `packages/message-broker/package.json`, remove `"@nestjs/core": "^11.1.28",` from `dependencies` and add `"@nestjs/core": "^11.1.28",` to `devDependencies` (alongside `@nestjs/testing`) — this package's own shipped code only imports `@nestjs/common`; `@nestjs/core` is a test-only need.
+
+- [ ] **Step 7: Run the full package test suite**
+
+Run: `pnpm --filter @ruguin/message-broker test:all`
+Expected: PASS — all unit + integration tests, including the two new shutdown tests.
+
+- [ ] **Step 8: Run type/lint checks**
+
+Run: `pnpm --filter @ruguin/message-broker check:types && pnpm --filter @ruguin/message-broker check:lint`
+Expected: both clean.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add packages/message-broker
+git commit -m "fix(message-broker): close Kafka producer/consumer connections on shutdown"
+```
+
 ---
 
 ## Part 3 — `apps/dispatch-worker`
