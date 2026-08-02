@@ -14,6 +14,8 @@ import { SendEmailUseCase } from '../send-email.use-case.ts'
 
 const BASE_INPUT = {
   emailId: 'email-1',
+  organizationId: 'org-1',
+  projectId: 'project-1',
   from: 'a@ruguin.dev',
   to: 'b@ruguin.dev',
   subject: 'Hi',
@@ -117,7 +119,7 @@ describe('SendEmailUseCase', () => {
     )
   })
 
-  it('gives up, publishes status=failed, and routes to the DLQ once retries are exhausted', async () => {
+  it('gives up, publishes status=failed with the failure reason, and routes to the DLQ with the terminal attempt count once retries are exhausted', async () => {
     const { useCase, publish } = buildUseCase({ sendResult: 'failure' })
 
     const result = await useCase.execute({ ...BASE_INPUT, attempt: 3 })
@@ -129,9 +131,13 @@ describe('SendEmailUseCase', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({
         topic: EMAIL_STATUS_UPDATED_TOPIC,
-        message: expect.objectContaining({ payload: { emailId: 'email-1', status: 'failed' } })
+        message: expect.objectContaining({
+          payload: { emailId: 'email-1', status: 'failed', errorMessage: 'SES down' }
+        })
       })
     )
-    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC }))
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC, headers: { attempt: '4' } })
+    )
   })
 })

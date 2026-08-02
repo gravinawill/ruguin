@@ -21,10 +21,13 @@ const SES_RATE_LIMIT_PER_SECOND = 14
 
 export type SendEmailUseCaseInput = Readonly<{
   emailId: string
+  organizationId: string
+  projectId: string
   from: string
   to: string
   subject: string
   html: string
+  idempotencyKey?: string
   attempt: number
 }>
 
@@ -55,7 +58,7 @@ export class SendEmailUseCase {
       windowInMs: 1000
     })
     if (rateLimit.isFailure()) return failure(rateLimit.value)
-    if (!rateLimit.value.allowed) return this.scheduleRetryOrGiveUp(input)
+    if (!rateLimit.value.allowed) return this.scheduleRetryOrGiveUp(input, 'Rate limit exceeded')
 
     const sent = await this.emailSender.send({
       from: input.from,
@@ -71,22 +74,24 @@ export class SendEmailUseCase {
       return success({ outcome: 'sent' })
     }
 
-    return this.scheduleRetryOrGiveUp(input)
+    return this.scheduleRetryOrGiveUp(input, sent.value.message)
   }
 
   private async scheduleRetryOrGiveUp(
-    input: SendEmailUseCaseInput
+    input: SendEmailUseCaseInput,
+    failureReason: string
   ): Promise<Either<BaseError, SendEmailUseCaseOutput>> {
     const nextAttempt = input.attempt + 1
 
     if (hasExhaustedRetries(nextAttempt)) {
-      const publishedFailed = await this.publishStatusUpdated(input.emailId, 'failed')
+      const publishedFailed = await this.publishStatusUpdated(input.emailId, 'failed', undefined, failureReason)
       if (publishedFailed.isFailure()) return failure(publishedFailed.value)
 
       const publishedDlq = await this.messageProducer.publish({
         topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC,
         key: input.emailId,
-        message: { eventId: randomUUID(), name: 'email.send.requested', payload: input }
+        message: { eventId: randomUUID(), name: 'email.send.requested', payload: input },
+        headers: { attempt: String(nextAttempt) }
       })
       if (publishedDlq.isFailure()) return failure(publishedDlq.value)
 
@@ -109,7 +114,8 @@ export class SendEmailUseCase {
   private async publishStatusUpdated(
     emailId: string,
     status: 'sent' | 'failed',
-    sesMessageId?: string
+    sesMessageId?: string,
+    errorMessage?: string
   ): Promise<Either<BaseError, void>> {
     return this.messageProducer.publish({
       topic: EMAIL_STATUS_UPDATED_TOPIC,
@@ -117,7 +123,12 @@ export class SendEmailUseCase {
       message: {
         eventId: randomUUID(),
         name: 'email.status.updated',
-        payload: { emailId, status, ...(sesMessageId !== undefined && { sesMessageId }) }
+        payload: {
+          emailId,
+          status,
+          ...(sesMessageId !== undefined && { sesMessageId }),
+          ...(errorMessage !== undefined && { errorMessage })
+        }
       }
     })
   }
