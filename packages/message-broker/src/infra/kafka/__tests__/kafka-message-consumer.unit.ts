@@ -95,4 +95,37 @@ describe('KafkaMessageConsumer', () => {
     expect(onMessage).toHaveBeenCalledTimes(1)
     expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'evt-2' }))
   })
+
+  it('closes every consumer it created, on module destroy', async () => {
+    // close(force, callback) — the real client is callback-style; it never returns a Promise directly.
+    const closeA = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(null)
+    })
+    const closeB = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(null)
+    })
+    const consumeA = vi.fn().mockResolvedValue(fakeStream([]))
+    const consumeB = vi.fn().mockResolvedValue(fakeStream([]))
+    const createConsumer = vi
+      .fn()
+      .mockReturnValueOnce({ consume: consumeA, close: closeA })
+      .mockReturnValueOnce({ consume: consumeB, close: closeB })
+
+    const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
+    await kafkaConsumer.subscribe({ topic: 'email.send.requested', groupId: 'dispatch-worker', onMessage: vi.fn() })
+    await kafkaConsumer.subscribe({
+      topic: 'email.send.requested.retry',
+      groupId: 'dispatch-worker-retry',
+      onMessage: vi.fn()
+    })
+
+    await kafkaConsumer.onModuleDestroy()
+
+    /*
+     * force: true — a stream is still open on each consumer (subscribe() never awaits it draining),
+     * and @platformatic/kafka's close(false) refuses to leave the group while one is open.
+     */
+    expect(closeA).toHaveBeenCalledWith(true, expect.any(Function))
+    expect(closeB).toHaveBeenCalledWith(true, expect.any(Function))
+  })
 })

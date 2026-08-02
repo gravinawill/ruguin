@@ -49,4 +49,13 @@ describe('KafkaMessageProducer', () => {
       expect(result.value.name).toBe('MessagePublishError')
     }
   })
+
+  it('closes the underlying producer on module destroy', async () => {
+    const close = vi.fn().mockResolvedValue(undefined)
+    const producer = new KafkaMessageProducer({ send: vi.fn(), close } as unknown as StringProducer)
+
+    await producer.onModuleDestroy()
+
+    expect(close).toHaveBeenCalledWith()
+  })
 })

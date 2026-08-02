@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, type OnModuleDestroy } from '@nestjs/common'
 import { type Producer } from '@platformatic/kafka'
 import { type BaseError } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'
@@ -7,7 +7,7 @@ import { type MessageProducerPort, type OutboundMessage } from '../../domain/con
 import { MessagePublishError } from '../../domain/errors/message-publish.error.ts'
 
 @Injectable()
-export class KafkaMessageProducer implements MessageProducerPort {
+export class KafkaMessageProducer implements MessageProducerPort, OnModuleDestroy {
   constructor(private readonly producer: Producer<string, string, string, string>) {}
 
   public async publish(input: OutboundMessage): Promise<Either<BaseError, void>> {
@@ -27,5 +27,9 @@ export class KafkaMessageProducer implements MessageProducerPort {
     } catch (error: unknown) {
       return failure(new MessagePublishError({ error, message: `Failed to publish to topic "${input.topic}".` }))
     }
+  }
+
+  public async onModuleDestroy(): Promise<void> {
+    await this.producer.close()
   }
 }
