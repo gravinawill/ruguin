@@ -7,6 +7,7 @@ import { createCacheModuleOptions } from './cache/cache-module-options'
 import { HealthModule } from './health/health.module'
 import { createPinoHttpOptions } from './logger/pino-http-options'
 import { DatabaseModule } from './shared/database/database.module'
+import { OutboxModule } from './shared/outbox/outbox.module'
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { DatabaseModule } from './shared/database/database.module'
       ...createCacheModuleOptions(cacheENV)
     }),
     DatabaseModule.forRoot({ connectionString: databaseENV.DATABASE_URL }),
+    OutboxModule,
     HealthModule
   ],
   controllers: [],
