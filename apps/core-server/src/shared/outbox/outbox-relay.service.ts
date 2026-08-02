@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule'
 
-import { OutboxStatus, type Prisma } from '../../generated/prisma/client'
+import { OutboxStatus, Prisma } from '../../generated/prisma/client'
 import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '../contracts/message-producer.port'
 import { PrismaService } from '../database/prisma.service'
 
@@ -37,38 +37,46 @@ export class OutboxRelayService {
 
   @Interval(RELAY_INTERVAL_MS)
   public async relay(): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      /*
-       * FOR UPDATE cannot combine with a window function at the same query level, so `ranked`
-       * computes eligibility unlocked and the outer SELECT re-joins by primary key to lock only
-       * the winning row of each (module, key) pair. Two relay instances racing on the same tick
-       * never publish out of order: only one row per key is ever eligible, and SKIP LOCKED makes
-       * the loser skip it entirely rather than pick a different one.
-       *
-       * Raw SQL doesn't inherit the PrismaPg adapter's `schema` option the way `prisma.<model>.*`
-       * calls do, so the table needs the `core_server` schema spelled out explicitly.
-       */
-      const rows = await tx.$queryRaw<EligibleRow[]>`
-        WITH ranked AS (
-          SELECT id, "createdAt",
-                 ROW_NUMBER() OVER (PARTITION BY module, key ORDER BY "createdAt") AS rn
-          FROM core_server.outbox_messages
-          WHERE status = 'PENDING'
-            AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= now())
-        )
-        SELECT o.id, o."createdAt", o."eventId", o.module, o.topic, o.key, o.name, o.payload, o.attempts
-        FROM core_server.outbox_messages o
-        JOIN ranked r ON r.id = o.id AND r."createdAt" = o."createdAt"
-        WHERE r.rn = 1
-        ORDER BY o."createdAt"
-        LIMIT ${BATCH_SIZE}
-        FOR UPDATE OF o SKIP LOCKED
-      `
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const table = Prisma.raw(`"${this.prisma.schema}"."outbox_messages"`)
 
-      for (const row of rows) {
-        await this.processRow(tx, row)
-      }
-    })
+        /*
+         * The due-ness check (nextAttemptAt) must apply AFTER ranking, not inside the ranked CTE's
+         * WHERE — filtering it there would drop a row still in backoff out of its partition
+         * entirely, letting ROW_NUMBER() re-rank around it and publish a later message of the same
+         * key first. Ranking over every PENDING row (backoff or not) and checking due-ness only on
+         * the winner gives real head-of-line blocking: a key whose oldest message is in backoff
+         * yields nothing until that message is due again.
+         *
+         * The table is interpolated via Prisma.raw() because raw SQL doesn't inherit the PrismaPg
+         * adapter's `schema` option the way `prisma.<model>.*` calls do — it needs the schema
+         * identifier spelled out explicitly, derived the same way PrismaService derives it.
+         */
+        const rows = await tx.$queryRaw<EligibleRow[]>`
+          WITH ranked AS (
+            SELECT id, "createdAt", "nextAttemptAt",
+                   ROW_NUMBER() OVER (PARTITION BY module, key ORDER BY "createdAt") AS rn
+            FROM ${table}
+            WHERE status = 'PENDING'
+          )
+          SELECT o.id, o."createdAt", o."eventId", o.module, o.topic, o.key, o.name, o.payload, o.attempts
+          FROM ${table} o
+          JOIN ranked r ON r.id = o.id AND r."createdAt" = o."createdAt"
+          WHERE r.rn = 1
+            AND (r."nextAttemptAt" IS NULL OR r."nextAttemptAt" <= now())
+          ORDER BY o."createdAt"
+          LIMIT ${BATCH_SIZE}
+          FOR UPDATE OF o SKIP LOCKED
+        `
+
+        for (const row of rows) {
+          await this.processRow(tx, row)
+        }
+      })
+    } catch (error: unknown) {
+      this.logger.error(`Outbox relay tick failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   private async processRow(tx: Prisma.TransactionClient, row: EligibleRow): Promise<void> {
@@ -89,6 +97,11 @@ export class OutboxRelayService {
     const attempts = row.attempts + 1
 
     if (attempts >= MAX_ATTEMPTS) {
+      /*
+       * A FAILED message does not block later messages of the same key — it's an exceptional,
+       * manually-investigated state, and stalling every future event for the aggregate because one
+       * message permanently failed would be worse than this documented ordering exception.
+       */
       await tx.outboxMessage.update({
         data: { attempts, lastError: published.value.message, status: OutboxStatus.FAILED },
         where: { id_createdAt: { createdAt: row.createdAt, id: row.id } }

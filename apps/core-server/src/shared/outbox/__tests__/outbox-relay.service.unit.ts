@@ -42,12 +42,20 @@ function createRow(overrides: Partial<Row> = {}): Row {
   }
 }
 
-function createPrismaStub(rows: Row[]): { prisma: PrismaService; updates: Array<{ where: unknown; data: unknown }> } {
+function createPrismaStub(rows: Row[]): {
+  prisma: PrismaService
+  updates: Array<{ where: unknown; data: unknown }>
+  queries: string[]
+} {
   const updates: Array<{ where: unknown; data: unknown }> = []
+  const queries: string[] = []
 
   const tx = {
     // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async $queryRaw contract; stub has nothing to await
-    $queryRaw: async () => rows,
+    $queryRaw: async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(' '))
+      return rows
+    },
     outboxMessage: {
       // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async update contract; stub has nothing to await
       update: async (arguments_: { where: unknown; data: unknown }) => {
@@ -58,10 +66,11 @@ function createPrismaStub(rows: Row[]): { prisma: PrismaService; updates: Array<
   }
 
   const prisma = {
-    $transaction: async (work: (tx: unknown) => Promise<unknown>) => work(tx)
+    $transaction: async (work: (tx: unknown) => Promise<unknown>) => work(tx),
+    schema: 'core_server'
   } as unknown as PrismaService
 
-  return { prisma, updates }
+  return { prisma, updates, queries }
 }
 
 describe('OutboxRelayService#relay', () => {
@@ -124,5 +133,29 @@ describe('OutboxRelayService#relay', () => {
 
     expect(publish).not.toHaveBeenCalled()
     expect(updates).toHaveLength(0)
+  })
+
+  it('checks nextAttemptAt only after ranking, not inside the ranked CTE, so a row in backoff cannot be ranked around', async () => {
+    const row = createRow()
+    const { prisma, queries } = createPrismaStub([row])
+    // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async publish contract; stub has nothing to await
+    const publish = vi.fn(async (): Promise<Either<SamplePublishError, void>> => success(undefined))
+    const messageProducer: MessageProducerPort = { publish }
+
+    const relay = new OutboxRelayService(prisma, messageProducer)
+    await relay.relay()
+
+    const sql = queries[0] ?? ''
+    const rankedCte = sql.slice(sql.indexOf('WITH ranked'), sql.indexOf('SELECT o.id'))
+    const rankedWhere = rankedCte.slice(rankedCte.indexOf('WHERE'))
+    const outerQuery = sql.slice(sql.indexOf('SELECT o.id'))
+
+    /*
+     * A row still in backoff must stay in its (module, key) partition so ROW_NUMBER() cannot rank
+     * a later message ahead of it — filtering nextAttemptAt inside the CTE's WHERE would remove it
+     * entirely (nextAttemptAt is still selected as a column, just not filtered on, here).
+     */
+    expect(rankedWhere).not.toContain('nextAttemptAt')
+    expect(outerQuery).toMatch(/rn = 1[\s\S]*nextAttemptAt/)
   })
 })
