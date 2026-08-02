@@ -32,9 +32,9 @@ Fonte única de verdade para nome de tópico e formato de payload — nenhum out
 
 ### `packages/message-broker`
 
-Adapter KafkaJS, único ponto do monorepo que fala com Kafka de verdade.
+Adapter `@platformatic/kafka` (com instrumentação OpenTelemetry via `@platformatic/kafka-opentelemetry`), único ponto do monorepo que fala com Kafka de verdade.
 
-- `MessageProducerPort` — **movido** de `apps/core-server/src/shared/contracts/message-producer.port.ts` para cá. É infraestrutura compartilhada entre apps, não deveria morar dentro de um único app; o `core-server` passa a importar o port daqui e a injetar a implementação real via KafkaJS (hoje só tem o fake de teste).
+- `MessageProducerPort` — **movido** de `apps/core-server/src/shared/contracts/message-producer.port.ts` para cá. É infraestrutura compartilhada entre apps, não deveria morar dentro de um único app; o `core-server` passa a importar o port daqui e a injetar a implementação real via `@platformatic/kafka` (hoje só tem o fake de teste).
 - `MessageConsumerPort` (novo) — `subscribe({ topic, groupId, onMessage })`, retorna o envelope `{ eventId, name, payload, headers }` já desserializado. Deliberadamente genérico: não sabe nada sobre retry ou backoff — isso é lógica de aplicação de quem consome, para que o Webhook Notifier e o Read-Model Updater possam reaproveitar o mesmo port depois sem herdar a semântica de retry específica do Dispatch Worker.
 
 ### `apps/dispatch-worker`

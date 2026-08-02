@@ -4,9 +4,9 @@
 
 **Goal:** Close the core send path — consume `email.send.requested`, send via SES/LocalStack under a shared Redis rate limit, and retry transient failures through a dedicated Kafka retry topic before falling back to the DLQ.
 
-**Architecture:** Three new pnpm workspace packages/apps, built bottom-up: `packages/event-schemas` (Zod contracts + topic constants), `packages/message-broker` (KafkaJS producer/consumer adapters + NestJS module, replacing `apps/core-server`'s local fake), and `apps/dispatch-worker` (NestJS, no HTTP routes except `GET /health`, no Postgres schema — all state in Redis via `@ruguin/cache`).
+**Architecture:** Three new pnpm workspace packages/apps, built bottom-up: `packages/event-schemas` (Zod contracts + topic constants), `packages/message-broker` (`@platformatic/kafka` producer/consumer adapters + NestJS module, replacing `apps/core-server`'s local fake), and `apps/dispatch-worker` (NestJS, no HTTP routes except `GET /health`, no Postgres schema — all state in Redis via `@ruguin/cache`).
 
-**Tech Stack:** TypeScript 6.0.3 (ESM, explicit `.ts` import extensions), NestJS ^11.1.28 family, KafkaJS (new dependency), `@aws-sdk/client-ses` (new dependency), Zod 4.4.3, Vitest 4.x (`.unit.ts`/`.int.ts`/`.e2e.ts` projects), pnpm workspaces + Turborepo.
+**Tech Stack:** TypeScript 6.0.3 (ESM, explicit `.ts` import extensions), NestJS ^11.1.28 family, `@platformatic/kafka` (new dependency), `@aws-sdk/client-ses` (new dependency), Zod 4.4.3, Vitest 4.x (`.unit.ts`/`.int.ts`/`.e2e.ts` projects), pnpm workspaces + Turborepo.
 
 **Reference spec:** `docs/superpowers/specs/2026-08-02-dispatch-worker-design.md`
 
@@ -520,10 +520,12 @@ This package ships compiled output (like `packages/cache`), not raw TS like `pac
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",
+    "@opentelemetry/instrumentation": "^0.202.0",
+    "@platformatic/kafka": "^2.8.0",
+    "@platformatic/kafka-opentelemetry": "^0.2.0",
     "@ruguin/ddd-kernel": "workspace:*",
     "@ruguin/env": "workspace:*",
     "@ruguin/utils": "workspace:*",
-    "kafkajs": "^2.2.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
@@ -725,7 +727,7 @@ git commit -m "feat(message-broker): scaffold package and define producer/consum
 
 ---
 
-### Task 5: Domain errors + KafkaJS producer adapter
+### Task 5: Domain errors + `@platformatic/kafka` producer adapter
 
 **Files:**
 
@@ -737,14 +739,16 @@ git commit -m "feat(message-broker): scaffold package and define producer/consum
 **Interfaces:**
 
 - Consumes: `MessageProducerPort`, `OutboundMessage` (Task 4).
-- Produces: `MessagePublishError`, `class KafkaMessageProducer implements MessageProducerPort` (constructor takes a KafkaJS `Producer`) — consumed by Task 7 (`MessageBrokerModule`).
+- Produces: `MessagePublishError`, `class KafkaMessageProducer implements MessageProducerPort` (constructor takes a `@platformatic/kafka` `Producer`) — consumed by Task 7 (`MessageBrokerModule`).
+
+`@platformatic/kafka`'s `Producer.send()` takes one `{ messages }` call where each message carries its own `topic` — unlike KafkaJS, there's no separate top-level `topic` field on the `send()` call itself.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // packages/message-broker/src/infra/kafka/__tests__/kafka-message-producer.unit.ts
 import { describe, expect, it, vi } from 'vitest'
-import { type Producer } from 'kafkajs'
+import { type Producer } from '@platformatic/kafka'
 
 import { KafkaMessageProducer } from '../kafka-message-producer.ts'
 
@@ -754,7 +758,7 @@ function fakeProducer(send: Producer['send']): Producer {
 
 describe('KafkaMessageProducer', () => {
   it('publishes the message with the key and headers passed to it', async () => {
-    const send = vi.fn().mockResolvedValue([])
+    const send = vi.fn().mockResolvedValue({ offsets: [] })
     const producer = new KafkaMessageProducer(fakeProducer(send))
 
     const result = await producer.publish({
@@ -766,9 +770,9 @@ describe('KafkaMessageProducer', () => {
 
     expect(result.isSuccess()).toBe(true)
     expect(send).toHaveBeenCalledWith({
-      topic: 'email.send.requested',
       messages: [
         {
+          topic: 'email.send.requested',
           key: 'email-1',
           value: JSON.stringify({ eventId: 'evt-1', name: 'email.send.requested', payload: { emailId: 'email-1' } }),
           headers: { attempt: '1' }
@@ -821,7 +825,7 @@ export class MessagePublishError extends BaseError {
 import { Injectable } from '@nestjs/common'
 import { type BaseError } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'
-import { type Producer } from 'kafkajs'
+import { type Producer } from '@platformatic/kafka'
 
 import { MessagePublishError } from '../../domain/errors/message-publish.error.ts'
 import { type MessageProducerPort, type OutboundMessage } from '../../domain/contracts/message-producer.port.ts'
@@ -833,9 +837,9 @@ export class KafkaMessageProducer implements MessageProducerPort {
   public async publish(input: OutboundMessage): Promise<Either<BaseError, void>> {
     try {
       await this.producer.send({
-        topic: input.topic,
         messages: [
           {
+            topic: input.topic,
             key: input.key,
             value: JSON.stringify(input.message),
             ...(input.headers !== undefined && { headers: input.headers })
@@ -871,12 +875,12 @@ Expected: PASS.
 
 ```bash
 git add packages/message-broker
-git commit -m "feat(message-broker): add KafkaJS producer adapter"
+git commit -m "feat(message-broker): add @platformatic/kafka producer adapter"
 ```
 
 ---
 
-### Task 6: KafkaJS consumer adapter
+### Task 6: `@platformatic/kafka` consumer adapter
 
 **Files:**
 
@@ -888,49 +892,52 @@ git commit -m "feat(message-broker): add KafkaJS producer adapter"
 **Interfaces:**
 
 - Consumes: `MessageConsumerPort`, `InboundMessage`, `SubscribeInput` (Task 4).
-- Produces: `MessageConsumeError`, `class KafkaMessageConsumer implements MessageConsumerPort` (constructor takes a KafkaJS `Kafka` client) — consumed by Task 7.
+- Produces: `type CreateConsumer`, `MessageConsumeError`, `class KafkaMessageConsumer implements MessageConsumerPort` (constructor takes a `CreateConsumer` factory function, not a shared client) — consumed by Task 7.
+
+`@platformatic/kafka` has no shared "client" object like KafkaJS's `Kafka` — `groupId` is fixed per `Consumer` instance at construction time. Since `MessageConsumerPort.subscribe()` is called once per (topic, groupId) pair — the main consumer and the retry consumer use different group IDs (Tasks 16/17) — `KafkaMessageConsumer` takes a factory function that builds a fresh `Consumer` for whatever `groupId` a given `subscribe()` call needs, instead of a single pre-built client. `consumer.consume({ topics })` returns an async-iterable stream; iterating it never resolves for a live consumer, so `subscribe()` starts the iteration in a detached background loop rather than awaiting it — otherwise `subscribe()` itself would never return.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // packages/message-broker/src/infra/kafka/__tests__/kafka-message-consumer.unit.ts
 import { describe, expect, it, vi } from 'vitest'
+import { type Consumer } from '@platformatic/kafka'
 import { success } from '@ruguin/utils'
-import { type Consumer, type Kafka } from 'kafkajs'
 
 import { KafkaMessageConsumer } from '../kafka-message-consumer.ts'
 
-function fakeKafka(consumer: Partial<Consumer>): Kafka {
-  return { consumer: () => consumer as Consumer } as unknown as Kafka
+type FakeStreamMessage = { value: string; headers?: Map<string, string> }
+
+function fakeStream(messages: FakeStreamMessage[]): AsyncIterable<FakeStreamMessage> {
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      for (const message of messages) yield message
+    }
+  }
 }
 
 describe('KafkaMessageConsumer', () => {
-  it('connects, subscribes, and forwards each message to onMessage as InboundMessage', async () => {
-    let eachMessage: (input: { message: { value: Buffer; headers?: Record<string, Buffer> } }) => Promise<void> = async () => {}
-
-    const consumer: Partial<Consumer> = {
-      connect: vi.fn().mockResolvedValue(undefined),
-      subscribe: vi.fn().mockResolvedValue(undefined),
-      run: vi.fn().mockImplementation(async (config: { eachMessage: typeof eachMessage }) => {
-        eachMessage = config.eachMessage
-      })
-    }
+  it('builds a consumer for the given groupId, consumes the topic, and forwards each message as InboundMessage', async () => {
+    const stream = fakeStream([
+      {
+        value: JSON.stringify({ eventId: 'evt-1', name: 'email.send.requested', payload: { emailId: 'e1' } }),
+        headers: new Map([['attempt', '1']])
+      }
+    ])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue({ consume } as unknown as Consumer)
 
     const onMessage = vi.fn().mockResolvedValue(success(undefined))
-    const kafkaConsumer = new KafkaMessageConsumer(fakeKafka(consumer))
+    const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
 
     const result = await kafkaConsumer.subscribe({ topic: 'email.send.requested', groupId: 'dispatch-worker', onMessage })
 
     expect(result.isSuccess()).toBe(true)
-    expect(consumer.connect).toHaveBeenCalled()
-    expect(consumer.subscribe).toHaveBeenCalledWith({ topic: 'email.send.requested', fromBeginning: false })
+    expect(createConsumer).toHaveBeenCalledWith('dispatch-worker')
+    expect(consume).toHaveBeenCalledWith({ topics: ['email.send.requested'] })
 
-    await eachMessage({
-      message: {
-        value: Buffer.from(JSON.stringify({ eventId: 'evt-1', name: 'email.send.requested', payload: { emailId: 'e1' } })),
-        headers: { attempt: Buffer.from('1') }
-      }
-    })
+    // Message forwarding runs on a detached loop — give it a tick to process the fake stream.
+    await new Promise((resolve) => setImmediate(resolve))
 
     expect(onMessage).toHaveBeenCalledWith({
       eventId: 'evt-1',
@@ -940,10 +947,12 @@ describe('KafkaMessageConsumer', () => {
     })
   })
 
-  it('returns a MessageConsumeError when connect() rejects', async () => {
-    const consumer: Partial<Consumer> = { connect: vi.fn().mockRejectedValue(new Error('unreachable')) }
+  it('returns a MessageConsumeError when consume() rejects', async () => {
+    const createConsumer = vi.fn().mockReturnValue({
+      consume: vi.fn().mockRejectedValue(new Error('unreachable'))
+    } as unknown as Consumer)
 
-    const result = await new KafkaMessageConsumer(fakeKafka(consumer)).subscribe({
+    const result = await new KafkaMessageConsumer(createConsumer).subscribe({
       topic: 'email.send.requested',
       groupId: 'dispatch-worker',
       onMessage: vi.fn()
@@ -981,46 +990,49 @@ export class MessageConsumeError extends BaseError {
 
 ```ts
 import { Injectable } from '@nestjs/common'
+import { type Consumer } from '@platformatic/kafka'
 import { type BaseError } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'
-import { type Kafka } from 'kafkajs'
 
-import { type InboundMessage, type MessageConsumerPort, type SubscribeInput } from '../../domain/contracts/message-consumer.port.ts'
+import { type InboundMessage, type MessageConsumerPort, type MessageHandler, type SubscribeInput } from '../../domain/contracts/message-consumer.port.ts'
 import { MessageConsumeError } from '../../domain/errors/message-consume.error.ts'
 
-function decodeHeaders(headers: Record<string, Buffer | string | undefined> | undefined): Record<string, string> {
+export type CreateConsumer = (groupId: string) => Consumer
+
+function decodeHeaders(headers: Map<string, string> | undefined): Record<string, string> {
   if (headers === undefined) return {}
 
-  return Object.fromEntries(
-    Object.entries(headers).map(([key, value]) => [key, value === undefined ? '' : value.toString()])
-  )
+  return Object.fromEntries(headers)
 }
 
 @Injectable()
 export class KafkaMessageConsumer implements MessageConsumerPort {
-  constructor(private readonly kafka: Kafka) {}
+  constructor(private readonly createConsumer: CreateConsumer) {}
 
   public async subscribe(input: SubscribeInput): Promise<Either<BaseError, void>> {
     try {
-      const consumer = this.kafka.consumer({ groupId: input.groupId })
+      const consumer = this.createConsumer(input.groupId)
+      const stream = await consumer.consume({ topics: [input.topic] })
 
-      await consumer.connect()
-      await consumer.subscribe({ topic: input.topic, fromBeginning: false })
-
-      await consumer.run({
-        eachMessage: async ({ message }) => {
-          const parsed = JSON.parse(message.value?.toString() ?? '{}') as { eventId: string; name: string; payload: unknown }
-          const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
-
-          await input.onMessage(inbound)
-        }
-      })
+      void this.forwardMessages(stream, input.onMessage)
 
       return success(undefined)
     } catch (error: unknown) {
       return failure(
         new MessageConsumeError({ error, message: `Failed to subscribe to topic "${input.topic}" (group "${input.groupId}").` })
       )
+    }
+  }
+
+  private async forwardMessages(
+    stream: AsyncIterable<{ value: string | null; headers?: Map<string, string> }>,
+    onMessage: MessageHandler
+  ): Promise<void> {
+    for await (const message of stream) {
+      const parsed = JSON.parse(message.value ?? '{}') as { eventId: string; name: string; payload: unknown }
+      const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
+
+      await onMessage(inbound)
     }
   }
 }
@@ -1046,7 +1058,7 @@ Expected: PASS.
 
 ```bash
 git add packages/message-broker
-git commit -m "feat(message-broker): add KafkaJS consumer adapter"
+git commit -m "feat(message-broker): add @platformatic/kafka consumer adapter"
 ```
 
 ---
@@ -1062,8 +1074,10 @@ git commit -m "feat(message-broker): add KafkaJS consumer adapter"
 
 **Interfaces:**
 
-- Consumes: `MESSAGE_PRODUCER_PORT`, `MESSAGE_CONSUMER_PORT`, `KafkaMessageProducer`, `KafkaMessageConsumer` (Tasks 4–6).
-- Produces: `type MessageBrokerModuleOptions`, `class MessageBrokerModule` with `static forRoot(options): DynamicModule` — consumed by `apps/dispatch-worker`'s `app.module.ts` (Task 9) and, later, by `apps/core-server`'s (Task 8).
+- Consumes: `MESSAGE_PRODUCER_PORT`, `MESSAGE_CONSUMER_PORT`, `KafkaMessageProducer`, `type CreateConsumer`, `KafkaMessageConsumer` (Tasks 4–6).
+- Produces: `type MessageBrokerModuleOptions`, `class MessageBrokerModule` with `static forRoot(options): DynamicModule` — consumed by `apps/dispatch-worker`'s `email.module.ts` (Task 16) and, later, by `apps/core-server`'s `app.module.ts` (Task 9).
+
+This task also registers `@platformatic/kafka-opentelemetry`'s `KafkaInstrumentation`, so every `Producer.send` and consumed message this package handles gets an OpenTelemetry span — consistent with `apps/core-server`'s existing OTel setup, without requiring `packages/message-broker`'s consumers to do anything extra.
 
 - [ ] **Step 1: Start the local Kafka stack (needed for the integration test in this task)**
 
@@ -1138,22 +1152,23 @@ Expected: FAIL — `MessageBrokerModule` not found.
 - [ ] **Step 4: Create `src/nestjs/message-broker.tokens.ts`**
 
 ```ts
-export const KAFKA_CLIENT = Symbol('KAFKA_CLIENT')
 export const KAFKA_PRODUCER = Symbol('KAFKA_PRODUCER')
 ```
 
 - [ ] **Step 5: Create `src/nestjs/message-broker.module.ts`**
 
 ```ts
-import { type DynamicModule, Inject, Module } from '@nestjs/common'
-import { Kafka, type Producer } from 'kafkajs'
+import { type DynamicModule, Module } from '@nestjs/common'
+import { registerInstrumentations } from '@opentelemetry/instrumentation'
+import { Consumer, Producer, stringDeserializers, stringSerializers } from '@platformatic/kafka'
+import { KafkaInstrumentation } from '@platformatic/kafka-opentelemetry'
 
 import { MESSAGE_CONSUMER_PORT } from '../domain/contracts/message-consumer.port.ts'
 import { MESSAGE_PRODUCER_PORT } from '../domain/contracts/message-producer.port.ts'
-import { KafkaMessageConsumer } from '../infra/kafka/kafka-message-consumer.ts'
+import { type CreateConsumer, KafkaMessageConsumer } from '../infra/kafka/kafka-message-consumer.ts'
 import { KafkaMessageProducer } from '../infra/kafka/kafka-message-producer.ts'
 
-import { KAFKA_CLIENT, KAFKA_PRODUCER } from './message-broker.tokens.ts'
+import { KAFKA_PRODUCER } from './message-broker.tokens.ts'
 
 export type MessageBrokerModuleOptions = Readonly<{
   brokers: readonly string[]
@@ -1161,6 +1176,14 @@ export type MessageBrokerModuleOptions = Readonly<{
   ssl?: boolean
   isGlobal?: boolean
 }>
+
+/*
+ * Registered once at module-load time (ESM modules are evaluated once per process), not inside
+ * forRoot() — forRoot() can run more than once if multiple apps import this module in the same
+ * process (not the case today, but registerInstrumentations() is not idempotent-safe to call
+ * per-DynamicModule construction).
+ */
+registerInstrumentations({ instrumentations: [new KafkaInstrumentation()] })
 
 @Module({})
 export class MessageBrokerModule {
@@ -1172,18 +1195,14 @@ export class MessageBrokerModule {
       global: isGlobal,
       providers: [
         {
-          provide: KAFKA_CLIENT,
-          useFactory: (): Kafka =>
-            new Kafka({ brokers: [...config.brokers], clientId: config.clientId, ssl: config.ssl ?? false })
-        },
-        {
           provide: KAFKA_PRODUCER,
-          useFactory: async (kafka: Kafka): Promise<Producer> => {
-            const producer = kafka.producer()
-            await producer.connect()
-            return producer
-          },
-          inject: [KAFKA_CLIENT]
+          useFactory: (): Producer =>
+            new Producer({
+              clientId: config.clientId,
+              bootstrapBrokers: [...config.brokers],
+              serializers: stringSerializers,
+              ...(config.ssl === true && { tls: {} })
+            })
         },
         {
           provide: MESSAGE_PRODUCER_PORT,
@@ -1192,8 +1211,18 @@ export class MessageBrokerModule {
         },
         {
           provide: MESSAGE_CONSUMER_PORT,
-          useFactory: (kafka: Kafka): KafkaMessageConsumer => new KafkaMessageConsumer(kafka),
-          inject: [KAFKA_CLIENT]
+          useFactory: (): KafkaMessageConsumer => {
+            const createConsumer: CreateConsumer = (groupId) =>
+              new Consumer({
+                groupId,
+                clientId: config.clientId,
+                bootstrapBrokers: [...config.brokers],
+                deserializers: stringDeserializers,
+                ...(config.ssl === true && { tls: {} })
+              })
+
+            return new KafkaMessageConsumer(createConsumer)
+          }
         }
       ],
       exports: [MESSAGE_PRODUCER_PORT, MESSAGE_CONSUMER_PORT]
@@ -1202,15 +1231,7 @@ export class MessageBrokerModule {
 }
 ```
 
-`@Inject` is imported but unused directly here — remove it if `check:lint` flags it (the providers use the `inject` array on `useFactory`, not constructor injection, inside this static method).
-
-- [ ] **Step 6: Fix Step 5 — remove the unused `Inject` import**
-
-```ts
-import { type DynamicModule, Module } from '@nestjs/common'
-```
-
-- [ ] **Step 7: Add exports to `src/index.ts`**
+- [ ] **Step 6: Add exports to `src/index.ts`**
 
 ```ts
 export * from './domain/contracts/message-consumer.port.ts'
@@ -1222,21 +1243,21 @@ export * from './infra/kafka/kafka-message-producer.ts'
 export * from './nestjs/message-broker.module.ts'
 ```
 
-- [ ] **Step 8: Run the integration test**
+- [ ] **Step 7: Run the integration test**
 
 Run: `pnpm --filter @ruguin/message-broker test:integration`
 Expected: PASS — message published to `message-broker-integration-test` is received back through the consumer within the poll loop.
 
-- [ ] **Step 9: Run unit tests too, to make sure nothing broke**
+- [ ] **Step 8: Run unit tests too, to make sure nothing broke**
 
 Run: `pnpm --filter @ruguin/message-broker test:unit`
 Expected: PASS.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add packages/message-broker
-git commit -m "feat(message-broker): add MessageBrokerModule wiring producer and consumer"
+git commit -m "feat(message-broker): add MessageBrokerModule with OpenTelemetry-instrumented Kafka producer/consumer"
 ```
 
 ---
@@ -2675,7 +2696,7 @@ export class EmailSendRequestedConsumer implements OnModuleInit {
 }
 ```
 
-Malformed messages (schema validation failure) resolve as `success(undefined)` here rather than `failure(...)` — KafkaJS's `eachMessage` has no built-in per-message DLQ redirection, and this plan intentionally scopes malformed-message-to-DLQ handling out (see Decisões em aberto in the design spec); a message that fails schema validation is acknowledged and dropped rather than retried forever.
+Malformed messages (schema validation failure) resolve as `success(undefined)` here rather than `failure(...)` — `MessageConsumerPort`'s `onMessage` has no built-in per-message DLQ redirection, and this plan intentionally scopes malformed-message-to-DLQ handling out (see Decisões em aberto in the design spec); a message that fails schema validation is dropped rather than retried forever.
 
 - [ ] **Step 7: Create `src/email/email.module.ts`**
 
