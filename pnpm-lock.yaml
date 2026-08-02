@@ -465,6 +465,9 @@ importers:
       npm-check-updates:
         specifier: 23.0.0
         version: 23.0.0
+      tsdown:
+        specifier: ^0.22.14
+        version: 0.22.14(tsx@4.23.1)(typescript@6.0.3)
       typescript:
         specifier: 6.0.3
         version: 6.0.3
@@ -517,6 +520,9 @@ importers:
       npm-check-updates:
         specifier: 23.0.0
         version: 23.0.0
+      tsdown:
+        specifier: ^0.22.14
+        version: 0.22.14(tsx@4.23.1)(typescript@6.0.3)
       typescript:
         specifier: 6.0.3
         version: 6.0.3

@@ -35,7 +35,12 @@ const n = r.value                   // r.value is number, narrowed
 ## Rules
 
 - **No runtime dependencies.** This package must stay a leaf in the dependency graph — everything imports it, it imports nothing.
-- **Raw TS, no build.** It's a private package that exports `./src/index.ts` directly (see `package.json` `exports`). Consumers compile it themselves; there is **no `dist/` and no `build` script**. Do not add one.
+- **Built with `tsdown`, exports `./dist/index.mjs`.** Node refuses to type-strip `.ts` files that
+  live under `node_modules`; a package consumed as raw source only works while pnpm's symlink keeps
+  it outside `node_modules`, in the workspace itself. Any packaging step that materializes the
+  files — `pnpm deploy`, and therefore any container image — puts them inside `node_modules`, where
+  that symlink no longer helps. Build before consuming as a dependency; `tsdown.config.ts` mirrors
+  `packages/cache`'s.
 - Any addition here is used everywhere — prefer minimal, universal helpers only.
 
 ## Commands

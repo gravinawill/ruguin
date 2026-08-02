@@ -18,8 +18,13 @@ COPY --from=pruner /repo/out/json/ ./
 RUN node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));delete p.scripts.postinstall;fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
 RUN pnpm install --frozen-lockfile
 COPY --from=pruner /repo/out/full/ ./
-# @ruguin/cache is consumed via its built ./dist/index.mjs (tsdown), unlike the other workspace
-# deps which core-server imports as raw TS; `--filter core-server build` alone never builds it.
+# core-server's own `build` script runs directly (prisma generate && nest build), not through
+# turbo, so turbo.json's `dependsOn: ["^build"]` never fires here. All four workspace deps ship
+# compiled ./dist output (tsdown) because Node refuses to type-strip .ts under node_modules, so
+# each has to be built explicitly, in dependency order, before core-server and the deploy after it.
+RUN pnpm --filter @ruguin/utils build
+RUN pnpm --filter @ruguin/ddd-kernel build
+RUN pnpm --filter @ruguin/env build
 RUN pnpm --filter @ruguin/cache build
 RUN pnpm --filter @ruguin/core-server build
 RUN pnpm --filter @ruguin/core-server deploy --prod --legacy /prod

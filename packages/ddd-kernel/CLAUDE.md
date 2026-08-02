@@ -21,7 +21,12 @@ src/
 ## Rules
 
 - **No bounded-context-specific business logic.** Only generic primitives reusable by any service.
-- **Raw TS, no build** — same convention as `@ruguin/utils`: exports `./src/index.ts` directly, no `dist/`.
+- **Built with `tsdown`, exports `./dist/index.mjs`.** Node refuses to type-strip `.ts` files that
+  live under `node_modules`; a package consumed as raw source only works while pnpm's symlink keeps
+  it outside `node_modules`, in the workspace itself. Any packaging step that materializes the
+  files — `pnpm deploy`, and therefore any container image — puts them inside `node_modules`, where
+  that symlink no longer helps. Build before consuming as a dependency; `tsdown.config.ts` mirrors
+  `packages/cache`'s.
 - Every concrete error extends `BaseError` and implements `name`/`status`; every expected failure uses `Either`, never `throw`.
 
 ## Commands
