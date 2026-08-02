@@ -43,6 +43,12 @@ export class KafkaMessageConsumer implements MessageConsumerPort {
     }
   }
 
+  /*
+   * Runs detached from subscribe() for the lifetime of the consumer, so a single bad message
+   * (malformed JSON, or onMessage rejecting/throwing) must never escape this loop uncaught — an
+   * unhandled rejection here would crash the whole process under Node's default behavior, taking
+   * down every other topic this worker consumes along with it.
+   */
   private async forwardMessages(
     stream: AsyncIterable<{ value: string; headers: Map<string, string> }>,
     onMessage: MessageHandler
@@ -55,14 +61,12 @@ export class KafkaMessageConsumer implements MessageConsumerPort {
         const result = await onMessage(inbound)
 
         if (result.isFailure()) {
-          this.logger.error(
-            `Failed to handle message "${inbound.eventId}": ${result.value.message}`,
-            result.value.error
-          )
+          this.logger.error(`Message handler failed: ${result.value.message}`)
         }
       } catch (error: unknown) {
-        // A single malformed message or a throwing handler must not crash this detached loop and take every topic with it.
-        this.logger.error('Failed to process a message from the consumer stream.', error)
+        this.logger.error(
+          `Failed to process a consumed message: ${error instanceof Error ? error.message : String(error)}`
+        )
       }
     }
   }
