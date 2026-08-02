@@ -2,8 +2,8 @@ import { BaseError, StatusError } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'
 import { describe, expect, it, vi } from 'vitest'
 
-import { type TransactionContext } from '../../contracts/transaction-context.contract'
-import { TransactionError } from '../../errors/transaction.error'
+import { type TransactionContext } from '../../../../domain/contracts/transaction-context.contract'
+import { TransactionError } from '../../../../domain/errors/transaction.error'
 import { type PrismaService } from '../prisma.service'
 import { PrismaTransactionManager } from '../prisma-transaction-manager'
 

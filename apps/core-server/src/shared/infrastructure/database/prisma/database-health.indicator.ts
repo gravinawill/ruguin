@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { type HealthIndicatorResult } from '@nestjs/terminus'
 
-import { PrismaService } from './prisma.service'
+import { PrismaService } from '../prisma/prisma.service'
 
 const MAX_ERROR_LENGTH = 200
 const UNKNOWN_FAILURE = 'Unknown failure while querying the database.'

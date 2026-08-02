@@ -3,10 +3,10 @@ import { CacheModule } from '@ruguin/cache'
 import { cacheENV, databaseENV } from '@ruguin/env'
 import { LoggerModule } from 'nestjs-pino'
 
-import { createCacheModuleOptions } from './cache/cache-module-options'
-import { HealthModule } from './health/health.module'
-import { createPinoHttpOptions } from './logger/pino-http-options'
-import { DatabaseModule } from './shared/database/database.module'
+import { HealthModule } from './modules/health/health.module'
+import { createCacheModuleOptions } from './shared/infrastructure/cache/cache-module-options'
+import { DatabaseModule } from './shared/infrastructure/database/database.module'
+import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-options'
 
 @Module({
   imports: [

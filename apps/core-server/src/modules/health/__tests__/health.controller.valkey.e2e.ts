@@ -4,17 +4,8 @@ import { FastifyAdapter } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { AppModule } from '../../app.module'
+import { AppModule } from '../../../app.module'
 
-/*
- * Its own file, not another describe block: @ruguin/env validates and freezes the cache schema the
- * first time cache.environment.ts is imported, so one module graph gets exactly one driver. Vitest
- * isolates files into separate workers, which is what lets this suite and the memory-backed one
- * disagree about CACHE_DRIVER.
- *
- * Requires the local stack:
- * docker compose -f infrastructure/local/docker-compose.yml up -d redis redis-replica
- */
 vi.hoisted(() => {
   process.env.CACHE_PREFIX = 'ruguin:e2e-valkey'
   process.env.CACHE_DRIVER = 'valkey'
@@ -65,10 +56,6 @@ describe('GET /health against a live Valkey', () => {
     })
   })
 
-  /*
-   * The numbers spec §5.6 argues catch trouble before it becomes an incident. Asserting they are
-   * present and numeric is the point — the values belong to whatever the server happens to be doing.
-   */
   it('carries the server-reported pressure signals', async () => {
     const details = await cacheDetails()
 

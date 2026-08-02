@@ -6,7 +6,7 @@
     "build": "prisma generate && nest build && node scripts/fix-esm-imports.mjs",
     "check:lint": "eslint . --max-warnings 0",
     "check:types": "tsc --noEmit --pretty",
-    "clean": "rm -rf .claude-flow .swarm .superpowers .remember .gitnexus .turbo coverage node_modules dist build src/generated",
+    "clean": "rm -rf .claude-flow .swarm .superpowers .remember .gitnexus .turbo coverage node_modules dist build src/shared/infrastructure/database/prisma/generated",
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

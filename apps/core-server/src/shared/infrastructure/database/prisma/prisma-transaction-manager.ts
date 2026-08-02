@@ -2,9 +2,9 @@ import { Injectable } from '@nestjs/common'
 import { type BaseError } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'
 
-import { type TransactionContext } from '../contracts/transaction-context.contract'
-import { type TransactionManager } from '../contracts/transaction-manager.contract'
-import { TransactionError } from '../errors/transaction.error'
+import { type TransactionContext } from '../../../domain/contracts/transaction-context.contract'
+import { type TransactionManager } from '../../../domain/contracts/transaction-manager.contract'
+import { TransactionError } from '../../../domain/errors/transaction.error'
 
 import { PrismaService } from './prisma.service'
 

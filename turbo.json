@@ -8,11 +8,11 @@
       "outputs": [
         "dist/**",
         "generated/**",
-        "src/generated/**",
         "dist-seed/**",
         ".next/**",
         "!.next/cache/**",
-        "!.next/dev/**"
+        "!.next/dev/**",
+        "src/shared/infrastructure/database/prisma/generated/**"
       ]
     },
     "clean": {

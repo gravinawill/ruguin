@@ -1,7 +1,7 @@
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common'
 import { PrismaPg } from '@prisma/adapter-pg'
 
-import { PrismaClient } from '../../generated/prisma/client'
+import { PrismaClient } from './generated/client'
 
 export const DATABASE_CONNECTION_STRING = Symbol('DATABASE_CONNECTION_STRING')
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { DatabaseHealthIndicator } from '../database-health.indicator'
-import { type PrismaService } from '../prisma.service'
+import { DatabaseHealthIndicator } from '../prisma/database-health.indicator'
+import { type PrismaService } from '../prisma/prisma.service'
 
 function createPrismaStub(behaviour: { rejectsWith?: Error }): PrismaService {
   return {

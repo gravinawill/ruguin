@@ -4,14 +4,9 @@ import { FastifyAdapter } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { AppModule } from '../../app.module'
+import { AppModule } from '../../../../app.module'
 import { configureApp } from '../configure-app'
 
-/*
- * AppModule now registers CacheModule, and @ruguin/env validates the cache schema at import time —
- * so these have to be in place before the module graph is built, which is what vi.hoisted buys.
- * The memory driver keeps this suite free of Docker; the Valkey-backed behaviour has its own suite.
- */
 vi.hoisted(() => {
   process.env.DOCS_USERNAME = 'test-docs-user'
   process.env.DOCS_PASSWORD = 'test-docs-pass'
@@ -105,10 +100,6 @@ describe('configureApp', () => {
     expect(response.statusCode).toBe(401)
   })
 
-  /*
-   * Fastify's router percent-decodes the path before matching, so `/%64ocs-json` resolves to the
-   * `/docs-json` handler. A guard that string-matched the raw URL let these through unauthenticated.
-   */
   it.each(['/%64ocs', '/%64ocs-json'])('rejects the percent-encoded path %s without credentials', async (url) => {
     const response = await app.inject({ method: 'GET', url })
 

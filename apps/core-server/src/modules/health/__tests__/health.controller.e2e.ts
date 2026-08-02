@@ -4,7 +4,7 @@ import { Test } from '@nestjs/testing'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { AppModule } from '../../app.module'
+import { AppModule } from '../../../app.module'
 
 /* @ruguin/env validates the cache schema at import time; vi.hoisted runs before the module graph. */
 vi.hoisted(() => {

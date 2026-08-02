@@ -1,9 +1,9 @@
 import { type DynamicModule, Module } from '@nestjs/common'
 
-import { TRANSACTION_MANAGER } from '../contracts/transaction-manager.contract'
+import { TRANSACTION_MANAGER } from '../../domain/contracts/transaction-manager.contract'
 
-import { DATABASE_CONNECTION_STRING, PrismaService } from './prisma.service'
-import { PrismaTransactionManager } from './prisma-transaction-manager'
+import { DATABASE_CONNECTION_STRING, PrismaService } from './prisma/prisma.service'
+import { PrismaTransactionManager } from './prisma/prisma-transaction-manager'
 
 @Module({})
 export class DatabaseModule {
