@@ -1,3 +1,4 @@
+export * from './aws.environment.ts'
 export * from './cache.environment.ts'
 export * from './database.environment.ts'
 export * from './docs.environment.ts'
