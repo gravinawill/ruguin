@@ -1,9 +1,9 @@
 import { createEnv } from '@t3-oss/env-core'
 import { z } from 'zod'
 
-import { lazyEnvironment as lazyEnvironmentironment } from '../shared/lazy-environment.ts'
+import { lazyEnvironment } from '../shared/lazy-environment.ts'
 
-export const loggerENV = lazyEnvironmentironment(() =>
+export const loggerENV = lazyEnvironment(() =>
   createEnv({
     server: {
       LOGGER_DRIVER: z.enum(['pino', 'winston']).default('pino'),

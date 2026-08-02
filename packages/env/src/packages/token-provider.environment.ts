@@ -1,9 +1,9 @@
 import { createEnv } from '@t3-oss/env-core'
 import { z } from 'zod'
 
-import { lazyEnvironment as lazyEnvironmentironment } from '../shared/lazy-environment.ts'
+import { lazyEnvironment } from '../shared/lazy-environment.ts'
 
-export const tokenProviderENV = lazyEnvironmentironment(() =>
+export const tokenProviderENV = lazyEnvironment(() =>
   createEnv({
     server: {
       JWT_ACCESS_TOKEN_SECRET: z.string().min(1),
