@@ -2583,6 +2583,8 @@ git commit -m "feat(dispatch-worker): add exponential retry backoff helper"
 - Consumes: `DedupClaimPort` (Task 11), `RateLimiterPort` (Task 12), `EmailSenderPort` (Task 13), `computeNextRetryAt`/`hasExhaustedRetries`/`MAX_RETRY_ATTEMPTS` (Task 14), `MessageProducerPort`/`EMAIL_STATUS_UPDATED_TOPIC` (`@ruguin/message-broker`, `@ruguin/event-schemas`), `EMAIL_SEND_REQUESTED_RETRY_TOPIC`/`EMAIL_SEND_REQUESTED_DLQ_TOPIC` (`@ruguin/event-schemas`).
 - Produces: `type SendEmailUseCaseInput`, `type SendEmailUseCaseOutput` (`{ outcome: 'sent' | 'skipped-duplicate' | 'retry-scheduled' | 'exhausted' }`), `class SendEmailUseCase` with `execute(input): Promise<Either<BaseError, SendEmailUseCaseOutput>>` — consumed by Task 16 and Task 17.
 
+`SendEmailUseCaseInput` mirrors `EmailSendRequestedPayload` (Task 1) plus `attempt` — it must carry `organizationId`/`projectId`/`idempotencyKey?`, not just the fields this use case directly reads, because `scheduleRetryOrGiveUp` republishes the entire `input` object as the `payload` of the retry/DLQ message, and that payload has to satisfy `EmailSendRequestedPayloadSchema` (which requires `organizationId`/`projectId`) on the far end when Task 17's retry consumer re-validates it. A narrower type here would let Task 16 pass an object that's missing those fields and still type-check today, only to fail Zod validation once the message is actually re-consumed.
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -2600,6 +2602,8 @@ import { SendEmailUseCase } from '../send-email.use-case.ts'
 
 const BASE_INPUT = {
   emailId: 'email-1',
+  organizationId: 'org-1',
+  projectId: 'project-1',
   from: 'a@ruguin.dev',
   to: 'b@ruguin.dev',
   subject: 'Hi',
@@ -2703,7 +2707,7 @@ describe('SendEmailUseCase', () => {
     )
   })
 
-  it('gives up, publishes status=failed, and routes to the DLQ once retries are exhausted', async () => {
+  it('gives up, publishes status=failed with the failure reason, and routes to the DLQ with the terminal attempt count once retries are exhausted', async () => {
     const { useCase, messageProducer } = buildUseCase({ sendResult: 'failure' })
 
     const result = await useCase.execute({ ...BASE_INPUT, attempt: 3 })
@@ -2715,10 +2719,14 @@ describe('SendEmailUseCase', () => {
     expect(messageProducer.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         topic: EMAIL_STATUS_UPDATED_TOPIC,
-        message: expect.objectContaining({ payload: expect.objectContaining({ emailId: 'email-1', status: 'failed' }) })
+        message: expect.objectContaining({
+          payload: expect.objectContaining({ emailId: 'email-1', status: 'failed', errorMessage: 'SES down' })
+        })
       })
     )
-    expect(messageProducer.publish).toHaveBeenCalledWith(expect.objectContaining({ topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC }))
+    expect(messageProducer.publish).toHaveBeenCalledWith(
+      expect.objectContaining({ topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC, headers: { attempt: '4' } })
+    )
   })
 })
 ```
@@ -2750,10 +2758,13 @@ const SES_RATE_LIMIT_PER_SECOND = 14
 
 export type SendEmailUseCaseInput = Readonly<{
   emailId: string
+  organizationId: string
+  projectId: string
   from: string
   to: string
   subject: string
   html: string
+  idempotencyKey?: string
   attempt: number
 }>
 
@@ -2781,7 +2792,7 @@ export class SendEmailUseCase {
       windowInMs: 1000
     })
     if (rateLimit.isFailure()) return failure(rateLimit.value)
-    if (!rateLimit.value.allowed) return this.scheduleRetryOrGiveUp(input)
+    if (!rateLimit.value.allowed) return this.scheduleRetryOrGiveUp(input, 'Rate limit exceeded')
 
     const sent = await this.emailSender.send({ from: input.from, to: input.to, subject: input.subject, html: input.html })
 
@@ -2792,20 +2803,24 @@ export class SendEmailUseCase {
       return success({ outcome: 'sent' })
     }
 
-    return this.scheduleRetryOrGiveUp(input)
+    return this.scheduleRetryOrGiveUp(input, sent.value.message)
   }
 
-  private async scheduleRetryOrGiveUp(input: SendEmailUseCaseInput): Promise<Either<BaseError, SendEmailUseCaseOutput>> {
+  private async scheduleRetryOrGiveUp(
+    input: SendEmailUseCaseInput,
+    failureReason: string
+  ): Promise<Either<BaseError, SendEmailUseCaseOutput>> {
     const nextAttempt = input.attempt + 1
 
     if (hasExhaustedRetries(nextAttempt)) {
-      const publishedFailed = await this.publishStatusUpdated(input.emailId, 'failed')
+      const publishedFailed = await this.publishStatusUpdated(input.emailId, 'failed', undefined, failureReason)
       if (publishedFailed.isFailure()) return failure(publishedFailed.value)
 
       const publishedDlq = await this.messageProducer.publish({
         topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC,
         key: input.emailId,
-        message: { eventId: randomUUID(), name: 'email.send.requested', payload: input }
+        message: { eventId: randomUUID(), name: 'email.send.requested', payload: input },
+        headers: { attempt: String(nextAttempt) }
       })
       if (publishedDlq.isFailure()) return failure(publishedDlq.value)
 
@@ -2828,7 +2843,8 @@ export class SendEmailUseCase {
   private async publishStatusUpdated(
     emailId: string,
     status: 'sent' | 'failed',
-    sesMessageId?: string
+    sesMessageId?: string,
+    errorMessage?: string
   ): Promise<Either<BaseError, void>> {
     return this.messageProducer.publish({
       topic: EMAIL_STATUS_UPDATED_TOPIC,
@@ -2836,7 +2852,12 @@ export class SendEmailUseCase {
       message: {
         eventId: randomUUID(),
         name: 'email.status.updated',
-        payload: { emailId, status, ...(sesMessageId !== undefined && { sesMessageId }) }
+        payload: {
+          emailId,
+          status,
+          ...(sesMessageId !== undefined && { sesMessageId }),
+          ...(errorMessage !== undefined && { errorMessage })
+        }
       }
     })
   }
