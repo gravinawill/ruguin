@@ -13,10 +13,27 @@ reviews:
   review_status: true
   collapse_walkthrough: true
   poem: false
+  abort_on_close: true
+  estimate_code_review_effort: true
+  enable_prompt_for_ai_agents: true
 
   auto_review:
     enabled: true
     drafts: false
+    auto_incremental_review: true
+
+  slop_detection:
+    enabled: true
+
+  pre_merge_checks:
+    title:
+      mode: warning
+      requirements: >-
+        Conventional Commits, matching commitlint.config.mjs: type(scope): subject, with the
+        subject in the imperative mood and no trailing period. The PR title becomes the commit
+        message on squash merge.
+    description:
+      mode: warning
 
   path_filters:
     - '!**/src/generated/**'
@@ -25,64 +42,69 @@ reviews:
     - '!**/coverage/**'
     - '!pnpm-lock.yaml'
     - '!**/*.min.js'
-    - '!**/prisma/migrations/**'
 
   path_instructions:
     - path: '**/domain/**'
       instructions: >-
-        The domain layer must not import any framework or ORM: no @nestjs/*, no Prisma, no
-        Fastify, no HTTP concept. Flag any such import. Contracts here describe what the module
-        needs from the world; a transaction crosses them as the opaque TransactionContext, never
-        as Prisma.TransactionClient. A Model is a domain class whose invariants are checked in a
-        static create() returning Either, never a Prisma row type.
+        Flag any import of a framework or ORM here: @nestjs/*, Prisma, Fastify, or an HTTP concept.
+        A transaction crosses a contract as the opaque TransactionContext, never as
+        Prisma.TransactionClient. A Model is a domain class whose invariants are checked in a
+        static create() returning Either — never a Prisma row type.
 
     - path: '**/application/**'
       instructions: >-
-        Must not import from infra/. Business logic lives only in use-cases: a service forwards to
-        one use case and returns, holding no branching or repository access, and that emptiness is
-        deliberate. A use case never calls another use case — an operation needing two belongs in
-        an orchestrating use case that owns the transaction boundary. Controllers and listeners
-        are input adapters: they convert DTO or event payload into value objects and models, so a
-        DTO must never reach a use case.
+        Flag any import from infra/. A service forwards to one use case and returns: no branching,
+        no repository access, and that emptiness is deliberate. A use case never calls another use
+        case — an operation needing two belongs in an orchestrating use case that owns the
+        transaction boundary. Controllers and listeners convert DTO or event payload into value
+        objects and models, so a DTO must never reach a use case.
 
     - path: '**/infra/**'
       instructions: >-
-        Adapters implement contracts declared in domain/. Repositories must translate
-        infrastructure errors into domain errors — nothing from the Prisma.* namespace may cross
-        into application/ or domain/. A unique-constraint violation should surface as a domain
+        Adapters implement contracts declared in domain/. Nothing from the Prisma.* namespace may
+        cross into application/ or domain/: a unique-constraint violation surfaces as a domain
         error carrying StatusError.CONFLICT, not as a generic internal error.
 
     - path: '**/*.ts'
       instructions: >-
-        Expected failures return Either from @ruguin/utils; throw is for bugs only. Any function
-        returning Either needs an explicit return type annotation, because success(x) alone infers
-        Either<unknown, X> and the resulting mismatch surfaces far from its cause. Files stay
-        under 500 lines. Validate input at system boundaries. Comment only what the code cannot
-        say — a comment that merely restates the line below it is noise that goes stale and lies.
-        Prefer helpers from @ruguin/utils over a new dependency.
+        Any function returning Either needs an explicit return type annotation: success(x) alone
+        infers Either<unknown, X>, and the mismatch then surfaces far from its cause. Expected
+        failures return Either; throw is for bugs only.
 
     - path: '**/__tests__/**'
       instructions: >-
-        Test names are written in English. Suffix carries meaning: .unit.ts performs no I/O and
-        mocks its collaborators, .int.ts may use real Postgres or Valkey, .e2e.ts drives HTTP
-        through the built app. A use case should never need an .int.ts, since it depends only on
-        contracts. Assert on behaviour rather than on call counts where both are available.
+        Test names are written in English. The suffix carries meaning: .unit.ts performs no I/O,
+        .int.ts may use real Postgres or Valkey, .e2e.ts drives HTTP through the built app. A use
+        case should never need an .int.ts, since it depends only on contracts. Prefer asserting on
+        behaviour over asserting on call counts.
+
+    - path: '**/prisma/migrations/**'
+      instructions: >-
+        Review these as irreversible. Flag any DROP COLUMN, DROP TABLE or type change that loses
+        data, and say what the recovery path would be. A column added NOT NULL without a default
+        fails on a non-empty table; CREATE INDEX without CONCURRENTLY locks writes for the whole
+        build. Renames arrive as drop-plus-add, which is data loss unless the migration was edited
+        by hand. An already-applied migration that gets edited is a checksum failure elsewhere,
+        not a fix.
 
     - path: '**/*.prisma'
       instructions: >-
         One .prisma file per module under prisma/schema/, so a diff says which module changed.
-        Every model needs an explicit @@map, and any column the relay or a lookup filters on needs
-        a matching @@index.
+        Every model needs an explicit @@map, and any column a query filters or sorts on needs a
+        matching @@index.
 
     - path: '.github/workflows/**'
       instructions: >-
         Actions must be pinned and permissions scoped to the minimum the job needs. Flag any
-        secret interpolated into a run block where an env var would do.
+        secret interpolated into a run block where an env var would do, and any use of
+        pull_request_target that checks out untrusted code.
 
   tools:
     eslint:
       enabled: false
     biome:
+      enabled: false
+    oxc:
       enabled: false
     languagetool:
       enabled: false
@@ -90,7 +112,11 @@ reviews:
       enabled: true
     semgrep:
       enabled: true
+    osvScanner:
+      enabled: true
     actionlint:
+      enabled: true
+    zizmor:
       enabled: true
     yamllint:
       enabled: true
@@ -98,10 +124,27 @@ reviews:
       enabled: true
     prismaLint:
       enabled: true
+    squawk:
+      enabled: true
+    dotenvLint:
+      enabled: true
     shellcheck:
       enabled: true
     checkov:
       enabled: true
+    hadolint:
+      enabled: true
+
+knowledge_base:
+  learnings:
+    scope: local
+  pull_requests:
+    scope: local
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - '**/CLAUDE.md'
+      - 'docs/superpowers/specs/*.md'
 
 chat:
   auto_reply: true
