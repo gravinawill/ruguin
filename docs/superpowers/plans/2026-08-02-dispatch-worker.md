@@ -1113,6 +1113,7 @@ git commit -m "feat(message-broker): add @platformatic/kafka consumer adapter"
 - Create: `packages/message-broker/src/nestjs/message-broker.tokens.ts`
 - Create: `packages/message-broker/src/nestjs/message-broker.module.ts`
 - Modify: `packages/message-broker/src/index.ts`
+- Modify: `packages/message-broker/package.json` (add `@nestjs/core` dependency, `@nestjs/testing` devDependency — Task 4 only added `@nestjs/common`, but this task's integration test needs `Test.createTestingModule` from `@nestjs/testing`, which itself needs `@nestjs/core`)
 - Test: `packages/message-broker/src/nestjs/__tests__/message-broker.module.int.ts`
 
 **Interfaces:**
@@ -1124,12 +1125,33 @@ This task also registers `@platformatic/kafka-opentelemetry`'s `KafkaInstrumenta
 
 As in Tasks 5/6, `Producer`/`Consumer` default all four generics to `Buffer` — explicit type arguments on both the `new Producer<...>(...)`/`new Consumer<...>(...)` calls themselves are required, not just on the surrounding variable/return-type annotations (TypeScript does not infer class generic parameters for a `new` expression from an enclosing contextual type).
 
+The module code below already reflects two lessons from a first pass at this task: `autocreateTopics: config.autoCreateTopics ?? false` on both the producer and consumer configs (`@platformatic/kafka` defaults this to `false`, and without it, publishing/subscribing to a topic that doesn't exist yet hangs instead of erroring — confirmed by reproducing the hang against a clean broker), and `module: this` / a couple of scoped `eslint-disable-next-line` comments to satisfy this repo's `eslint . --max-warnings 0` (`unicorn/no-top-level-side-effects` for the module-load-time `registerInstrumentations()` call, `@typescript-eslint/no-extraneous-class` for the static-only `MessageBrokerModule`, matching the same pattern already used by `CacheModule`/`DatabaseModule` in this repo).
+
 - [ ] **Step 1: Start the local Kafka stack (needed for the integration test in this task)**
 
 Run: `pnpm infra:up` (from repo root)
 Expected: `kafka`, `redis`, `redis-replica`, `localstack`, `postgres` containers healthy — confirm with `docker compose -f infrastructure/local/docker-compose.yml ps`.
 
-- [ ] **Step 2: Write the failing integration test**
+- [ ] **Step 2: Add `@nestjs/core` and `@nestjs/testing` to `package.json`**
+
+Task 4 only added `@nestjs/common` — this task's integration test imports `Test` from `@nestjs/testing`, which itself needs `@nestjs/core`. Add to `packages/message-broker/package.json`:
+
+```json
+"dependencies": {
+  "@nestjs/common": "^11.1.28",
+  "@nestjs/core": "^11.1.28",
+```
+
+(inserted alphabetically among existing dependencies) and:
+
+```json
+"devDependencies": {
+  "@nestjs/testing": "^11.1.28",
+```
+
+(inserted alphabetically among existing devDependencies). Both versions match what `apps/core-server` already uses. Run `pnpm install` and include the resulting `pnpm-lock.yaml` change in this task's commit.
+
+- [ ] **Step 3: Write the failing integration test**
 
 ```ts
 // packages/message-broker/src/nestjs/__tests__/message-broker.module.int.ts
@@ -1189,18 +1211,18 @@ describe('MessageBrokerModule (real Kafka)', () => {
 })
 ```
 
-- [ ] **Step 3: Run it to verify it fails**
+- [ ] **Step 4: Run it to verify it fails**
 
 Run: `pnpm --filter @ruguin/message-broker test:integration`
 Expected: FAIL — `MessageBrokerModule` not found.
 
-- [ ] **Step 4: Create `src/nestjs/message-broker.tokens.ts`**
+- [ ] **Step 5: Create `src/nestjs/message-broker.tokens.ts`**
 
 ```ts
 export const KAFKA_PRODUCER = Symbol('KAFKA_PRODUCER')
 ```
 
-- [ ] **Step 5: Create `src/nestjs/message-broker.module.ts`**
+- [ ] **Step 6: Create `src/nestjs/message-broker.module.ts`**
 
 ```ts
 import { type DynamicModule, Module } from '@nestjs/common'
@@ -1219,6 +1241,14 @@ export type MessageBrokerModuleOptions = Readonly<{
   brokers: readonly string[]
   clientId: string
   ssl?: boolean
+  /**
+   * @platformatic/kafka defaults to false — publishing/subscribing to a topic that doesn't exist
+   * yet then hangs instead of creating it. Each app's own options builder decides this explicitly
+   * (see apps/core-server and apps/dispatch-worker's createMessageBrokerModuleOptions()) rather
+   * than this package defaulting it — a production broker with deliberate topic provisioning
+   * should be able to turn this off without touching shared code.
+   */
+  autoCreateTopics?: boolean
   isGlobal?: boolean
 }>
 
@@ -1228,15 +1258,27 @@ export type MessageBrokerModuleOptions = Readonly<{
  * process (not the case today, but registerInstrumentations() is not idempotent-safe to call
  * per-DynamicModule construction).
  */
+// eslint-disable-next-line unicorn/no-top-level-side-effects -- must run once at module load, see comment above
 registerInstrumentations({ instrumentations: [new KafkaInstrumentation()] })
 
 @Module({})
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class -- NestJS dynamic-module convention: forRoot() is the only API surface
 export class MessageBrokerModule {
   public static forRoot(options: MessageBrokerModuleOptions): DynamicModule {
     const { isGlobal = false, ...config } = options
 
+    const createConsumer: CreateConsumer = (groupId) =>
+      new Consumer<string, string, string, string>({
+        groupId,
+        clientId: config.clientId,
+        bootstrapBrokers: [...config.brokers],
+        deserializers: stringDeserializers,
+        autocreateTopics: config.autoCreateTopics ?? false,
+        ...(config.ssl === true && { tls: {} })
+      })
+
     return {
-      module: MessageBrokerModule,
+      module: this,
       global: isGlobal,
       providers: [
         {
@@ -1246,6 +1288,7 @@ export class MessageBrokerModule {
               clientId: config.clientId,
               bootstrapBrokers: [...config.brokers],
               serializers: stringSerializers,
+              autocreateTopics: config.autoCreateTopics ?? false,
               ...(config.ssl === true && { tls: {} })
             })
         },
@@ -1257,18 +1300,7 @@ export class MessageBrokerModule {
         },
         {
           provide: MESSAGE_CONSUMER_PORT,
-          useFactory: (): KafkaMessageConsumer => {
-            const createConsumer: CreateConsumer = (groupId) =>
-              new Consumer<string, string, string, string>({
-                groupId,
-                clientId: config.clientId,
-                bootstrapBrokers: [...config.brokers],
-                deserializers: stringDeserializers,
-                ...(config.ssl === true && { tls: {} })
-              })
-
-            return new KafkaMessageConsumer(createConsumer)
-          }
+          useFactory: (): KafkaMessageConsumer => new KafkaMessageConsumer(createConsumer)
         }
       ],
       exports: [MESSAGE_PRODUCER_PORT, MESSAGE_CONSUMER_PORT]
@@ -1277,7 +1309,7 @@ export class MessageBrokerModule {
 }
 ```
 
-- [ ] **Step 6: Add exports to `src/index.ts`**
+- [ ] **Step 7: Add exports to `src/index.ts`**
 
 ```ts
 export * from './domain/contracts/message-consumer.port.ts'
@@ -1289,17 +1321,17 @@ export * from './infra/kafka/kafka-message-producer.ts'
 export * from './nestjs/message-broker.module.ts'
 ```
 
-- [ ] **Step 7: Run the integration test**
+- [ ] **Step 8: Run the integration test**
 
 Run: `pnpm --filter @ruguin/message-broker test:integration`
 Expected: PASS — message published to `message-broker-integration-test` is received back through the consumer within the poll loop.
 
-- [ ] **Step 8: Run unit tests too, to make sure nothing broke**
+- [ ] **Step 9: Run unit tests too, to make sure nothing broke**
 
 Run: `pnpm --filter @ruguin/message-broker test:unit`
 Expected: PASS.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add packages/message-broker
@@ -1675,7 +1707,16 @@ export function createMessageBrokerModuleOptions(): MessageBrokerModuleOptions {
   return {
     brokers: messageBrokerENV.KAFKA_BOOTSTRAP_BROKERS.split(','),
     clientId: messageBrokerENV.KAFKA_CLIENT_ID,
-    ssl: messageBrokerENV.KAFKA_SSL
+    ssl: messageBrokerENV.KAFKA_SSL,
+    /*
+     * messageBrokerENV.KAFKA_AUTO_CREATE_TOPICS defaults to false (a safe default for a production
+     * broker with deliberate topic provisioning) and nothing in this plan provisions topics ahead of
+     * time — reading that env var here would reintroduce the exact "hangs forever against a fresh
+     * broker" bug Task 7 found and fixed. Hardcoded true at this app-wiring layer instead, so a
+     * future environment that DOES provision topics ahead of time can flip it per-app without
+     * touching the shared packages/message-broker package.
+     */
+    autoCreateTopics: true
   }
 }
 ```
@@ -2642,7 +2683,16 @@ export function createMessageBrokerModuleOptions(): MessageBrokerModuleOptions {
   return {
     brokers: messageBrokerENV.KAFKA_BOOTSTRAP_BROKERS.split(','),
     clientId: messageBrokerENV.KAFKA_CLIENT_ID,
-    ssl: messageBrokerENV.KAFKA_SSL
+    ssl: messageBrokerENV.KAFKA_SSL,
+    /*
+     * messageBrokerENV.KAFKA_AUTO_CREATE_TOPICS defaults to false (a safe default for a production
+     * broker with deliberate topic provisioning) and nothing in this plan provisions topics ahead of
+     * time — reading that env var here would reintroduce the exact "hangs forever against a fresh
+     * broker" bug Task 7 found and fixed. Hardcoded true at this app-wiring layer instead, so a
+     * future environment that DOES provision topics ahead of time can flip it per-app without
+     * touching the shared packages/message-broker package.
+     */
+    autoCreateTopics: true
   }
 }
 ```
