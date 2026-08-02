@@ -1,0 +1,107 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+
+tone_instructions: >-
+  Be direct and specific. Cite the rule or file that justifies each point. Skip praise and
+  restating the diff. If a finding is a matter of taste, say so.
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: true
+  poem: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_filters:
+    - '!**/src/generated/**'
+    - '!**/dist/**'
+    - '!**/build/**'
+    - '!**/coverage/**'
+    - '!pnpm-lock.yaml'
+    - '!**/*.min.js'
+    - '!**/prisma/migrations/**'
+
+  path_instructions:
+    - path: '**/domain/**'
+      instructions: >-
+        The domain layer must not import any framework or ORM: no @nestjs/*, no Prisma, no
+        Fastify, no HTTP concept. Flag any such import. Contracts here describe what the module
+        needs from the world; a transaction crosses them as the opaque TransactionContext, never
+        as Prisma.TransactionClient. A Model is a domain class whose invariants are checked in a
+        static create() returning Either, never a Prisma row type.
+
+    - path: '**/application/**'
+      instructions: >-
+        Must not import from infra/. Business logic lives only in use-cases: a service forwards to
+        one use case and returns, holding no branching or repository access, and that emptiness is
+        deliberate. A use case never calls another use case — an operation needing two belongs in
+        an orchestrating use case that owns the transaction boundary. Controllers and listeners
+        are input adapters: they convert DTO or event payload into value objects and models, so a
+        DTO must never reach a use case.
+
+    - path: '**/infra/**'
+      instructions: >-
+        Adapters implement contracts declared in domain/. Repositories must translate
+        infrastructure errors into domain errors — nothing from the Prisma.* namespace may cross
+        into application/ or domain/. A unique-constraint violation should surface as a domain
+        error carrying StatusError.CONFLICT, not as a generic internal error.
+
+    - path: '**/*.ts'
+      instructions: >-
+        Expected failures return Either from @ruguin/utils; throw is for bugs only. Any function
+        returning Either needs an explicit return type annotation, because success(x) alone infers
+        Either<unknown, X> and the resulting mismatch surfaces far from its cause. Files stay
+        under 500 lines. Validate input at system boundaries. Comment only what the code cannot
+        say — a comment that merely restates the line below it is noise that goes stale and lies.
+        Prefer helpers from @ruguin/utils over a new dependency.
+
+    - path: '**/__tests__/**'
+      instructions: >-
+        Test names are written in English. Suffix carries meaning: .unit.ts performs no I/O and
+        mocks its collaborators, .int.ts may use real Postgres or Valkey, .e2e.ts drives HTTP
+        through the built app. A use case should never need an .int.ts, since it depends only on
+        contracts. Assert on behaviour rather than on call counts where both are available.
+
+    - path: '**/*.prisma'
+      instructions: >-
+        One .prisma file per module under prisma/schema/, so a diff says which module changed.
+        Every model needs an explicit @@map, and any column the relay or a lookup filters on needs
+        a matching @@index.
+
+    - path: '.github/workflows/**'
+      instructions: >-
+        Actions must be pinned and permissions scoped to the minimum the job needs. Flag any
+        secret interpolated into a run block where an env var would do.
+
+  tools:
+    eslint:
+      enabled: false
+    biome:
+      enabled: false
+    languagetool:
+      enabled: false
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    prismaLint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    checkov:
+      enabled: true
+
+chat:
+  auto_reply: true
