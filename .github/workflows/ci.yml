@@ -39,5 +39,34 @@ jobs:
       - name: Check (types, lint, format, spelling)
         run: pnpm check
 
+      # @ruguin/cache's coverage gate is calibrated on unit + integration together (see its
+      # vitest.config.ts), and the integration suite needs a live master + replica. GitHub
+      # Actions `services:` can't override a container's command (no field for it), which the
+      # replica needs (`--replicaof`) — so both run via plain `docker run` instead.
+      - name: Start Valkey (master + replica)
+        run: |
+          docker network create valkey-ci
+          docker run -d --name valkey-master --network valkey-ci -p 6379:6379 valkey/valkey:9-alpine
+          docker run -d --name valkey-replica --network valkey-ci -p 6380:6379 valkey/valkey:9-alpine \
+            valkey-server --replicaof valkey-master 6379
+
+          # PING answers before the replica finishes its initial full resync (~5-6s on a fresh
+          # container), so readiness waits on the replication link itself, not just on PING.
+          ready=false
+          for _ in $(seq 1 30); do
+            if docker exec valkey-master valkey-cli ping 2>/dev/null | grep -q PONG \
+              && docker exec valkey-replica valkey-cli info replication 2>/dev/null | grep -q 'master_link_status:up'; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            echo "::error::Valkey master/replica did not become ready in time"
+            docker logs valkey-master
+            docker logs valkey-replica
+            exit 1
+          fi
+
       - name: Test
         run: pnpm test:coverage
