@@ -9,14 +9,14 @@ Leia primeiro a spec de arquitetura: `docs/superpowers/specs/2026-07-28-transact
 
 ## Tickets, em ordem de dependência
 
-| ID | Título | Depende de |
-|---|---|---|
-| [EMAIL-1](EMAIL-1-setup-monorepo-infra.md) | Setup do monorepo e ambiente de desenvolvimento | nenhuma |
-| [EMAIL-2](EMAIL-2-contrato-eventos-kafka.md) | Contrato de eventos Kafka (event-schemas) | EMAIL-1 |
+| ID                                                  | Título                                                              | Depende de       |
+| --------------------------------------------------- | ------------------------------------------------------------------- | ---------------- |
+| [EMAIL-1](EMAIL-1-setup-monorepo-infra.md)          | Setup do monorepo e ambiente de desenvolvimento                     | nenhuma          |
+| [EMAIL-2](EMAIL-2-contrato-eventos-kafka.md)        | Contrato de eventos Kafka (event-schemas)                           | EMAIL-1          |
 | [EMAIL-3](EMAIL-3-api-service-auth-multi-tenant.md) | API Service — esqueleto, banco de dados e autenticação multi-tenant | EMAIL-1, EMAIL-2 |
-| [EMAIL-4](EMAIL-4-endpoint-envio-email.md) | Endpoint de envio de email (`POST /emails`) | EMAIL-3 |
-| [EMAIL-5](EMAIL-5-dispatch-worker-ses.md) | Dispatch Worker — consumo de eventos e envio via SES | EMAIL-1, EMAIL-2 |
-| [EMAIL-6](EMAIL-6-teste-e2e-pipeline-envio.md) | Teste ponta a ponta do pipeline de envio | EMAIL-4, EMAIL-5 |
+| [EMAIL-4](EMAIL-4-endpoint-envio-email.md)          | Endpoint de envio de email (`POST /emails`)                         | EMAIL-3          |
+| [EMAIL-5](EMAIL-5-dispatch-worker-ses.md)           | Dispatch Worker — consumo de eventos e envio via SES                | EMAIL-1, EMAIL-2 |
+| [EMAIL-6](EMAIL-6-teste-e2e-pipeline-envio.md)      | Teste ponta a ponta do pipeline de envio                            | EMAIL-4, EMAIL-5 |
 
 ## Paralelização possível
 

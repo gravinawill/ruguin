@@ -35,7 +35,15 @@ src/
 
 ## Rules
 
-- TypeScript cru, sem build — exporta `./src/index.ts` direto, sem `dist/`.
+- **O pacote inteiro é buildado (`tsdown`) e exporta `./dist/index.mjs`.** Não é TypeScript cru: o
+  barrel reexporta `nestjs/`, e `@Module()`/`@Injectable()` são sintaxe que o V8 não implementa —
+  type stripping não reescreve decorator, então um `cache.module.ts` cru morre no load com
+  `SyntaxError: Invalid or unexpected token`.
+- **Uma entry só (`src/index.ts`).** Uma segunda entry importando o barrel receberia cópias próprias
+  de `CacheProviderFacade` e companhia, e a classe importada do barrel deixaria de ser a que o
+  módulo instancia — duplicação que aparece como um `instanceof` respondendo `false` em silêncio.
+  Pelo mesmo motivo, arquivos em `src/nestjs/` importam por caminho relativo, nunca por
+  `@ruguin/cache`.
 - Driver implementa `ICacheDriver` (contratos folha); `getOrSet` e `executeWithLock` vivem em `application/` e servem a qualquer driver.
 - Todo caminho retorna `Either`; nada lança para falha esperada.
 - `getOrSet` é fail-open por contrato — o tipo `OutputError<E> = E` impede propagar erro de cache.
@@ -60,10 +68,11 @@ src/
 - Os decorators envolvem `ICacheDriver`, nao `ICacheProvider`. E isso que faz o `getOrSet`
   enxergar o breaker: circuito aberto vira miss instantaneo e o cache-aside vai ao loader sem
   pagar timeout.
-- O adapter NestJS mora atrás do export `./nestjs`, com `@nestjs/common` e `@nestjs/terminus` como
-  peers **opcionais**: o barrel raiz continua consumível por um worker sem NestJS. Nada do Terminus
-  é injetado dentro do pacote — o pnpm dá a ele uma cópia própria, e uma classe injetada de lá não
-  seria a mesma que o `TerminusModule` provê no app.
+- O adapter NestJS sai pelo mesmo barrel, com `@nestjs/common` e `@nestjs/terminus` como peers
+  **opcionais**. O barrel deixou de ser framework-agnostic quando os exports colapsaram em `.`:
+  um worker sem NestJS agora carrega o `CacheModule` junto. Nada do Terminus é injetado dentro do
+  pacote — o pnpm dá a ele uma cópia própria, e uma classe injetada de lá não seria a mesma que o
+  `TerminusModule` provê no app.
 - Os 24 tokens granulares e o `CACHE_PROVIDER` resolvem todos para a **mesma** instância
   (`useExisting`). O token escolhido no ponto de injeção decide quanto da superfície o construtor
   enxerga, não quantos objetos existem.

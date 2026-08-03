@@ -1,3 +1,3 @@
-import { createTracingSdk } from './tracing/create-tracing-sdk'
+import { createTracingSdk } from './shared/infrastructure/tracing/create-tracing-sdk'
 
 createTracingSdk(process.env).start()

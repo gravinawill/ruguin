@@ -1,6 +1,19 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalEnv": [
+    "NODE_ENV",
+    "ENVIRONMENT",
+    "PORT",
+    "DATABASE_URL",
+    "LOGGER_DRIVER",
+    "CACHE_*",
+    "DOCS_*",
+    "JWT_*",
+    "KAFKA_*",
+    "LOG_*",
+    "OTEL_*"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -8,11 +21,11 @@
       "outputs": [
         "dist/**",
         "generated/**",
-        "src/generated/**",
         "dist-seed/**",
         ".next/**",
         "!.next/cache/**",
-        "!.next/dev/**"
+        "!.next/dev/**",
+        "src/shared/infrastructure/database/prisma/generated/**"
       ]
     },
     "clean": {

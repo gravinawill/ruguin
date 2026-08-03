@@ -1,9 +1,9 @@
 import { createEnv } from '@t3-oss/env-core'
 import { z } from 'zod'
 
-import { lazyEnvironment as lazyEnvironmentironment } from '../shared/lazy-environment.ts'
+import { lazyEnvironment } from '../shared/lazy-environment.ts'
 
-export const docsENV = lazyEnvironmentironment(() =>
+export const docsENV = lazyEnvironment(() =>
   createEnv({
     server: {
       DOCS_USERNAME: z.string().min(1),

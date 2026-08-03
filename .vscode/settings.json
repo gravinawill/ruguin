@@ -12,5 +12,5 @@
   "eslint.workingDirectories": [{ "mode": "auto" }],
   "files.associations": {
     ".env*": "properties"
-  },
+  }
 }
