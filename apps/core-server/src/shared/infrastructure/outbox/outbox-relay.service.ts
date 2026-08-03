@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule'
+import { type JsonValue } from '@ruguin/ddd-kernel'
 
 import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '../../domain/contracts/message-producer.port'
 import { OutboxStatus, Prisma } from '../database/prisma/generated/client'
@@ -166,7 +167,12 @@ export class OutboxRelayService {
     try {
       const published = await this.messageProducer.publish({
         key: row.key,
-        message: { eventId: row.eventId, name: row.name, payload: row.payload },
+        /*
+         * Prisma's JsonValue treats object properties as optional, so it does not structurally
+         * satisfy the domain JsonValue's non-optional index signature — the column is validated
+         * JSON either way, so this is a plain infra-to-domain type translation, not a runtime risk.
+         */
+        message: { eventId: row.eventId, name: row.name, payload: row.payload as JsonValue },
         topic: row.topic
       })
 
