@@ -44,6 +44,16 @@ reviews:
     - '!**/coverage/**'
     - '!pnpm-lock.yaml'
     - '!**/*.min.js'
+    - '!**/*.claude'
+    - '!**/*.agents'
+    - '!**/*.codebuddy'
+    - '!**/*.continue'
+    - '!**/*.gitnexus'
+    - '!**/*.junie'
+    - '!**/*.kiro'
+    - '!**/*.remember'
+    - '!**/*.superpowers'
+    - '!**/*.swarm'
 
   path_instructions:
     - path: '**/domain/**'
