@@ -3667,6 +3667,722 @@ git commit -m "fix: make the build pipeline actually produce a runnable dist/ fo
 
 ---
 
+### Task 20: Final whole-branch review fixes — DLQ routing for malformed messages, at-least-once Kafka delivery, `turbo.json` env allowlist
+
+**Files:**
+
+- Modify: `packages/message-broker/src/nestjs/message-broker.module.ts`
+- Modify: `packages/message-broker/src/infra/kafka/kafka-message-consumer.ts`
+- Modify: `packages/message-broker/src/infra/kafka/__tests__/kafka-message-consumer.unit.ts`
+- Modify: `apps/dispatch-worker/src/email/consumers/email-send-requested.consumer.ts`
+- Create: `apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested.consumer.unit.ts`
+- Modify: `apps/dispatch-worker/src/email/consumers/email-send-requested-retry.consumer.ts`
+- Modify: `apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested-retry.consumer.unit.ts`
+- Modify: `apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested.consumer.int.ts` (comment only, see Step 8)
+- Modify: `turbo.json`
+
+**Interfaces:** none new. `MessageConsumerPort`, `MessageProducerPort`, and `InboundMessage` are unchanged — both consumers gain a constructor dependency on the already-exported `MESSAGE_PRODUCER_PORT` token.
+
+The final whole-branch review (`scripts/review-package` over the full plan's commit range) found 2 Critical findings against `docs/product-spec.md`'s own requirements, plus a 1-line Important finding. Everything else the review raised (Important #4-9, all Minors) is explicitly deferred — out of scope for this task.
+
+**Critical 1 — malformed messages are silently discarded instead of routed to the DLQ.** `docs/product-spec.md` §3.3 (EMAIL-5) requires malformed messages go to the DLQ without blocking the queue; §4.2 states no event is silently discarded. Both `EmailSendRequestedConsumer` and `EmailSendRequestedRetryConsumer` currently do `if (!parsed.success) return success(undefined)` when `EmailSendRequestedPayloadSchema.safeParse` fails — this reports success to `KafkaMessageConsumer`, which (after Critical 2's fix) commits the offset, and the message is gone forever with no record anywhere.
+
+**Critical 2 — Kafka consumption is at-most-once, not at-least-once.** `docs/product-spec.md` §4.2 requires at-least-once semantics with idempotent consumers. `@platformatic/kafka`'s `Consumer` defaults `autocommit: true`, which — confirmed by reading `node_modules/.pnpm/@platformatic+kafka@2.8.0.../dist/clients/consumer/messages-stream.js` — stages offsets for commit as soon as a fetched batch is pushed onto the stream, **before** `forwardMessages()` ever hands the message to `onMessage()`. A crash or handler failure between fetch and processing loses the message silently. The fix: `autocommit: false` on construction, and `KafkaMessageConsumer` calls `message.commit()` itself, only after `onMessage()` resolves successfully. `Message.commit()` (`dist/protocol/records.d.ts`) called with zero arguments returns a real, awaitable `Promise<void>` at runtime via a promisified-callback wrapper internal to the library — unlike `Consumer.close()` (Task 7 addendum), this is not an overload-ambiguity trap and needs no extra wrapping.
+
+**Important 3 — `turbo.json`'s `globalEnv` doesn't include the AWS/SES variables** this plan's Task 10 added (`AWS_REGION`, `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SES_FROM_ADDRESS`, `SES_SEND_RATE_LIMIT_PER_SECOND`) — Turborepo's cache doesn't know these env vars affect the `build`/`test:*` task outputs, so a change to any of them wouldn't bust the cache.
+
+- [ ] **Step 1: Fix `KafkaMessageConsumer` to commit only after a successful `onMessage`**
+
+Replace the full contents of `packages/message-broker/src/infra/kafka/kafka-message-consumer.ts`:
+
+```ts
+import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common'
+import { type Consumer } from '@platformatic/kafka'
+import { type BaseError } from '@ruguin/shared-domain'
+import { type Either, failure, success } from '@ruguin/utils'
+
+import {
+  type InboundMessage,
+  type MessageConsumerPort,
+  type MessageHandler,
+  type SubscribeInput
+} from '../../domain/contracts/message-consumer.port.ts'
+import { MessageConsumeError } from '../../domain/errors/message-consume.error.ts'
+
+export type CreateConsumer = (groupId: string) => Consumer<string, string, string, string>
+
+type ConsumedMessage = Readonly<{
+  value: string
+  headers: Map<string, string>
+  commit(): Promise<void>
+}>
+
+function decodeHeaders(headers: Map<string, string> | undefined): Record<string, string> {
+  if (headers === undefined) return {}
+
+  return Object.fromEntries(headers)
+}
+
+@Injectable()
+export class KafkaMessageConsumer implements MessageConsumerPort, OnModuleDestroy {
+  private readonly logger = new Logger(KafkaMessageConsumer.name)
+  private readonly consumers: Array<Consumer<string, string, string, string>> = []
+
+  constructor(private readonly createConsumer: CreateConsumer) {}
+
+  public async subscribe(input: SubscribeInput): Promise<Either<BaseError, void>> {
+    try {
+      const consumer = this.createConsumer(input.groupId)
+      this.consumers.push(consumer)
+
+      const stream = await consumer.consume({ topics: [input.topic] })
+
+      void this.forwardMessages(stream, input.onMessage)
+
+      return success(undefined)
+    } catch (error: unknown) {
+      return failure(
+        new MessageConsumeError({
+          error,
+          message: `Failed to subscribe to topic "${input.topic}" (group "${input.groupId}").`
+        })
+      )
+    }
+  }
+
+  /*
+   * force: true is required, not optional cleanup — forwardMessages() keeps every stream open
+   * indefinitely (it only ends when the broker connection drops), so at shutdown time every
+   * tracked consumer still has an open stream. @platformatic/kafka's close(false) (the default)
+   * refuses outright with "Cannot leave group while consuming messages." when a stream is still
+   * open; close(true) closes the open streams first and then completes the leave-group handshake
+   * — confirmed against the real broker, not just the mocked unit test below.
+   *
+   * close() is overloaded — close(force: boolean, callback?): void vs. close(force?: boolean):
+   * Promise<void> — and calling close(true) with no callback resolves to the *first* (void)
+   * overload, not the promise-returning one, so it must be wrapped explicitly rather than awaited
+   * directly.
+   */
+  private static closeConsumer(consumer: Consumer<string, string, string, string>): Promise<void> {
+    return new Promise((resolve, reject) => {
+      consumer.close(true, (error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+
+        resolve()
+      })
+    })
+  }
+
+  public async onModuleDestroy(): Promise<void> {
+    await Promise.all(this.consumers.map((consumer) => KafkaMessageConsumer.closeConsumer(consumer)))
+  }
+
+  /*
+   * Runs detached from subscribe() for the lifetime of the consumer, so a single bad message
+   * (malformed JSON, or onMessage rejecting/throwing) must never escape this loop uncaught — an
+   * unhandled rejection here would crash the whole process under Node's default behavior, taking
+   * down every other topic this worker consumes along with it.
+   *
+   * The consumer is constructed with autocommit: false (message-broker.module.ts) specifically so
+   * this method controls exactly when an offset is safe to commit: only once onMessage() has
+   * resolved successfully. Committing earlier (or unconditionally) is what made delivery
+   * at-most-once — a crash between fetch and processing would silently lose the message, since
+   * @platformatic/kafka's own autocommit stages the offset the moment a fetched batch reaches the
+   * stream, not once the application has actually handled it. Message.commit() called with no
+   * arguments returns a real, awaitable Promise<void> at runtime (unlike Consumer.close(), this is
+   * not an overload-ambiguity trap), so it's safe to await directly inside this same try/catch.
+   */
+  private async forwardMessages(stream: AsyncIterable<ConsumedMessage>, onMessage: MessageHandler): Promise<void> {
+    for await (const message of stream) {
+      try {
+        const parsed = JSON.parse(message.value) as { eventId: string; name: string; payload: unknown }
+        const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
+
+        const result = await onMessage(inbound)
+
+        if (result.isFailure()) {
+          this.logger.error(`Message handler failed: ${result.value.message}`)
+          continue
+        }
+
+        await message.commit()
+      } catch (error: unknown) {
+        this.logger.error(
+          `Failed to process a consumed message: ${error instanceof Error ? error.message : String(error)}`
+        )
+      }
+    }
+  }
+}
+```
+
+- [ ] **Step 2: Set `autocommit: false` on the `Consumer` construction in `MessageBrokerModule`**
+
+In `packages/message-broker/src/nestjs/message-broker.module.ts`, change the `createConsumer` factory inside `forRoot()`:
+
+```ts
+    const createConsumer: CreateConsumer = (groupId) =>
+      new Consumer<string, string, string, string>({
+        groupId,
+        clientId: config.clientId,
+        bootstrapBrokers: [...config.brokers],
+        deserializers: stringDeserializers,
+        autocreateTopics: config.autoCreateTopics ?? false,
+        /*
+         * autocommit defaults to true and stages offsets for commit as soon as a fetched batch is
+         * pushed onto the consumer's stream — before forwardMessages() ever hands the message to
+         * onMessage(). false pairs with KafkaMessageConsumer.forwardMessages() calling
+         * message.commit() itself, only after onMessage() succeeds, so delivery is at-least-once
+         * instead of at-most-once.
+         */
+        autocommit: false,
+        ...(config.ssl === true && { tls: {} })
+      })
+```
+
+(only the added `autocommit: false` line and its comment are new; everything else in the factory is unchanged)
+
+- [ ] **Step 3: Update `KafkaMessageConsumer`'s unit tests for the commit-after-success behavior**
+
+Replace the full contents of `packages/message-broker/src/infra/kafka/__tests__/kafka-message-consumer.unit.ts`:
+
+```ts
+import { type Consumer } from '@platformatic/kafka'
+import { failure, success } from '@ruguin/utils'
+import { describe, expect, it, vi } from 'vitest'
+
+import { MessageConsumeError } from '../../../domain/errors/message-consume.error.ts'
+import { KafkaMessageConsumer } from '../kafka-message-consumer.ts'
+
+type StringConsumer = Consumer<string, string, string, string>
+type FakeStreamMessage = { value: string; headers: Map<string, string>; commit: () => Promise<void> }
+
+function fakeStream(messages: FakeStreamMessage[]): AsyncIterable<FakeStreamMessage> {
+  return {
+    // eslint-disable-next-line @typescript-eslint/require-await -- async generator required to satisfy AsyncIterable; no await needed to yield the fixed fixture messages
+    [Symbol.asyncIterator]: async function* () {
+      for (const message of messages) yield message
+    }
+  }
+}
+
+function fakeMessage(value: string, headers: Map<string, string> = new Map()): FakeStreamMessage {
+  return { value, headers, commit: vi.fn().mockResolvedValue(undefined) }
+}
+
+function fakeConsumer(consume: StringConsumer['consume']): StringConsumer {
+  return { consume } as unknown as StringConsumer
+}
+
+describe('KafkaMessageConsumer', () => {
+  it('builds a consumer for the given groupId, consumes the topic, and forwards each message as InboundMessage', async () => {
+    const message = fakeMessage(
+      JSON.stringify({ eventId: 'evt-1', name: 'email.send.requested', payload: { emailId: 'e1' } }),
+      new Map([['attempt', '1']])
+    )
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
+
+    const result = await kafkaConsumer.subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    expect(result.isSuccess()).toBe(true)
+    expect(createConsumer).toHaveBeenCalledWith('dispatch-worker')
+    expect(consume).toHaveBeenCalledWith({ topics: ['email.send.requested'] })
+
+    // Message forwarding runs on a detached loop — give it a tick to process the fake stream.
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledWith({
+      eventId: 'evt-1',
+      name: 'email.send.requested',
+      payload: { emailId: 'e1' },
+      headers: { attempt: '1' }
+    })
+  })
+
+  it('returns a MessageConsumeError when consume() rejects', async () => {
+    const consume = vi.fn().mockRejectedValue(new Error('unreachable'))
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const result = await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage: vi.fn()
+    })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) {
+      expect(result.value.name).toBe('MessageConsumeError')
+    }
+  })
+
+  it('does not stop consuming after a message with malformed JSON', async () => {
+    const stream = fakeStream([
+      fakeMessage('not valid json'),
+      fakeMessage(JSON.stringify({ eventId: 'evt-2', name: 'email.send.requested', payload: { emailId: 'e2' } }))
+    ])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    // Message forwarding runs on a detached loop — give it a tick to process the fake stream.
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledTimes(1)
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'evt-2' }))
+  })
+
+  it('commits the message only after onMessage resolves successfully (at-least-once delivery)', async () => {
+    const message = fakeMessage(
+      JSON.stringify({ eventId: 'evt-3', name: 'email.send.requested', payload: { emailId: 'e3' } })
+    )
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(message.commit).toHaveBeenCalledOnce()
+  })
+
+  it('does not commit the message when onMessage resolves with a failure', async () => {
+    const message = fakeMessage(
+      JSON.stringify({ eventId: 'evt-4', name: 'email.send.requested', payload: { emailId: 'e4' } })
+    )
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(failure(new MessageConsumeError({ message: 'boom' })))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(message.commit).not.toHaveBeenCalled()
+  })
+
+  it('does not commit a message whose JSON is malformed (onMessage never runs)', async () => {
+    const message = fakeMessage('not valid json')
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage: vi.fn()
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(message.commit).not.toHaveBeenCalled()
+  })
+
+  it('closes every consumer it created, on module destroy', async () => {
+    // close(force, callback) — the real client is callback-style; it never returns a Promise directly.
+    const closeA = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(null)
+    })
+    const closeB = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(null)
+    })
+    const consumeA = vi.fn().mockResolvedValue(fakeStream([]))
+    const consumeB = vi.fn().mockResolvedValue(fakeStream([]))
+    const createConsumer = vi
+      .fn()
+      .mockReturnValueOnce({ consume: consumeA, close: closeA })
+      .mockReturnValueOnce({ consume: consumeB, close: closeB })
+
+    const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
+    await kafkaConsumer.subscribe({ topic: 'email.send.requested', groupId: 'dispatch-worker', onMessage: vi.fn() })
+    await kafkaConsumer.subscribe({
+      topic: 'email.send.requested.retry',
+      groupId: 'dispatch-worker-retry',
+      onMessage: vi.fn()
+    })
+
+    await kafkaConsumer.onModuleDestroy()
+
+    /*
+     * force: true — a stream is still open on each consumer (subscribe() never awaits it draining),
+     * and @platformatic/kafka's close(false) refuses to leave the group while one is open.
+     */
+    expect(closeA).toHaveBeenCalledWith(true, expect.any(Function))
+    expect(closeB).toHaveBeenCalledWith(true, expect.any(Function))
+  })
+})
+```
+
+- [ ] **Step 4: Run the `message-broker` unit tests**
+
+Run: `pnpm --filter @ruguin/message-broker test:unit`
+Expected: all pass, including the 3 new commit-behavior tests.
+
+- [ ] **Step 5: Route malformed `email.send.requested` messages to the DLQ in the main consumer**
+
+Replace the full contents of `apps/dispatch-worker/src/email/consumers/email-send-requested.consumer.ts`:
+
+```ts
+import { randomUUID } from 'node:crypto'
+
+import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
+import { EMAIL_SEND_REQUESTED_DLQ_TOPIC, EMAIL_SEND_REQUESTED_TOPIC, EmailSendRequestedPayloadSchema } from '@ruguin/event-schemas'
+import {
+  MESSAGE_CONSUMER_PORT,
+  MESSAGE_PRODUCER_PORT,
+  type MessageConsumerPort,
+  type MessageProducerPort
+} from '@ruguin/message-broker'
+import { failure, success } from '@ruguin/utils'
+
+import { SendEmailUseCase } from '../application/use-cases/send-email.use-case.ts'
+
+export const MAIN_CONSUMER_GROUP_ID = 'dispatch-worker'
+
+@Injectable()
+export class EmailSendRequestedConsumer implements OnModuleInit {
+  constructor(
+    @Inject(MESSAGE_CONSUMER_PORT) private readonly consumer: MessageConsumerPort,
+    @Inject(MESSAGE_PRODUCER_PORT) private readonly producer: MessageProducerPort,
+    private readonly sendEmail: SendEmailUseCase
+  ) {}
+
+  public async onModuleInit(): Promise<void> {
+    await this.consumer.subscribe({
+      topic: EMAIL_SEND_REQUESTED_TOPIC,
+      groupId: MAIN_CONSUMER_GROUP_ID,
+      onMessage: async (message) => {
+        const parsed = EmailSendRequestedPayloadSchema.safeParse(message.payload)
+        if (!parsed.success) {
+          /*
+           * A schema-invalid payload can't be trusted to carry a usable emailId, so the DLQ
+           * message is keyed by the inbound eventId (always present on InboundMessage) instead —
+           * docs/product-spec.md §3.3/§4.2: malformed messages must reach the DLQ, never be
+           * silently discarded.
+           */
+          return this.producer.publish({
+            topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC,
+            key: message.eventId,
+            message: { eventId: randomUUID(), name: 'email.send.requested', payload: message.payload }
+          })
+        }
+
+        const result = await this.sendEmail.execute({ ...parsed.data, attempt: 0 })
+        if (result.isFailure()) return failure(result.value)
+
+        return success(undefined)
+      }
+    })
+  }
+}
+```
+
+- [ ] **Step 6: Route malformed `email.send.requested.retry` messages to the DLQ in the retry consumer**
+
+Replace the full contents of `apps/dispatch-worker/src/email/consumers/email-send-requested-retry.consumer.ts`:
+
+```ts
+import { randomUUID } from 'node:crypto'
+
+import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
+import {
+  EMAIL_SEND_REQUESTED_DLQ_TOPIC,
+  EMAIL_SEND_REQUESTED_RETRY_TOPIC,
+  EmailSendRequestedPayloadSchema
+} from '@ruguin/event-schemas'
+import {
+  MESSAGE_CONSUMER_PORT,
+  MESSAGE_PRODUCER_PORT,
+  type MessageConsumerPort,
+  type MessageProducerPort
+} from '@ruguin/message-broker'
+import { failure, success } from '@ruguin/utils'
+
+import { SendEmailUseCase } from '../application/use-cases/send-email.use-case.ts'
+
+export const RETRY_CONSUMER_GROUP_ID = 'dispatch-worker-retry'
+
+function waitUntil(dueAt: Date): Promise<void> {
+  const waitMs = Math.max(0, dueAt.getTime() - Date.now())
+  return new Promise((resolve) => setTimeout(resolve, waitMs))
+}
+
+@Injectable()
+export class EmailSendRequestedRetryConsumer implements OnModuleInit {
+  constructor(
+    @Inject(MESSAGE_CONSUMER_PORT) private readonly consumer: MessageConsumerPort,
+    @Inject(MESSAGE_PRODUCER_PORT) private readonly producer: MessageProducerPort,
+    private readonly sendEmail: SendEmailUseCase
+  ) {}
+
+  public async onModuleInit(): Promise<void> {
+    await this.consumer.subscribe({
+      topic: EMAIL_SEND_REQUESTED_RETRY_TOPIC,
+      groupId: RETRY_CONSUMER_GROUP_ID,
+      onMessage: async (message) => {
+        const parsed = EmailSendRequestedPayloadSchema.safeParse(message.payload)
+        if (!parsed.success) {
+          // Same rationale as the main consumer — see email-send-requested.consumer.ts.
+          return this.producer.publish({
+            topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC,
+            key: message.eventId,
+            message: { eventId: randomUUID(), name: 'email.send.requested', payload: message.payload }
+          })
+        }
+
+        const attempt = Number(message.headers.attempt ?? '0')
+        const nextAttemptAt = new Date(message.headers.nextAttemptAt ?? new Date().toISOString())
+
+        await waitUntil(nextAttemptAt)
+
+        const result = await this.sendEmail.execute({ ...parsed.data, attempt })
+        if (result.isFailure()) return failure(result.value)
+
+        return success(undefined)
+      }
+    })
+  }
+}
+```
+
+- [ ] **Step 7: Add a unit test for the main consumer's DLQ routing (this file didn't exist before — Task 16 only added an integration test)**
+
+Create `apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested.consumer.unit.ts`:
+
+```ts
+import { type MessageConsumerPort, type MessageProducerPort, type SubscribeInput } from '@ruguin/message-broker'
+import { success } from '@ruguin/utils'
+import { describe, expect, it, vi } from 'vitest'
+
+import { type SendEmailUseCase } from '../../application/use-cases/send-email.use-case.ts'
+import { EmailSendRequestedConsumer, MAIN_CONSUMER_GROUP_ID } from '../email-send-requested.consumer.ts'
+
+describe('EmailSendRequestedConsumer', () => {
+  it('subscribes to the main topic under its own consumer group', async () => {
+    let subscribeInput: SubscribeInput | undefined
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        subscribeInput = input
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn().mockResolvedValue(success({ outcome: 'sent' }))
+    const sendEmail = { execute } as unknown as SendEmailUseCase
+
+    await new EmailSendRequestedConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
+
+    expect(subscribeInput?.topic).toBe('email.send.requested')
+    expect(subscribeInput?.groupId).toBe(MAIN_CONSUMER_GROUP_ID)
+  })
+
+  it('routes a schema-invalid payload to the DLQ instead of dropping it', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn()
+    const sendEmail = { execute } as unknown as SendEmailUseCase
+
+    await new EmailSendRequestedConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-malformed-1',
+      name: 'email.send.requested',
+      payload: { emailId: 'not-a-uuid' },
+      headers: {}
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: 'email.send.requested.dlq',
+        key: 'evt-malformed-1',
+        message: expect.objectContaining({ payload: { emailId: 'not-a-uuid' } })
+      })
+    )
+  })
+
+  it('calls the use case with attempt: 0 for a schema-valid payload', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn()
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn().mockResolvedValue(success({ outcome: 'sent' }))
+    const sendEmail = { execute } as unknown as SendEmailUseCase
+
+    await new EmailSendRequestedConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
+
+    await onMessage({
+      eventId: 'evt-1',
+      name: 'email.send.requested',
+      payload: {
+        emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001',
+        organizationId: '018f9a9e-6f0a-7c3e-9b0a-000000000002',
+        projectId: '018f9a9e-6f0a-7c3e-9b0a-000000000003',
+        from: 'a@ruguin.dev',
+        to: 'b@ruguin.dev',
+        subject: 'Hi',
+        html: '<p>Hi</p>'
+      },
+      headers: {}
+    })
+
+    expect(publish).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001', attempt: 0 })
+    )
+  })
+})
+```
+
+- [ ] **Step 8: Add a DLQ-routing test case to the retry consumer's unit tests, and correct the stale "swallowed" comment in the main consumer's integration test**
+
+In `apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested-retry.consumer.unit.ts`, add `MessageProducerPort` to the imports, construct a fake producer the same way as Step 7's new test file, pass it as the second constructor argument in the two existing `new EmailSendRequestedRetryConsumer(fakeConsumer, sendEmail)` calls (becomes `new EmailSendRequestedRetryConsumer(fakeConsumer, producer, sendEmail)`), and add this test:
+
+```ts
+  it('routes a schema-invalid payload to the DLQ instead of dropping it', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn()
+    const sendEmail = { execute } as unknown as SendEmailUseCase
+
+    await new EmailSendRequestedRetryConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-malformed-retry-1',
+      name: 'email.send.requested',
+      payload: { emailId: 'not-a-uuid' },
+      headers: {}
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ topic: 'email.send.requested.dlq', key: 'evt-malformed-retry-1' })
+    )
+  })
+```
+
+In `apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested.consumer.int.ts`, update the comment above the `emailId` declaration (currently: *"A payload that fails validation is deliberately swallowed by the consumer (see email-send-requested.consumer.ts) rather than retried, so an invalid payload here would make this test wait out its timeout without ever proving the chain actually ran."*) to reflect the new behavior:
+
+```ts
+    /*
+     * emailId/organizationId/projectId must be real UUIDs and from/to real emails — this is what
+     * EmailSendRequestedPayloadSchema.safeParse requires. A payload that fails validation is now
+     * routed to the DLQ (see email-send-requested.consumer.ts) instead of driving
+     * SendEmailUseCase, so an invalid payload here would make this test wait out its timeout
+     * without ever proving the send chain actually ran.
+     */
+```
+
+- [ ] **Step 9: Run the dispatch-worker unit tests**
+
+Run: `pnpm --filter @ruguin/dispatch-worker test:unit`
+Expected: all pass, including the new DLQ-routing tests in both consumers.
+
+- [ ] **Step 10: Add `AWS_*` and `SES_*` to `turbo.json`'s `globalEnv`**
+
+In `turbo.json`, change:
+
+```json
+  "globalEnv": [
+    "NODE_ENV",
+    "ENVIRONMENT",
+    "PORT",
+    "DATABASE_URL",
+    "LOGGER_DRIVER",
+    "AWS_*",
+    "CACHE_*",
+    "DOCS_*",
+    "JWT_*",
+    "KAFKA_*",
+    "LOG_*",
+    "OTEL_*",
+    "SES_*"
+  ],
+```
+
+(inserts `"AWS_*"` before `"CACHE_*"` and appends `"SES_*"` after `"OTEL_*"`, keeping the wildcard entries alphabetical; the five non-wildcard entries above them are unchanged)
+
+- [ ] **Step 11: Run the full check suite**
+
+Run: `pnpm run check`
+Expected: types, lint, format, spelling all pass.
+
+- [ ] **Step 12: Run the dispatch-worker integration and e2e suites against the real stack (Kafka/Redis/LocalStack up)**
+
+Run: `pnpm --filter @ruguin/dispatch-worker test:int` then `pnpm --filter @ruguin/dispatch-worker test:e2e`
+Expected: all pass — this is the regression check that at-least-once commit semantics didn't break the two existing e2e scenarios (success path, exhausted-retries-to-DLQ path) or the main consumer's integration test.
+
+- [ ] **Step 13: Commit**
+
+```bash
+git add packages/message-broker/src/nestjs/message-broker.module.ts \
+  packages/message-broker/src/infra/kafka/kafka-message-consumer.ts \
+  packages/message-broker/src/infra/kafka/__tests__/kafka-message-consumer.unit.ts \
+  apps/dispatch-worker/src/email/consumers/email-send-requested.consumer.ts \
+  apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested.consumer.unit.ts \
+  apps/dispatch-worker/src/email/consumers/email-send-requested-retry.consumer.ts \
+  apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested-retry.consumer.unit.ts \
+  apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested.consumer.int.ts \
+  turbo.json
+git commit -m "fix: route malformed messages to the DLQ and make Kafka consumption at-least-once"
+```
+
+---
+
 ## Self-Review Notes
 
 - **Spec coverage:** every numbered section of `docs/superpowers/specs/2026-08-02-dispatch-worker-design.md` maps to a task — `event-schemas` (Tasks 1–3), `message-broker` producer/consumer/module (Tasks 4–7), core-server rewiring (Task 9), `dispatch-worker` scaffold/health (Task 8), rate limit + idempotency (Tasks 11–12), SES (Task 13), retry queue + DLQ (Tasks 14–15, 17), main consumer (Task 16), end-to-end (Task 18).
