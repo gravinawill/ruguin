@@ -49,6 +49,9 @@
     "test:all": {
       "dependsOn": ["^test:all"]
     },
+    "test:cov": {
+      "dependsOn": ["^test:cov"]
+    },
     "fix:format": {
       "dependsOn": ["^fix:format"]
     },

@@ -35,7 +35,7 @@
     "postinstall": "pnpm run build",
     "prepare": "husky",
     "test": "turbo run test:all",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "turbo run test:cov",
     "test:watch": "vitest",
     "update:deps": "turbo run update:deps && ncu -u && pnpm install",
     "with-env": "dotenvx run -f .env --"

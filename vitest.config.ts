@@ -8,30 +8,15 @@ export default defineConfig({
      * packages are still being scaffolded and have no tests yet.
      */
     projects: ['apps/*', 'packages/*', 'configs/*'],
-    passWithNoTests: true,
-    coverage: {
-      reporter: ['lcov', 'html', 'json-summary'],
-      provider: 'v8',
-      include: ['**/src/**/*.{ts,tsx}'],
-      exclude: [
-        // test files
-        '**/tests/**',
-        '**/__tests__/**',
-        '**/index.ts'
-      ],
-      /*
-       * Mirrors packages/{env,ddd-kernel,utils}/vitest.config.ts's own thresholds. apps/core-server
-       * and packages/cache aren't listed here: each declares its unit/integration/e2e split via a
-       * nested `test.projects`, and Vitest's workspace mechanism does not flatten a member
-       * project's own nested projects — they run zero tests under this aggregate command today.
-       * Their thresholds are enforced directly by `pnpm --filter <pkg> test:cov` /
-       * `test:all --coverage`, verified independently (see task-2-report.md).
-       */
-      thresholds: {
-        'packages/env/src/**': { statements: 83, branches: 75, functions: 90, lines: 83 },
-        'packages/ddd-kernel/src/**': { statements: 96, branches: 78, functions: 100, lines: 100 },
-        'packages/utils/src/**': { statements: 100, branches: 100, functions: 100, lines: 100 }
-      }
-    }
+    passWithNoTests: true
+    /*
+     * No `coverage` block here on purpose. A member project's own `test.coverage` is overwritten
+     * by this root config (Vitest 4 workspace behavior), and this root config does not flatten a
+     * member's nested `test.projects` — so a threshold declared here would silently gate zero
+     * files for apps/core-server and packages/cache, the same failure mode this file used to have.
+     * Coverage is gated per package instead: each package keeps its own thresholds in its own
+     * vitest.config.ts, run via `<pkg> test:cov`; `pnpm test:coverage` fans that out with
+     * `turbo run test:cov` so every package's own config actually applies.
+     */
   }
 })

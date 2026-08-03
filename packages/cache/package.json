@@ -18,6 +18,7 @@
     "clean": "rm -rf .claude-flow .swarm .superpowers .remember .gitnexus .turbo coverage node_modules dist build",
     "fix:lint": "eslint --fix .",
     "test:all": "vitest run",
+    "test:cov": "vitest run --coverage",
     "test:integration": "vitest run --project integration",
     "test:unit": "vitest run --project unit",
     "update:deps": "ncu -u"
