@@ -1,9 +1,7 @@
 import { type DynamicModule, Module } from '@nestjs/common'
 import { ScheduleModule } from '@nestjs/schedule'
 
-import { MESSAGE_PRODUCER_PORT } from '../../domain/contracts/message-producer.port'
 import { OUTBOX_PORT } from '../../domain/contracts/outbox.port'
-import { FakeMessageProducer } from '../events/fake-message-producer'
 
 import { OutboxRepository } from './outbox.repository'
 import { OutboxPartitionMaintenanceService } from './outbox-partition-maintenance.service'
@@ -25,11 +23,13 @@ export class OutboxModule {
     return {
       imports: [ScheduleModule.forRoot()],
       module: this,
-      providers: [
-        { provide: MESSAGE_PRODUCER_PORT, useClass: FakeMessageProducer },
-        OutboxRelayService,
-        OutboxPartitionMaintenanceService
-      ]
+      /*
+       * MESSAGE_PRODUCER_PORT is not provided here — OutboxRelayService injects the token exported
+       * by @ruguin/message-broker, which AppModule registers once via MessageBrokerModule.forRoot({
+       * isGlobal: true }). Global providers are visible everywhere in the graph regardless of
+       * module import order, so no explicit wiring is needed on this side.
+       */
+      providers: [OutboxRelayService, OutboxPartitionMaintenanceService]
     }
   }
 

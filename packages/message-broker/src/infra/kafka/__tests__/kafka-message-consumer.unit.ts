@@ -1,0 +1,302 @@
+import { type Consumer } from '@platformatic/kafka'
+import { failure, success } from '@ruguin/utils'
+import { describe, expect, it, vi } from 'vitest'
+
+import { MessageConsumeError } from '../../../domain/errors/message-consume.error.ts'
+import { KafkaMessageConsumer } from '../kafka-message-consumer.ts'
+
+type StringConsumer = Consumer<string, string, string, string>
+type FakeStreamMessage = { value: string; headers: Map<string, string>; commit: () => Promise<void> }
+
+function fakeStream(messages: FakeStreamMessage[]): AsyncIterable<FakeStreamMessage> {
+  return {
+    // eslint-disable-next-line @typescript-eslint/require-await -- async generator required to satisfy AsyncIterable; no await needed to yield the fixed fixture messages
+    [Symbol.asyncIterator]: async function* () {
+      for (const message of messages) yield message
+    }
+  }
+}
+
+function fakeMessage(value: string, headers = new Map<string, string>()): FakeStreamMessage {
+  return { value, headers, commit: vi.fn().mockResolvedValue(undefined) }
+}
+
+function fakeConsumer(consume: StringConsumer['consume']): StringConsumer {
+  return { consume } as unknown as StringConsumer
+}
+
+/*
+ * Simulates @platformatic/kafka terminating the stream and emitting 'error' after its own retries
+ * are exhausted (e.g. a sustained broker disconnect) — the async iterator's next() call rejects,
+ * which happens outside forwardMessages' per-message try/catch. A plain iterator object (not a
+ * generator function) so there is no "yield" to satisfy — this iterator never produces a value.
+ */
+function fakeFailingStream(error: Error): AsyncIterable<FakeStreamMessage> {
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => Promise.reject(error)
+    })
+  }
+}
+
+describe('KafkaMessageConsumer', () => {
+  it('builds a consumer for the given groupId, consumes the topic, and forwards each message as InboundMessage', async () => {
+    const message = fakeMessage(
+      JSON.stringify({ eventId: 'evt-1', name: 'email.send.requested', payload: { emailId: 'e1' } }),
+      new Map([['attempt', '1']])
+    )
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
+
+    const result = await kafkaConsumer.subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    expect(result.isSuccess()).toBe(true)
+    expect(createConsumer).toHaveBeenCalledWith('dispatch-worker')
+    expect(consume).toHaveBeenCalledWith({ topics: ['email.send.requested'] })
+
+    // Message forwarding runs on a detached loop — give it a tick to process the fake stream.
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledWith({
+      eventId: 'evt-1',
+      name: 'email.send.requested',
+      payload: { emailId: 'e1' },
+      headers: { attempt: '1' }
+    })
+  })
+
+  it('returns a MessageConsumeError when consume() rejects', async () => {
+    const consume = vi.fn().mockRejectedValue(new Error('unreachable'))
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const result = await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage: vi.fn()
+    })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) {
+      expect(result.value.name).toBe('MessageConsumeError')
+    }
+  })
+
+  it('does not stop consuming after a message with malformed JSON', async () => {
+    const stream = fakeStream([
+      fakeMessage('not valid json'),
+      fakeMessage(JSON.stringify({ eventId: 'evt-2', name: 'email.send.requested', payload: { emailId: 'e2' } }))
+    ])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    // Message forwarding runs on a detached loop — give it a tick to process the fake stream.
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledTimes(1)
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'evt-2' }))
+  })
+
+  it('commits the message only after onMessage resolves successfully (at-least-once delivery)', async () => {
+    const message = fakeMessage(
+      JSON.stringify({ eventId: 'evt-3', name: 'email.send.requested', payload: { emailId: 'e3' } })
+    )
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(message.commit).toHaveBeenCalledOnce()
+  })
+
+  it('does not commit the message when onMessage resolves with a failure', async () => {
+    const message = fakeMessage(
+      JSON.stringify({ eventId: 'evt-4', name: 'email.send.requested', payload: { emailId: 'e4' } })
+    )
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(failure(new MessageConsumeError({ message: 'boom' })))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(message.commit).not.toHaveBeenCalled()
+  })
+
+  it('keeps processing later messages after onMessage resolves with a failure for an earlier one', async () => {
+    const failingMessage = fakeMessage(
+      JSON.stringify({ eventId: 'evt-5', name: 'email.send.requested', payload: { emailId: 'e5' } })
+    )
+    const succeedingMessage = fakeMessage(
+      JSON.stringify({ eventId: 'evt-6', name: 'email.send.requested', payload: { emailId: 'e6' } })
+    )
+    const stream = fakeStream([failingMessage, succeedingMessage])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi
+      .fn()
+      .mockResolvedValueOnce(failure(new MessageConsumeError({ message: 'boom' })))
+      .mockResolvedValueOnce(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledTimes(2)
+    expect(failingMessage.commit).not.toHaveBeenCalled()
+    expect(succeedingMessage.commit).toHaveBeenCalledOnce()
+  })
+
+  it('survives a stream-level error (e.g. a sustained broker disconnect) instead of crashing the detached loop', async () => {
+    const stream = fakeFailingStream(new Error('stream terminated: broker disconnected'))
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const result = await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage: vi.fn()
+    })
+
+    // subscribe() itself succeeds — the failure surfaces later, inside the detached forward loop.
+    expect(result.isSuccess()).toBe(true)
+
+    /*
+     * The real assertion is implicit: if forwardMessages let this error escape uncaught, it would
+     * surface as an unhandled promise rejection and fail this test run. Reaching this line at all
+     * proves the outer try/catch absorbed it.
+     */
+    await new Promise((resolve) => setImmediate(resolve))
+  })
+
+  it('does not commit a message whose JSON is malformed (onMessage never runs)', async () => {
+    const message = fakeMessage('not valid json')
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage: vi.fn()
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(message.commit).not.toHaveBeenCalled()
+  })
+
+  it('skips a message whose envelope is valid JSON but missing eventId/name, without calling onMessage or committing', async () => {
+    const stream = fakeStream([
+      fakeMessage(JSON.stringify({ payload: { emailId: 'e5' } })),
+      fakeMessage(JSON.stringify({ eventId: 'evt-6', name: 'email.send.requested', payload: { emailId: 'e6' } }))
+    ])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledTimes(1)
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'evt-6' }))
+  })
+
+  it('closes every consumer it created, on module destroy', async () => {
+    // close(force, callback) — the real client is callback-style; it never returns a Promise directly.
+    const closeA = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(null)
+    })
+    const closeB = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(null)
+    })
+    const consumeA = vi.fn().mockResolvedValue(fakeStream([]))
+    const consumeB = vi.fn().mockResolvedValue(fakeStream([]))
+    const createConsumer = vi
+      .fn()
+      .mockReturnValueOnce({ consume: consumeA, close: closeA })
+      .mockReturnValueOnce({ consume: consumeB, close: closeB })
+
+    const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
+    await kafkaConsumer.subscribe({ topic: 'email.send.requested', groupId: 'dispatch-worker', onMessage: vi.fn() })
+    await kafkaConsumer.subscribe({
+      topic: 'email.send.requested.retry',
+      groupId: 'dispatch-worker-retry',
+      onMessage: vi.fn()
+    })
+
+    await kafkaConsumer.onModuleDestroy()
+
+    /*
+     * force: true — a stream is still open on each consumer (subscribe() never awaits it draining),
+     * and @platformatic/kafka's close(false) refuses to leave the group while one is open.
+     */
+    expect(closeA).toHaveBeenCalledWith(true, expect.any(Function))
+    expect(closeB).toHaveBeenCalledWith(true, expect.any(Function))
+  })
+
+  it('still closes every other consumer when one close fails, instead of short-circuiting on the first failure', async () => {
+    const closeA = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(new Error('broker unreachable'))
+    })
+    const closeB = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(null)
+    })
+    const consumeA = vi.fn().mockResolvedValue(fakeStream([]))
+    const consumeB = vi.fn().mockResolvedValue(fakeStream([]))
+    const createConsumer = vi
+      .fn()
+      .mockReturnValueOnce({ consume: consumeA, close: closeA })
+      .mockReturnValueOnce({ consume: consumeB, close: closeB })
+
+    const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
+    await kafkaConsumer.subscribe({ topic: 'email.send.requested', groupId: 'dispatch-worker', onMessage: vi.fn() })
+    await kafkaConsumer.subscribe({
+      topic: 'email.send.requested.retry',
+      groupId: 'dispatch-worker-retry',
+      onMessage: vi.fn()
+    })
+
+    await expect(kafkaConsumer.onModuleDestroy()).resolves.toBeUndefined()
+
+    expect(closeA).toHaveBeenCalledWith(true, expect.any(Function))
+    expect(closeB).toHaveBeenCalledWith(true, expect.any(Function))
+  })
+})

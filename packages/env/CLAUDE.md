@@ -10,9 +10,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 src/
-  shared/server.environment.ts        # serverENV — ENVIRONMENT; exports EnvironmentEnum + Environment type
+  shared/server.environment.ts        # serverENV — ENVIRONMENT, PORT; exports EnvironmentEnum + Environment type
   packages/token-provider.environment.ts  # tokenProviderENV — all JWT_* vars
-  index.ts                            # re-exports ./shared and ./packages
+  packages/...                        # one createEnv per bounded concern (aws, cache, database, docs,
+                                       # logger, message-broker, token-provider)
+  apps/core-server.environment.ts     # coreServerENV — extends every package core-server actually uses
+  apps/dispatch-worker.environment.ts # dispatchWorkerENV — same, for dispatch-worker
+  index.ts                            # re-exports ./apps, ./packages, and ./shared
 ```
 
 ## Pattern
@@ -29,11 +33,32 @@ export const serverENV = createEnv({
 
 `EnvironmentEnum`: `TEST | LOCAL | DEVELOP | STAGING | PRODUCTION`.
 
+Each app under `apps/` composes the packages it actually depends on via `extends`, instead of every
+call site importing `serverENV`/`cacheENV`/`awsENV`/… separately:
+
+```ts
+export const coreServerENV = lazyEnvironment(() =>
+  createEnv({
+    server: {},
+    extends: [serverENV, databaseENV, cacheENV, messageBrokerENV, docsENV],
+    runtimeEnv: process.env,
+    emptyStringAsUndefined: true
+  })
+)
+```
+
+`extends` entries must be objects `@t3-oss/env-core` can enumerate (`Object.assign` reads their
+own keys directly) — the `lazyEnvironment` wrapper already satisfies that, so pass the package env
+object itself, not a call to it. Keep `server: {}` empty unless the app needs a variable that no
+existing package already owns; a genuinely app-specific variable still gets its own `zod` field
+here rather than living only in one app's schema by accident.
+
 ## Adding a variable
 
-1. Add the field with a `zod` validator (and a sensible `.default(...)` where safe) to the relevant `*.environment.ts`.
+1. Add the field with a `zod` validator (and a sensible `.default(...)` where safe) to the relevant `*.environment.ts` package file.
 2. Group by concern — one `createEnv` object per bounded area (`serverENV`, `tokenProviderENV`, …); don't dump everything into one.
-3. Consumers import the object (e.g. `tokenProviderENV.JWT_ISSUER`) — they must **never** read `process.env` themselves.
+3. Add that package to the `extends` array of every `apps/*.environment.ts` file whose app actually reads the new variable. Adding it to an app that doesn't use it yet makes that app's boot depend on a variable it has no reason to require.
+4. Consumers import the composed app object (e.g. `coreServerENV.JWT_ISSUER`) — they must **never** read `process.env` themselves, and should prefer the app-level object over reaching into `packages/*.environment.ts` directly once that app has one.
 
 ## Rules
 
