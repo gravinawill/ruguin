@@ -14,6 +14,7 @@ allowBuilds:
   '@prisma/engines': true
   '@scarf/scarf': false
   '@swc/core': true
+  core-js: false
   esbuild: true
   prisma: true
   protobufjs: true
