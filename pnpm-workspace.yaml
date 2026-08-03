@@ -3,6 +3,20 @@ packages:
   - 'packages/*'
   - 'configs/*'
 minimumReleaseAge: 1440
+overrides:
+  # DoS/crash CVEs in undici's WebSocket client (decompression bomb, invalid server_max_window_bits,
+  # fragment-count bypass) and HTTP layer (request smuggling, header injection) — every occurrence in
+  # this tree is already 6.x, and 6.28.0 is proven compatible here (it's what @actions/http-client
+  # already resolves to), so this raises the whole 6.x line's floor without a major-version jump.
+  undici: '>=6.28.0'
+  # find-my-way: DDoS with HTTP2 — reachable via @nestjs/platform-fastify in core-server's production
+  # dependency tree, not just a devDependency.
+  find-my-way: '>=9.6.1'
+  # js-yaml: exponential parsing time DoS (GHSA-pm4m-ph32-ghv5). Scoped to @nestjs/swagger's specific
+  # dependency, not a blanket override — a separate js-yaml@4.x line elsewhere in the tree (via
+  # @nestjs/cli's build tooling) is a different major version, unaffected by this advisory, and
+  # forcing it up to 5.x could break whatever calls that expect the 4.x API.
+  '@nestjs/swagger>js-yaml': '>=5.2.2'
 onlyBuiltDependencies:
   - '@prisma/engines'
   - '@swc/core'
