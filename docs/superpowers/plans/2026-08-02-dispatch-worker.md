@@ -488,7 +488,7 @@ git commit -m "feat(event-schemas): define reserved email.engagement contract"
 
 - Produces: `MESSAGE_PRODUCER_PORT`, `type OutboundMessage`, `interface MessageProducerPort`, `MESSAGE_CONSUMER_PORT`, `type InboundMessage`, `type SubscribeInput`, `interface MessageConsumerPort` — consumed by every later task in this package and by `apps/dispatch-worker`.
 
-This package ships compiled output (like `packages/cache`), not raw TS like `packages/ddd-kernel` — later tasks add `@Injectable()`/`@Module()` decorators, which V8's type-stripping can't handle at runtime.
+This package ships compiled output (like `packages/cache`), not raw TS like `packages/shared-domain` — later tasks add `@Injectable()`/`@Module()` decorators, which V8's type-stripping can't handle at runtime.
 
 - [ ] **Step 1: Create `package.json`**
 
@@ -520,7 +520,7 @@ This package ships compiled output (like `packages/cache`), not raw TS like `pac
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",
-    "@ruguin/ddd-kernel": "workspace:*",
+    "@ruguin/shared-domain": "workspace:*",
     "@ruguin/env": "workspace:*",
     "@ruguin/utils": "workspace:*",
     "kafkajs": "^2.2.4",
@@ -655,7 +655,7 @@ Expected: FAIL — module not found.
 - [ ] **Step 8: Create `src/domain/contracts/message-producer.port.ts`**
 
 ```ts
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 export const MESSAGE_PRODUCER_PORT = Symbol('MESSAGE_PRODUCER_PORT')
@@ -677,7 +677,7 @@ This is the port moved out of `apps/core-server/src/shared/contracts/message-pro
 - [ ] **Step 9: Create `src/domain/contracts/message-consumer.port.ts`**
 
 ```ts
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 export const MESSAGE_CONSUMER_PORT = Symbol('MESSAGE_CONSUMER_PORT')
@@ -803,7 +803,7 @@ Expected: FAIL — module not found.
 - [ ] **Step 3: Create `src/domain/errors/message-publish.error.ts`**
 
 ```ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class MessagePublishError extends BaseError {
   readonly name = 'MessagePublishError'
@@ -819,7 +819,7 @@ export class MessagePublishError extends BaseError {
 
 ```ts
 import { Injectable } from '@nestjs/common'
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 import { type Producer } from 'kafkajs'
 
@@ -965,7 +965,7 @@ Expected: FAIL — module not found.
 - [ ] **Step 3: Create `src/domain/errors/message-consume.error.ts`**
 
 ```ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class MessageConsumeError extends BaseError {
   readonly name = 'MessageConsumeError'
@@ -981,7 +981,7 @@ export class MessageConsumeError extends BaseError {
 
 ```ts
 import { Injectable } from '@nestjs/common'
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 import { type Kafka } from 'kafkajs'
 
@@ -1291,7 +1291,7 @@ git commit -m "feat(message-broker): add MessageBrokerModule wiring producer and
     "@nestjs/platform-fastify": "^11.1.28",
     "@nestjs/terminus": "^11.1.1",
     "@ruguin/cache": "workspace:*",
-    "@ruguin/ddd-kernel": "workspace:*",
+    "@ruguin/shared-domain": "workspace:*",
     "@ruguin/env": "workspace:*",
     "@ruguin/event-schemas": "workspace:*",
     "@ruguin/message-broker": "workspace:*",
@@ -1832,7 +1832,7 @@ Expected: FAIL — module not found.
 - [ ] **Step 3: Create `src/email/application/providers/dedup-claim.port.ts`**
 
 ```ts
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 export const DEDUP_CLAIM_PROVIDER = Symbol('DEDUP_CLAIM_PROVIDER')
@@ -1850,7 +1850,7 @@ export interface DedupClaimPort {
 ```ts
 import { Inject, Injectable } from '@nestjs/common'
 import { type ICacheProvider, InjectCache } from '@ruguin/cache'
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import {
@@ -1964,7 +1964,7 @@ Expected: FAIL — module not found.
 - [ ] **Step 3: Create `src/email/application/providers/rate-limiter.port.ts`**
 
 ```ts
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 export const RATE_LIMITER_PROVIDER = Symbol('RATE_LIMITER_PROVIDER')
@@ -1982,7 +1982,7 @@ export interface RateLimiterPort {
 ```ts
 import { Injectable } from '@nestjs/common'
 import { type ICacheProvider, InjectCache } from '@ruguin/cache'
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import {
@@ -2091,7 +2091,7 @@ Expected: FAIL — module not found.
 - [ ] **Step 4: Create `src/email/application/providers/email-sender.port.ts`**
 
 ```ts
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 export const EMAIL_SENDER_PROVIDER = Symbol('EMAIL_SENDER_PROVIDER')
@@ -2107,7 +2107,7 @@ export interface EmailSenderPort {
 - [ ] **Step 5: Create `src/email/domain/errors/ses-send.error.ts`**
 
 ```ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class SesSendError extends BaseError {
   readonly name = 'SesSendError'
@@ -2124,7 +2124,7 @@ export class SesSendError extends BaseError {
 ```ts
 import { Injectable } from '@nestjs/common'
 import { SendEmailCommand, type SESClient } from '@aws-sdk/client-ses'
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import {
@@ -2424,7 +2424,7 @@ import { randomUUID } from 'node:crypto'
 import { Inject, Injectable } from '@nestjs/common'
 import { EMAIL_SEND_REQUESTED_DLQ_TOPIC, EMAIL_SEND_REQUESTED_RETRY_TOPIC, EMAIL_STATUS_UPDATED_TOPIC } from '@ruguin/event-schemas'
 import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '@ruguin/message-broker'
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import { DEDUP_CLAIM_PROVIDER, type DedupClaimPort } from '../providers/dedup-claim.port.ts'

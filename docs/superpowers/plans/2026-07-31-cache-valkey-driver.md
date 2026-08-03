@@ -18,7 +18,7 @@
 
 - **TypeScript cru, sem build.** Nenhum `dist/`, nenhum script `build`. Scripts `.lua` viram constantes TypeScript e nao arquivos `.lua`: sem etapa de build nada copiaria um `.lua` para lugar nenhum, e ler do disco em runtime trocaria um erro de compilacao por um `ENOENT` no primeiro `release`.
 - **Nenhuma excecao para falha esperada.** Todo caminho retorna `Either<F, S>` de `@ruguin/utils`. Cuidado com `return failure(x.value)` e nunca `return x`: `Either` carrega o tipo de sucesso nas assinaturas dos type guards, entao um `Failure<E, A>` nao e atribuivel a `Failure<E, B>`.
-- **Todo erro estende `BaseError`** de `@ruguin/ddd-kernel` e declara `readonly name` e `readonly status`.
+- **Todo erro estende `BaseError`** de `@ruguin/shared-domain` e declara `readonly name` e `readonly status`.
 - **Testes:** unitarios em `src/**/__tests__/**/*.unit.ts`, integracao em `src/**/__tests__/**/*.int.ts`. O `vitest.config.ts` do pacote ja tem os dois projetos.
 - **Lint deste repo, verificado rodando.** Um parametro nao usado e ERRO (nao existe `argsIgnorePattern`): metodo que ignora o parametro **omite o parametro inteiro**. `async` sem `await` no corpo e ERRO — use `Promise.resolve(...)` ou devolva a Promise do delegado direto. `Number.parseInt(x, 10)` e ERRO (`unicorn/prefer-number-coercion`) — use `Number(x)`. Booleano precisa de prefixo `is`/`has`/`was`/... (`unicorn/consistent-boolean-name`). Classe so com membros estaticos e ERRO (`no-extraneous-class`) — a `CacheFactory` e um objeto `as const`. `let` de modulo reatribuido dentro de `beforeAll` e ERRO (`unicorn/no-top-level-assignment-in-function`) — use um objeto de contexto. `Math.random()` exige `// eslint-disable-next-line sonarjs/pseudo-random -- <motivo>`, com o `--` e a descricao. Imports e exports em ordem alfabetica (`import-sort`). `export namespace ...DTO` e a convencao (`no-namespace` esta off).
 - **`crypto.randomUUID()` funciona sem import** (Node 26, `types: ["node"]`, `globals.node` no eslint).
@@ -120,7 +120,7 @@ Em `packages/cache/package.json`, na secao `dependencies` (ordem alfabetica):
 ```json
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
-    "@ruguin/ddd-kernel": "workspace:*",
+    "@ruguin/shared-domain": "workspace:*",
     "@ruguin/utils": "workspace:*",
     "iovalkey": "^0.4.0"
   },
@@ -4374,7 +4374,7 @@ Expected: FAIL — `Cannot find module '../cache.factory'`.
 
 ```ts
 // packages/cache/src/domain/errors/invalid-cache-config.error.ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 /*
  * Raised by the composition root, not by an operation. `@ruguin/env` already refuses a `valkey`

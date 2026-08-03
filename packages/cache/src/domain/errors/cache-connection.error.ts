@@ -1,4 +1,4 @@
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class CacheConnectionError extends BaseError {
   readonly name = 'CacheConnectionError'

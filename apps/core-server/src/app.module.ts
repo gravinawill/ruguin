@@ -3,7 +3,7 @@ import { CacheModule } from '@ruguin/cache'
 import { databaseENV } from '@ruguin/env'
 import { LoggerModule } from 'nestjs-pino'
 
-import { HealthModule } from './modules/health/health.module'
+import { RouterModule } from './router/router.module'
 import { createCacheModuleOptions } from './shared/infrastructure/cache/cache-module-options'
 import { DatabaseModule } from './shared/infrastructure/database/database.module'
 import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-options'
@@ -25,9 +25,7 @@ import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-
       connectionString: databaseENV.DATABASE_URL
     }),
 
-    HealthModule
-  ],
-  controllers: [],
-  providers: []
+    RouterModule
+  ]
 })
 export class AppModule {}

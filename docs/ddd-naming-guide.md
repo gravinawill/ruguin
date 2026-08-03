@@ -11,7 +11,7 @@
 ## 2. Packages (`packages/<nome>`)
 
 - Nome em kebab-case, código compartilhado entre apps, sem entrypoint HTTP nem consumer Kafka próprio.
-- Existentes: `cache`, `ddd-kernel`, `env`, `utils`.
+- Existentes: `cache`, `shared-domain`, `env`, `utils`.
 - Próximos, exigidos pelo roadmap de `docs/product-spec.md`:
   - `event-schemas` — schemas Zod + nomes de tópico dos três eventos do produto (`email.send.requested`, `email.status.updated`, `email.engagement`); única fonte de verdade, importada por todo produtor/consumidor (`docs/tasks/EMAIL-2-contrato-eventos-kafka.md`).
   - `message-broker` — adapter KafkaJS que implementa `MessageProducerPort` (`apps/core-server/src/shared/contracts/message-producer.port.ts`) e a contraparte de consumo usada pelos workers; hoje só existe o fake de teste (`shared/events/fake-message-producer.ts`).

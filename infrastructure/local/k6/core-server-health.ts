@@ -1,7 +1,6 @@
-import type { Options } from 'k6/options'
-
 import { check, sleep } from 'k6'
 import http from 'k6/http'
+import { type Options } from 'k6/options'
 
 /*
  * Targets the core-server's Terminus health check. Run the core-server yourself first

@@ -154,7 +154,7 @@ pass its own."
 - Modify: `apps/core-server/vitest.config.ts`
 - Modify: `packages/cache/vitest.config.ts`
 - Modify: `packages/env/vitest.config.ts`
-- Modify: `packages/ddd-kernel/vitest.config.ts`
+- Modify: `packages/shared-domain/vitest.config.ts`
 - Modify: `packages/utils/vitest.config.ts`
 
 **Interfaces:**
@@ -214,7 +214,7 @@ Se os quatro vieram 100, mantenha 100 e não adicione comentário.
 
 - [ ] **Step 4: Replicar nos quatro pacotes**
 
-Cada um de `packages/cache`, `packages/env`, `packages/ddd-kernel` e `packages/utils` recebe o mesmo
+Cada um de `packages/cache`, `packages/env`, `packages/shared-domain` e `packages/utils` recebe o mesmo
 bloco `coverage`, com `exclude` adaptado:
 
 ```ts
@@ -829,7 +829,7 @@ As Tasks 3 e 4 não dependem de 1 e 2 e podem ser feitas em paralelo com elas.
   escrito. Confirme `git status` limpo nesses caminhos antes de começar; dois conflitos já
   aconteceram por isso.
 - **`turbo prune` com pacotes em TypeScript cru.** `@ruguin/env`, `@ruguin/utils` e
-  `@ruguin/ddd-kernel` são consumidos como fonte, enquanto `@ruguin/cache` é buildado. Se o Step 3
+  `@ruguin/shared-domain` são consumidos como fonte, enquanto `@ruguin/cache` é buildado. Se o Step 3
   da Task 3 falhar por módulo ausente, é aqui que está a causa.
 - **Node 26 excede o suporte declarado do Prisma** (até 24). Funciona hoje, verificado; um upgrade
   de qualquer um dos dois pode quebrar sem aviso.
