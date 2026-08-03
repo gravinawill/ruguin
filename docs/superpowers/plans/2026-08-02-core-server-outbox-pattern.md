@@ -1019,6 +1019,21 @@ export class OutboxRelayService {
   //
   // Ambos os pontos são cobertos por teste de integração (aggregate-same-timestamp,
   // aggregate-retry em outbox-relay.service.int.ts).
+  //
+  // NOTA PÓS-IMPLEMENTAÇÃO 2 (achado de revisão do CodeRabbit no PR): o `ROW_NUMBER() OVER
+  // (PARTITION BY module, key ORDER BY ...)` acima rankeia toda linha PENDING a cada tick, mesmo
+  // que só BATCH_SIZE vença — o custo escala com o tamanho da fila inteira, não com o batch. A
+  // query final troca essa CTE por um "loose index scan" recursivo
+  // (https://wiki.postgresql.org/wiki/Loose_indexscan): uma CTE recursiva anda pelos pares
+  // (module, key) distintos via busca de índice, e uma segunda CTE pega só a linha PENDING mais
+  // antiga de cada par via LATERAL — ambas servidas pelo índice
+  // outbox_messages_status_module_key_createdAt_id_idx já existente, sem precisar de índice novo.
+  // Medido com EXPLAIN ANALYZE contra 5000 linhas PENDING em 50 keys: a versão antiga faz Seq Scan
+  // + Sort sobre as 5000 linhas (6.3ms); a nova não tem nenhum Seq Scan e roda em 1.2ms, porque o
+  // custo passa a escalar com o número de keys distintas, não com o total de linhas pendentes.
+  // Isso ainda visita uma linha por key com fila — uma fila espalhada em muitas keys quase-ociosas
+  // não encolhe tanto quanto uma fila concentrada em poucas keys, mas é justamente o cenário mais
+  // provável (uma outage ou consumidor lento acumula em cima das keys que já estavam ativas).
   private async processRow(tx: Prisma.TransactionClient, row: EligibleRow): Promise<void> {
     const published = await this.messageProducer.publish({
       key: row.key,

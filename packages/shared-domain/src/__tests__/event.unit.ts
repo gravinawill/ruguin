@@ -51,11 +51,12 @@ describe('Event.create', () => {
     const event = Event.create<SamplePayload>('health.degraded', { reason: 'timeout' })
 
     /*
-     * `readonly` on Event#payload only guards reassigning the field itself; this asserts the
-     * runtime guard (Object.freeze) that stops mutating the payload object's own properties too.
+     * DeepReadonly<TPayload> already rejects this assignment at compile time; the cast bypasses
+     * only the type check so this test can still assert the runtime guard (Object.freeze) that
+     * remains the actual enforcement — DeepReadonly has no effect on the object at runtime.
      */
     expect(() => {
-      event.payload.reason = 'mutated'
+      ;(event.payload as SamplePayload).reason = 'mutated'
     }).toThrow()
     expect(event.payload).toEqual({ reason: 'timeout' })
   })

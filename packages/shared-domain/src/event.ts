@@ -2,6 +2,13 @@ import { ID } from './value-objects/index.ts'
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 
+export type DeepReadonly<T> =
+  T extends Array<infer U>
+    ? ReadonlyArray<DeepReadonly<U>>
+    : T extends object
+      ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+      : T
+
 function deepFreeze<T>(value: T): T {
   if (value === null || typeof value !== 'object') return value
   if (Object.isFrozen(value)) return value
@@ -18,13 +25,13 @@ function deepFreeze<T>(value: T): T {
 export class Event<TPayload extends JsonValue> {
   readonly id: ID
   readonly name: string
-  readonly payload: TPayload
+  readonly payload: DeepReadonly<TPayload>
   readonly #occurredAtEpoch: number
 
   private constructor(input: { id: ID; name: string; payload: TPayload; occurredAtEpoch: number }) {
     this.id = input.id
     this.name = input.name
-    this.payload = deepFreeze(input.payload)
+    this.payload = deepFreeze(input.payload) as DeepReadonly<TPayload>
     this.#occurredAtEpoch = input.occurredAtEpoch
     Object.freeze(this)
   }

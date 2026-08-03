@@ -66,22 +66,41 @@ export class OutboxRelayService {
           const table = Prisma.raw(`"${this.prisma.schema}"."outbox_messages"`)
 
           /*
-           * The due-ness check (nextAttemptAt) must apply AFTER ranking, not inside the ranked
-           * CTE's WHERE — filtering it there would drop a row still in backoff out of its
-           * partition entirely, letting ROW_NUMBER() re-rank around it and publish a later
-           * message of the same key first. Ranking over every PENDING row (backoff or not) and
-           * checking due-ness only on the winner gives real head-of-line blocking: a key whose
-           * oldest message is in backoff yields nothing until that message is due again.
+           * The due-ness check (nextAttemptAt) must apply AFTER candidate selection, not inside
+           * the CTEs' WHERE — filtering it there would drop a row still in backoff out of its
+           * group entirely, promoting a later message of the same key in its place. Selecting the
+           * earliest PENDING row per (module, key) unconditionally and checking due-ness only on
+           * that winner gives real head-of-line blocking: a key whose oldest message is in backoff
+           * yields nothing until that message is due again.
            *
-           * The ORDER BY tiebreaks on id after createdAt because createdAt alone is not unique:
-           * it is TIMESTAMP(3) and Prisma stamps @default(now()) client-side on each insert, so a
-           * use case enqueueing several events in one transaction collides on the millisecond
-           * routinely (measured at 13-16 collisions per 40 consecutive enqueues). Ties are not
-           * benign — this query ranks over a Seq Scan feeding a Sort, so a tie resolves by physical
-           * heap position, and any UPDATE (a retry bumping attempts) rewrites the row at the end of
-           * the heap, silently inverting publish order on the following tick. id is a UUID v7 from
-           * the schema's @default(uuid(7)), verified monotonic within a millisecond, so ordering by
-           * it restores enqueue order.
+           * distinct_keys walks (module, key) pairs one at a time via index seeks ("loose index
+           * scan": https://wiki.postgresql.org/wiki/Loose_indexscan) instead of ranking every
+           * PENDING row with ROW_NUMBER() OVER (PARTITION BY ...) — that window function has to
+           * read and sort every pending row across every key each tick even though only the batch's
+           * worth of winners is ever used, so its cost grows with the whole backlog instead of with
+           * BATCH_SIZE. This still visits one row per distinct (module, key) that has PENDING work,
+           * so a backlog spread across many mostly-idle keys does not shrink much — it helps most
+           * when a smaller number of keys are each carrying a deep backlog, which is the case an
+           * outage or a slow consumer actually produces.
+           *
+           * candidates then grabs just the single earliest (createdAt, id) row per key found above,
+           * via a LATERAL join — both walks are served by the same
+           * outbox_messages_status_module_key_createdAt_id_idx index (status, module, key,
+           * createdAt, id), so neither needs a new one.
+           *
+           * The ORDER BY tiebreaks on id after createdAt because createdAt alone is not unique: it
+           * is TIMESTAMP(3) and Prisma stamps @default(now()) client-side on each insert, so a use
+           * case enqueueing several events in one transaction collides on the millisecond routinely
+           * (measured at 13-16 collisions per 40 consecutive enqueues). id is a UUID v7 from the
+           * schema's @default(uuid(7)), verified monotonic within a millisecond, so ordering by it
+           * restores enqueue order regardless of physical row order.
+           *
+           * Neither CTE holds row locks — a recursive CTE and FOR UPDATE cannot combine in the same
+           * query, same restriction the prior window-function version had with FOR UPDATE. The
+           * outer SELECT re-joins by primary key to lock only the winning row of each (module, key)
+           * pair, so two relay instances racing on the same tick still never publish out of order:
+           * SKIP LOCKED makes the loser skip a row someone else already grabbed instead of picking
+           * a different one.
            *
            * The table is interpolated via Prisma.raw() because raw SQL doesn't inherit the
            * PrismaPg adapter's `schema` option the way `prisma.<model>.*` calls do — it needs the
@@ -89,17 +108,40 @@ export class OutboxRelayService {
            * it.
            */
           const rows = await tx.$queryRaw<EligibleRow[]>`
-            WITH ranked AS (
-              SELECT id, "createdAt", "nextAttemptAt",
-                     ROW_NUMBER() OVER (PARTITION BY module, key ORDER BY "createdAt", id) AS rn
-              FROM ${table}
-              WHERE status = 'PENDING'
+            WITH RECURSIVE distinct_keys AS (
+              (
+                SELECT module, key
+                FROM ${table}
+                WHERE status = 'PENDING'
+                ORDER BY module, key
+                LIMIT 1
+              )
+              UNION ALL
+              SELECT next.module, next.key
+              FROM distinct_keys dk
+              CROSS JOIN LATERAL (
+                SELECT module, key
+                FROM ${table}
+                WHERE status = 'PENDING' AND (module, key) > (dk.module, dk.key)
+                ORDER BY module, key
+                LIMIT 1
+              ) next
+            ),
+            candidates AS (
+              SELECT earliest.id, earliest."createdAt", earliest."nextAttemptAt"
+              FROM distinct_keys dk
+              CROSS JOIN LATERAL (
+                SELECT id, "createdAt", "nextAttemptAt"
+                FROM ${table}
+                WHERE status = 'PENDING' AND module = dk.module AND key = dk.key
+                ORDER BY "createdAt", id
+                LIMIT 1
+              ) earliest
             )
             SELECT o.id, o."createdAt", o."eventId", o.module, o.topic, o.key, o.name, o.payload, o.attempts
             FROM ${table} o
-            JOIN ranked r ON r.id = o.id AND r."createdAt" = o."createdAt"
-            WHERE r.rn = 1
-              AND (r."nextAttemptAt" IS NULL OR r."nextAttemptAt" <= now())
+            JOIN candidates c ON c.id = o.id AND c."createdAt" = o."createdAt"
+            WHERE (c."nextAttemptAt" IS NULL OR c."nextAttemptAt" <= now())
             ORDER BY o."createdAt", o.id
             LIMIT ${BATCH_SIZE}
             FOR UPDATE OF o SKIP LOCKED
