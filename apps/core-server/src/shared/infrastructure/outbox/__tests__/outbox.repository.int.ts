@@ -1,4 +1,4 @@
-import { BaseError, Event, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, Event, StatusError } from '@ruguin/shared-domain'
 import { type Either, failure } from '@ruguin/utils'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 

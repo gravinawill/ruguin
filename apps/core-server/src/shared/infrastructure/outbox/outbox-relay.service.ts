@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule'
-import { type JsonValue } from '@ruguin/ddd-kernel'
+import { type JsonValue } from '@ruguin/shared-domain'
 
 import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '../../domain/contracts/message-producer.port'
 import { OutboxStatus, Prisma } from '../database/prisma/generated/client'

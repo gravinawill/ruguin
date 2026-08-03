@@ -13,20 +13,20 @@ import { HEALTH_CHECK_PROVIDER } from './cache.tokens.ts'
  * `cacheStatus`, not `status`: Terminus owns the `status` key of every indicator entry.
  */
 const toDetails = (payload: HealthCheckProviderDTO.OutputSuccess) => ({
-  cacheStatus: payload.status,
-  clientsConnected: payload.clients.connected,
-  clientsRejectedTotal: payload.clients.rejectedTotal,
   driver: payload.driver,
+  cacheStatus: payload.status,
+  serverVersion: payload.server.version,
   evictedKeys: payload.memory.evictedKeys,
-  masterLatencyInMs: payload.master.latencyInMs,
   masterReachable: payload.master.reachable,
+  clientsConnected: payload.clients.connected,
+  masterLatencyInMs: payload.master.latencyInMs,
+  clientsRejectedTotal: payload.clients.rejectedTotal,
   memoryUsedPercentage: payload.memory.usedPercentage,
   replicas: payload.replicas.map((replica) => ({
     host: replica.host,
     reachable: replica.reachable,
     replicationLagInBytes: replica.replicationLagInBytes
-  })),
-  serverVersion: payload.server.version
+  }))
 })
 
 /*

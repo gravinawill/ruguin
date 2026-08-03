@@ -1,4 +1,4 @@
-import { Event } from '@ruguin/ddd-kernel'
+import { Event } from '@ruguin/shared-domain'
 import { describe, expect, it } from 'vitest'
 
 import { type TransactionContext } from '../../../domain/contracts/transaction-context.contract'

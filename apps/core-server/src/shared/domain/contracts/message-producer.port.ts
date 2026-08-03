@@ -1,4 +1,4 @@
-import { type BaseError, type JsonValue } from '@ruguin/ddd-kernel'
+import { type BaseError, type JsonValue } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 export const MESSAGE_PRODUCER_PORT = Symbol('MESSAGE_PRODUCER_PORT')

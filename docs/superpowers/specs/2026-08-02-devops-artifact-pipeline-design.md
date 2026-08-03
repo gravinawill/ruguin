@@ -148,7 +148,7 @@ Três lacunas concretas:
 - **100% é um piso alto para código novo.** Toda futura regra de negócio nasce precisando de teste
   antes de passar no CI. É o efeito pretendido, mas muda o ritmo de quem escreve.
 - **`turbo prune` com pacotes em TypeScript cru.** `@ruguin/env`, `@ruguin/utils` e
-  `@ruguin/ddd-kernel` são consumidos como fonte; `@ruguin/cache` passou a ser buildado. O recorte
+  `@ruguin/shared-domain` são consumidos como fonte; `@ruguin/cache` passou a ser buildado. O recorte
   precisa preservar essa distinção, e é o ponto mais provável de falha do Dockerfile na primeira
   tentativa.
 - **Node 26 é recente.** O `preinstall` do Prisma declara suporte até 24; funciona hoje, verificado,

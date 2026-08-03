@@ -1,4 +1,4 @@
-import { type Event, type JsonValue } from '@ruguin/ddd-kernel'
+import { type Event, type JsonValue } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 import { type EnqueueOutboxMessageError } from '../errors/enqueue-outbox-message.error'

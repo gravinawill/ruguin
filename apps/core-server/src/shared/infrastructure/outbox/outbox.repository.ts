@@ -1,4 +1,4 @@
-import { type Event, type JsonValue } from '@ruguin/ddd-kernel'
+import { type Event, type JsonValue } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import { type OutboxPort } from '../../domain/contracts/outbox.port'

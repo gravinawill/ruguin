@@ -1,4 +1,4 @@
-import { StatusError } from '@ruguin/ddd-kernel'
+import { StatusError } from '@ruguin/shared-domain'
 import { describe, expect, it } from 'vitest'
 
 import {

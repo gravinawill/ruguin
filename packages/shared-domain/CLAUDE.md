@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-`@ruguin/ddd-kernel` — DDD building blocks shared across the monorepo's services (today only `core-server`, but meant for the future `dispatch-worker`, `tracking-service`, etc.): `BaseError`, `StatusError`, and generic value objects like `ID`. Depends on `@ruguin/utils` (for `Either`); no other package in the monorepo depends on this one in the other direction.
+`@ruguin/shared-domain` — DDD building blocks shared across the monorepo's services (today only `core-server`, but meant for the future `dispatch-worker`, `tracking-service`, etc.): `BaseError`, `StatusError`, and generic value objects like `ID`. Depends on `@ruguin/utils` (for `Either`); no other package in the monorepo depends on this one in the other direction.
 
 ## Structure
 
@@ -27,6 +27,6 @@ src/
 ## Commands
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:unit
-pnpm --filter @ruguin/ddd-kernel check:types
+pnpm --filter @ruguin/shared-domain test:unit
+pnpm --filter @ruguin/shared-domain check:types
 ```

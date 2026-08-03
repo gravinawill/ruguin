@@ -1,5 +1,5 @@
 {
-  "name": "@ruguin/ddd-kernel",
+  "name": "@ruguin/shared-domain",
   "version": "0.0.0",
   "private": true,
   "type": "module",

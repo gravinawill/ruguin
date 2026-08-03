@@ -1,3 +1,4 @@
+import { FastifyAdapter } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,7 +22,7 @@ describe('OutboxModule composition', () => {
     const runMaintenance = vi.spyOn(OutboxPartitionMaintenanceService.prototype, 'runMaintenance')
 
     const moduleReference = await Test.createTestingModule({ imports: [database(), OutboxModule.forRoot()] }).compile()
-    const app = moduleReference.createNestApplication()
+    const app = moduleReference.createNestApplication(new FastifyAdapter())
 
     try {
       expect(runMaintenance).not.toHaveBeenCalled()
