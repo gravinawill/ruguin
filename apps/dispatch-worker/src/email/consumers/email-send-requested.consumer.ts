@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common'
 import {
   EMAIL_SEND_REQUESTED_DLQ_TOPIC,
   EMAIL_SEND_REQUESTED_TOPIC,
@@ -20,6 +20,8 @@ export const MAIN_CONSUMER_GROUP_ID = 'dispatch-worker'
 
 @Injectable()
 export class EmailSendRequestedConsumer implements OnModuleInit {
+  private readonly logger = new Logger(EmailSendRequestedConsumer.name)
+
   constructor(
     @Inject(MESSAGE_CONSUMER_PORT) private readonly consumer: MessageConsumerPort,
     @Inject(MESSAGE_PRODUCER_PORT) private readonly producer: MessageProducerPort,
@@ -33,6 +35,8 @@ export class EmailSendRequestedConsumer implements OnModuleInit {
       onMessage: async (message) => {
         const parsed = EmailSendRequestedPayloadSchema.safeParse(message.payload)
         if (!parsed.success) {
+          this.logger.warn(`Malformed email.send.requested payload (eventId=${message.eventId}); routing to DLQ.`)
+
           /*
            * A schema-invalid payload can't be trusted to carry a usable emailId, so the DLQ
            * message is keyed by the inbound eventId (always present on InboundMessage) instead —

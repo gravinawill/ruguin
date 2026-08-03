@@ -6,13 +6,18 @@ import { EMAIL_SEND_REQUESTED_TOPIC } from '@ruguin/event-schemas'
 import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '@ruguin/message-broker'
 import { describe, expect, it, vi } from 'vitest'
 
-import { EmailModule } from '../../email.module.ts'
+import { AppModule } from '../../../app.module.ts'
 
 const FROM_ADDRESS = 'sender@ruguin.dev'
 
 describe('EmailSendRequestedConsumer (real Kafka + Redis)', () => {
   it('consumes email.send.requested and eventually publishes email.status.updated', async () => {
-    const moduleReference = await Test.createTestingModule({ imports: [EmailModule] }).compile()
+    /*
+     * AppModule, not EmailModule directly — CacheModule/MessageBrokerModule are registered once,
+     * globally, in AppModule (see its own comment), so this is what actually boots the way the
+     * real process does.
+     */
+    const moduleReference = await Test.createTestingModule({ imports: [AppModule] }).compile()
     await moduleReference.init()
 
     /*

@@ -16,7 +16,7 @@ import {
 } from '@ruguin/message-broker'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { EmailModule } from '../email.module.ts'
+import { AppModule } from '../../app.module.ts'
 
 describe('Dispatch Worker end to end', () => {
   let producer: MessageProducerPort
@@ -31,7 +31,12 @@ describe('Dispatch Worker end to end', () => {
     })
     await sesClient.send(new VerifyEmailIdentityCommand({ EmailAddress: awsENV.SES_FROM_ADDRESS }))
 
-    moduleReference = await Test.createTestingModule({ imports: [EmailModule] }).compile()
+    /*
+     * AppModule, not EmailModule directly — CacheModule/MessageBrokerModule are registered once,
+     * globally, in AppModule (see its own comment), so this is what actually boots the way the
+     * real process does.
+     */
+    moduleReference = await Test.createTestingModule({ imports: [AppModule] }).compile()
     await moduleReference.init()
 
     producer = moduleReference.get<MessageProducerPort>(MESSAGE_PRODUCER_PORT)

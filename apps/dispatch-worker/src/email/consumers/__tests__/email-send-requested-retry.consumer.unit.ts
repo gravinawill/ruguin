@@ -109,4 +109,80 @@ describe('EmailSendRequestedRetryConsumer', () => {
       expect.objectContaining({ topic: 'email.send.requested.dlq', key: 'evt-malformed-retry-1' })
     )
   })
+
+  it('routes to the DLQ instead of retry-looping forever when the attempt header is not a number', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn()
+    const sendEmail = { execute } as unknown as SendEmailUseCase
+
+    await new EmailSendRequestedRetryConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-bad-header-1',
+      name: 'email.send.requested',
+      payload: {
+        emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001',
+        organizationId: '018f9a9e-6f0a-7c3e-9b0a-000000000002',
+        projectId: '018f9a9e-6f0a-7c3e-9b0a-000000000003',
+        from: 'a@ruguin.dev',
+        to: 'b@ruguin.dev',
+        subject: 'Hi',
+        html: '<p>Hi</p>'
+      },
+      headers: { attempt: 'not-a-number', nextAttemptAt: '2026-08-02T12:00:10.000Z' }
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ topic: 'email.send.requested.dlq', key: 'evt-bad-header-1' })
+    )
+  })
+
+  it('routes to the DLQ when the nextAttemptAt header is not a parseable date', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn()
+    const sendEmail = { execute } as unknown as SendEmailUseCase
+
+    await new EmailSendRequestedRetryConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-bad-header-2',
+      name: 'email.send.requested',
+      payload: {
+        emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001',
+        organizationId: '018f9a9e-6f0a-7c3e-9b0a-000000000002',
+        projectId: '018f9a9e-6f0a-7c3e-9b0a-000000000003',
+        from: 'a@ruguin.dev',
+        to: 'b@ruguin.dev',
+        subject: 'Hi',
+        html: '<p>Hi</p>'
+      },
+      headers: { attempt: '1', nextAttemptAt: 'not-a-date' }
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ topic: 'email.send.requested.dlq', key: 'evt-bad-header-2' })
+    )
+  })
 })
