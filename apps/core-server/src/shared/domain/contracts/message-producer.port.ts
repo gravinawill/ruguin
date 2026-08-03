@@ -1,4 +1,4 @@
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError, type JsonValue } from '@ruguin/ddd-kernel'
 import { type Either } from '@ruguin/utils'
 
 export const MESSAGE_PRODUCER_PORT = Symbol('MESSAGE_PRODUCER_PORT')
@@ -6,7 +6,7 @@ export const MESSAGE_PRODUCER_PORT = Symbol('MESSAGE_PRODUCER_PORT')
 export type OutboundMessage = {
   topic: string
   key: string
-  message: { eventId: string; name: string; payload: unknown }
+  message: { eventId: string; name: string; payload: JsonValue }
 }
 
 export interface MessageProducerPort {
