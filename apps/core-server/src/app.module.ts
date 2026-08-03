@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common'
-import { RouterModule } from '@nestjs/core'
 import { CacheModule } from '@ruguin/cache'
 import { databaseENV } from '@ruguin/env'
 import { LoggerModule } from 'nestjs-pino'
 
+import { RouterModule } from './router/router.module'
 import { createCacheModuleOptions } from './shared/infrastructure/cache/cache-module-options'
 import { DatabaseModule } from './shared/infrastructure/database/database.module'
 import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-options'

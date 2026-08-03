@@ -11,11 +11,12 @@ import { HealthModule } from '../modules/health/health.module'
   imports: [
     HealthModule,
     RoutesEmailsModule,
+    /*
+     * HealthController already declares its own full path (`@Controller({ path: 'health' })`), so
+     * registering it here too would double-prefix it to /health/health — only modules without an
+     * explicit controller path belong in this list.
+     */
     NestJsRouterModule.register([
-      {
-        path: '/health',
-        module: HealthModule
-      },
       {
         path: '/emails',
         module: RoutesEmailsModule
