@@ -1,22 +1,16 @@
-import { randomUUID } from 'node:crypto'
-
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common'
+import { EMAIL_SEND_REQUESTED_RETRY_TOPIC, EmailSendRequestedPayloadSchema } from '@ruguin/event-schemas'
 import {
-  EMAIL_SEND_REQUESTED_DLQ_TOPIC,
-  EMAIL_SEND_REQUESTED_RETRY_TOPIC,
-  EmailSendRequestedPayloadSchema
-} from '@ruguin/event-schemas'
-import {
-  type InboundMessage,
   MESSAGE_CONSUMER_PORT,
   MESSAGE_PRODUCER_PORT,
   type MessageConsumerPort,
   type MessageProducerPort
 } from '@ruguin/message-broker'
-import { type BaseError } from '@ruguin/shared-domain'
-import { type Either, failure, success } from '@ruguin/utils'
+import { failure, success } from '@ruguin/utils'
 
 import { SendEmailUseCase } from '../application/use-cases/send-email.use-case.ts'
+
+import { publishMalformedMessageToDlq } from './dlq-routing.ts'
 
 export const RETRY_CONSUMER_GROUP_ID = 'dispatch-worker-retry'
 
@@ -43,7 +37,7 @@ export class EmailSendRequestedRetryConsumer implements OnModuleInit {
         const parsed = EmailSendRequestedPayloadSchema.safeParse(message.payload)
         if (!parsed.success) {
           this.logger.warn(`Malformed email.send.requested.retry payload (eventId=${message.eventId}); routing to DLQ.`)
-          return this.publishToDlq(message)
+          return publishMalformedMessageToDlq(this.producer, message)
         }
 
         const attempt = Number(message.headers.attempt ?? '0')
@@ -63,7 +57,7 @@ export class EmailSendRequestedRetryConsumer implements OnModuleInit {
             `Malformed retry headers for eventId=${message.eventId} ` +
               `(attempt=${message.headers.attempt}, nextAttemptAt=${message.headers.nextAttemptAt}); routing to DLQ.`
           )
-          return this.publishToDlq(message)
+          return publishMalformedMessageToDlq(this.producer, message)
         }
 
         await waitUntil(nextAttemptAt)
@@ -73,14 +67,6 @@ export class EmailSendRequestedRetryConsumer implements OnModuleInit {
 
         return success(undefined)
       }
-    })
-  }
-
-  private publishToDlq(message: InboundMessage): Promise<Either<BaseError, void>> {
-    return this.producer.publish({
-      topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC,
-      key: message.eventId,
-      message: { eventId: randomUUID(), name: 'email.send.requested', payload: message.payload }
     })
   }
 }

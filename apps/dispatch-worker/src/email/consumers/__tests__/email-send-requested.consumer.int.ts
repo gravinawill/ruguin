@@ -1,23 +1,38 @@
 import { randomUUID } from 'node:crypto'
 
 import { SESClient, VerifyEmailIdentityCommand } from '@aws-sdk/client-ses'
-import { Test } from '@nestjs/testing'
-import { EMAIL_SEND_REQUESTED_TOPIC } from '@ruguin/event-schemas'
+import { Test, type TestingModule } from '@nestjs/testing'
+import { EMAIL_SEND_REQUESTED_TOPIC, EMAIL_STATUS_UPDATED_TOPIC } from '@ruguin/event-schemas'
 import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '@ruguin/message-broker'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AppModule } from '../../../app.module.ts'
 
 const FROM_ADDRESS = 'sender@ruguin.dev'
 
+const isStatusUpdated = ([call]: Parameters<MessageProducerPort['publish']>): boolean =>
+  call.topic === EMAIL_STATUS_UPDATED_TOPIC
+
 describe('EmailSendRequestedConsumer (real Kafka + Redis)', () => {
+  let moduleReference: TestingModule
+
+  /*
+   * In afterEach, not at the end of the test body — if vi.waitUntil times out or an assertion
+   * below fails, a close() only at the end of a linear test body never runs, and the Kafka
+   * consumer / Redis connection / SES client this module opened stay open, leaking into
+   * whatever runs next in this Vitest worker.
+   */
+  afterEach(async () => {
+    await moduleReference.close()
+  })
+
   it('consumes email.send.requested and eventually publishes email.status.updated', async () => {
     /*
      * AppModule, not EmailModule directly — CacheModule/MessageBrokerModule are registered once,
      * globally, in AppModule (see its own comment), so this is what actually boots the way the
      * real process does.
      */
-    const moduleReference = await Test.createTestingModule({ imports: [AppModule] }).compile()
+    moduleReference = await Test.createTestingModule({ imports: [AppModule] }).compile()
     await moduleReference.init()
 
     /*
@@ -60,12 +75,12 @@ describe('EmailSendRequestedConsumer (real Kafka + Redis)', () => {
       }
     })
 
-    await vi.waitUntil(() => publishSpy.mock.calls.some(([call]) => call.topic === 'email.status.updated'), {
+    await vi.waitUntil(() => publishSpy.mock.calls.some((call) => isStatusUpdated(call)), {
       timeout: 15_000,
       interval: 200
     })
 
-    const callIndex = publishSpy.mock.calls.findIndex(([call]) => call.topic === 'email.status.updated')
+    const callIndex = publishSpy.mock.calls.findIndex((call) => isStatusUpdated(call))
     const [statusUpdatedCall] = publishSpy.mock.calls[callIndex]!
     expect(statusUpdatedCall.message.payload).toMatchObject({ emailId, status: 'sent' })
 
@@ -77,7 +92,5 @@ describe('EmailSendRequestedConsumer (real Kafka + Redis)', () => {
      */
     const outcome = await publishSpy.mock.results[callIndex]!.value
     expect(outcome.isSuccess()).toBe(true)
-
-    await moduleReference.close()
   }, 20_000)
 })
