@@ -6,7 +6,8 @@ import { type Either, failure, success } from '@ruguin/utils'
 import {
   type DedupClaimInput,
   type DedupClaimOutput,
-  type DedupClaimPort
+  type DedupClaimPort,
+  type ReleaseClaimInput
 } from '../../application/providers/dedup-claim.port.ts'
 
 /* KeyBuilder forbids ":" in namespace segments (packages/cache/src/infra/key-builder.ts). */
@@ -27,5 +28,13 @@ export class RedisDedupClaim implements DedupClaimPort {
     if (result.isFailure()) return failure(result.value)
 
     return success({ claimed: result.value.stored })
+  }
+
+  public async release(input: ReleaseClaimInput): Promise<Either<BaseError, void>> {
+    const result = await this.cache.delete({ key: input.key, namespace: NAMESPACE })
+
+    if (result.isFailure()) return failure(result.value)
+
+    return success(undefined)
   }
 }

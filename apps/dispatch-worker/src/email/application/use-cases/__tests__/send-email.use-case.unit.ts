@@ -23,9 +23,15 @@ const BASE_INPUT = {
   attempt: 0
 }
 
-function buildUseCase(overrides: { claimed?: boolean; allowed?: boolean; sendResult?: 'success' | 'failure' }) {
+function buildUseCase(overrides: {
+  claimed?: boolean
+  allowed?: boolean
+  sendResult?: 'success' | 'failure'
+  publishResults?: ReadonlyArray<'success' | 'failure'>
+}) {
   const claim = vi.fn().mockResolvedValue(success({ claimed: overrides.claimed ?? true }))
-  const dedupClaim: DedupClaimPort = { claim }
+  const release = vi.fn().mockResolvedValue(success(undefined))
+  const dedupClaim: DedupClaimPort = { claim, release }
 
   const check = vi.fn().mockResolvedValue(success({ allowed: overrides.allowed ?? true }))
   const rateLimiter: RateLimiterPort = { check }
@@ -36,12 +42,18 @@ function buildUseCase(overrides: { claimed?: boolean; allowed?: boolean; sendRes
       : vi.fn().mockResolvedValue(success({ sesMessageId: 'ses-1' }))
   const emailSender: EmailSenderPort = { send }
 
-  const publish = vi.fn().mockResolvedValue(success(undefined))
+  const publishError = { isFailure: () => true, isSuccess: () => false, value: { message: 'broker unavailable' } }
+  const publishQueue = [...(overrides.publishResults ?? [])]
+  // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async publish contract; stub has nothing to await
+  const publish = vi.fn().mockImplementation(async () => {
+    const next = publishQueue.shift()
+    return next === 'failure' ? publishError : success(undefined)
+  })
   const messageProducer: MessageProducerPort = { publish }
 
-  const useCase = new SendEmailUseCase(dedupClaim, rateLimiter, emailSender, messageProducer)
+  const useCase = new SendEmailUseCase(dedupClaim, rateLimiter, emailSender, messageProducer, 14)
 
-  return { useCase, claim, check, send, publish }
+  return { useCase, claim, release, check, send, publish }
 }
 
 describe('SendEmailUseCase', () => {
@@ -55,7 +67,7 @@ describe('SendEmailUseCase', () => {
   })
 
   it('sends and publishes email.status.updated with status=sent on success', async () => {
-    const { useCase, publish } = buildUseCase({})
+    const { useCase, publish, release, check } = buildUseCase({})
 
     const result = await useCase.execute(BASE_INPUT)
 
@@ -71,6 +83,9 @@ describe('SendEmailUseCase', () => {
         })
       })
     )
+    // Proves the rate limit comes from the injected constructor value, not a hardcoded number.
+    expect(check).toHaveBeenCalledWith(expect.objectContaining({ limit: 14 }))
+    expect(release).not.toHaveBeenCalled()
   })
 
   it('skips silently when the dedup claim was already taken', async () => {
@@ -85,8 +100,8 @@ describe('SendEmailUseCase', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it('schedules a retry when the rate limit is exceeded, at attempt+1', async () => {
-    const { useCase, publish } = buildUseCase({ allowed: false })
+  it('reschedules at the SAME attempt when the rate limit is exceeded, so throttling alone never exhausts retries', async () => {
+    const { useCase, publish, release } = buildUseCase({ allowed: false })
 
     const result = await useCase.execute(BASE_INPUT)
 
@@ -97,9 +112,19 @@ describe('SendEmailUseCase', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({
         topic: EMAIL_SEND_REQUESTED_RETRY_TOPIC,
-        headers: { attempt: '1', nextAttemptAt: '2026-08-02T12:00:10.000Z' }
+        headers: { attempt: '0', nextAttemptAt: '2026-08-02T12:00:05.000Z' }
       })
     )
+    expect(release).not.toHaveBeenCalled()
+  })
+
+  it('releases the dedup claim so a redelivery can retry when the rate-limit reschedule publish itself fails', async () => {
+    const { useCase, release } = buildUseCase({ allowed: false, publishResults: ['failure'] })
+
+    const result = await useCase.execute(BASE_INPUT)
+
+    expect(result.isFailure()).toBe(true)
+    expect(release).toHaveBeenCalledWith({ key: 'email-1-0' })
   })
 
   it('schedules a retry when SES send fails and attempt has not exhausted retries', async () => {
@@ -139,5 +164,32 @@ describe('SendEmailUseCase', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({ topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC, headers: { attempt: '4' } })
     )
+  })
+
+  it('releases the dedup claim when the status-updated publish fails after a successful send, so redelivery is not treated as a duplicate', async () => {
+    const { useCase, release } = buildUseCase({ publishResults: ['failure'] })
+
+    const result = await useCase.execute(BASE_INPUT)
+
+    expect(result.isFailure()).toBe(true)
+    expect(release).toHaveBeenCalledWith({ key: 'email-1-0' })
+  })
+
+  it('releases the dedup claim when the DLQ publish fails after retries are exhausted, so the message is not lost for the rest of the TTL', async () => {
+    const { useCase, release } = buildUseCase({ sendResult: 'failure', publishResults: ['success', 'failure'] })
+
+    const result = await useCase.execute({ ...BASE_INPUT, attempt: 3 })
+
+    expect(result.isFailure()).toBe(true)
+    expect(release).toHaveBeenCalledWith({ key: 'email-1-3' })
+  })
+
+  it('does not release the dedup claim when the retry-scheduled publish succeeds after a genuine SES failure', async () => {
+    const { useCase, release } = buildUseCase({ sendResult: 'failure' })
+
+    const result = await useCase.execute({ ...BASE_INPUT, attempt: 2 })
+
+    expect(result.isSuccess()).toBe(true)
+    expect(release).not.toHaveBeenCalled()
   })
 })
