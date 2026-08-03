@@ -1,23 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
+import { type MessageProducerPort, type OutboundMessage } from '@ruguin/message-broker'
 import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, success } from '@ruguin/utils'
 
-import { type MessageProducerPort, type OutboundMessage } from '../../domain/contracts/message-producer.port'
-
 const MAX_RECORDED_MESSAGES = 10_000
 
+/*
+ * Test-only double for OutboxRelayService's .int.ts suite — lets those tests assert publish
+ * ordering (which message, in which sequence) without a live Kafka broker. Production wiring uses
+ * @ruguin/message-broker's real KafkaMessageProducer, registered globally by AppModule; this class
+ * is never bound in OutboxModule.
+ */
 @Injectable()
 export class FakeMessageProducer implements MessageProducerPort {
-  private readonly logger = new Logger(FakeMessageProducer.name)
   private readonly published: OutboundMessage[] = []
-
-  constructor() {
-    this.logger.warn(
-      'OutboxModule is bound to FakeMessageProducer — published messages are recorded in memory ' +
-        'only and are NOT delivered anywhere. Replace MESSAGE_PRODUCER_PORT with a real producer ' +
-        'before relying on outbox delivery.'
-    )
-  }
 
   // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async interface contract; fake impl has nothing to await
   public async publish(input: OutboundMessage): Promise<Either<BaseError, void>> {
