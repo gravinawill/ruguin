@@ -1,4 +1,4 @@
-const BASE_BACKOFF_MS = 5000
+export const BASE_BACKOFF_MS = 5000
 
 export const MAX_RETRY_ATTEMPTS = 3
 
