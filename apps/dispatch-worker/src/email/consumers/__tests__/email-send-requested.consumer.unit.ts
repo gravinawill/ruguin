@@ -96,4 +96,42 @@ describe('EmailSendRequestedConsumer', () => {
       expect.objectContaining({ emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001', attempt: 0 })
     )
   })
+
+  it('returns a failure when the use case fails, so KafkaMessageConsumer does not commit the offset', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const producer = { publish: vi.fn() } as unknown as MessageProducerPort
+    const execute = vi
+      .fn()
+      .mockResolvedValue({ isFailure: () => true, isSuccess: () => false, value: { message: 'broker unavailable' } })
+    const sendEmail = { execute } as unknown as SendEmailUseCase
+
+    await new EmailSendRequestedConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-2',
+      name: 'email.send.requested',
+      payload: {
+        emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001',
+        organizationId: '018f9a9e-6f0a-7c3e-9b0a-000000000002',
+        projectId: '018f9a9e-6f0a-7c3e-9b0a-000000000003',
+        from: 'a@ruguin.dev',
+        to: 'b@ruguin.dev',
+        subject: 'Hi',
+        html: '<p>Hi</p>'
+      },
+      headers: {}
+    })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) {
+      expect(result.value.message).toBe('broker unavailable')
+    }
+  })
 })

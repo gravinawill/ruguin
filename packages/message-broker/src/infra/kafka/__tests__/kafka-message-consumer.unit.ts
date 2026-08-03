@@ -137,6 +137,34 @@ describe('KafkaMessageConsumer', () => {
     expect(message.commit).not.toHaveBeenCalled()
   })
 
+  it('keeps processing later messages after onMessage resolves with a failure for an earlier one', async () => {
+    const failingMessage = fakeMessage(
+      JSON.stringify({ eventId: 'evt-5', name: 'email.send.requested', payload: { emailId: 'e5' } })
+    )
+    const succeedingMessage = fakeMessage(
+      JSON.stringify({ eventId: 'evt-6', name: 'email.send.requested', payload: { emailId: 'e6' } })
+    )
+    const stream = fakeStream([failingMessage, succeedingMessage])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi
+      .fn()
+      .mockResolvedValueOnce(failure(new MessageConsumeError({ message: 'boom' })))
+      .mockResolvedValueOnce(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledTimes(2)
+    expect(failingMessage.commit).not.toHaveBeenCalled()
+    expect(succeedingMessage.commit).toHaveBeenCalledOnce()
+  })
+
   it('does not commit a message whose JSON is malformed (onMessage never runs)', async () => {
     const message = fakeMessage('not valid json')
     const stream = fakeStream([message])

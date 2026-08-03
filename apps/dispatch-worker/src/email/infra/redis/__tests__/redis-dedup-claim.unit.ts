@@ -39,6 +39,21 @@ describe('RedisDedupClaim', () => {
     }
   })
 
+  it('propagates a failure from the underlying cache when claiming', async () => {
+    const cacheError = { name: 'CacheOperationError', message: 'connection reset' }
+    const setIfNotExists = vi
+      .fn()
+      .mockResolvedValue({ isFailure: () => true, isSuccess: () => false, value: cacheError })
+    const claim = new RedisDedupClaim(fakeCache({ setIfNotExists }))
+
+    const result = await claim.claim({ key: 'email-1:0', ttlInMs: 60_000 })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) {
+      expect(result.value).toBe(cacheError)
+    }
+  })
+
   it('releases a claimed key so a later redelivery can claim it again', async () => {
     const deleteFunction = vi.fn().mockResolvedValue(success({ existed: true }))
     const claim = new RedisDedupClaim(fakeCache({ delete: deleteFunction }))

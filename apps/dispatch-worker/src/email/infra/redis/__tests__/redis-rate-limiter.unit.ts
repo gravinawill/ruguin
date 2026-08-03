@@ -37,4 +37,29 @@ describe('RedisRateLimiter', () => {
       expect(result.value.allowed).toBe(false)
     }
   })
+
+  it('allows the request when the counter exactly equals the limit (the check is inclusive)', async () => {
+    const increment = vi.fn().mockResolvedValue(success({ value: 14 }))
+    const limiter = new RedisRateLimiter(fakeCache(increment))
+
+    const result = await limiter.check({ key: 'ses-account', limit: 14, windowInMs: 1000 })
+
+    expect(result.isSuccess()).toBe(true)
+    if (result.isSuccess()) {
+      expect(result.value.allowed).toBe(true)
+    }
+  })
+
+  it('propagates a failure from the underlying cache instead of treating it as allowed or denied', async () => {
+    const cacheError = { name: 'CacheOperationError', message: 'connection reset' }
+    const increment = vi.fn().mockResolvedValue({ isFailure: () => true, isSuccess: () => false, value: cacheError })
+    const limiter = new RedisRateLimiter(fakeCache(increment))
+
+    const result = await limiter.check({ key: 'ses-account', limit: 14, windowInMs: 1000 })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) {
+      expect(result.value).toBe(cacheError)
+    }
+  })
 })

@@ -12,6 +12,14 @@ import { type EmailSenderPort } from '../../providers/email-sender.port.ts'
 import { type RateLimiterPort } from '../../providers/rate-limiter.port.ts'
 import { SendEmailUseCase } from '../send-email.use-case.ts'
 
+const infraFailure = (
+  message: string
+): { isFailure: () => true; isSuccess: () => false; value: { message: string } } => ({
+  isFailure: () => true,
+  isSuccess: () => false,
+  value: { message }
+})
+
 const BASE_INPUT = {
   emailId: 'email-1',
   organizationId: 'org-1',
@@ -25,15 +33,27 @@ const BASE_INPUT = {
 
 function buildUseCase(overrides: {
   claimed?: boolean
+  claimFails?: boolean
   allowed?: boolean
+  checkFails?: boolean
   sendResult?: 'success' | 'failure'
   publishResults?: ReadonlyArray<'success' | 'failure'>
 }) {
-  const claim = vi.fn().mockResolvedValue(success({ claimed: overrides.claimed ?? true }))
+  const claim = vi
+    .fn()
+    .mockResolvedValue(
+      overrides.claimFails === true ? infraFailure('dedup store down') : success({ claimed: overrides.claimed ?? true })
+    )
   const release = vi.fn().mockResolvedValue(success(undefined))
   const dedupClaim: DedupClaimPort = { claim, release }
 
-  const check = vi.fn().mockResolvedValue(success({ allowed: overrides.allowed ?? true }))
+  const check = vi
+    .fn()
+    .mockResolvedValue(
+      overrides.checkFails === true
+        ? infraFailure('rate limiter store down')
+        : success({ allowed: overrides.allowed ?? true })
+    )
   const rateLimiter: RateLimiterPort = { check }
 
   const send =
@@ -100,6 +120,35 @@ describe('SendEmailUseCase', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
+  it('propagates a failure from the dedup claim store instead of proceeding', async () => {
+    const { useCase, send } = buildUseCase({ claimFails: true })
+
+    const result = await useCase.execute(BASE_INPUT)
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) {
+      expect(result.value.message).toBe('dedup store down')
+    }
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('propagates a failure from the rate limiter store instead of treating it as allowed or denied', async () => {
+    const { useCase, send, release } = buildUseCase({ checkFails: true })
+
+    const result = await useCase.execute(BASE_INPUT)
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) {
+      expect(result.value.message).toBe('rate limiter store down')
+    }
+    expect(send).not.toHaveBeenCalled()
+    /*
+     * A rate-limiter-store failure happens before any side effect, so the claim is released
+     * exactly like every other post-claim failure — the redelivered message gets a real retry.
+     */
+    expect(release).toHaveBeenCalledWith({ key: 'email-1-0' })
+  })
+
   it('reschedules at the SAME attempt when the rate limit is exceeded, so throttling alone never exhausts retries', async () => {
     const { useCase, publish, release } = buildUseCase({ allowed: false })
 
@@ -144,6 +193,15 @@ describe('SendEmailUseCase', () => {
     )
   })
 
+  it('propagates a failure when the retry-topic publish itself fails after a genuine SES failure', async () => {
+    const { useCase, release } = buildUseCase({ sendResult: 'failure', publishResults: ['failure'] })
+
+    const result = await useCase.execute({ ...BASE_INPUT, attempt: 2 })
+
+    expect(result.isFailure()).toBe(true)
+    expect(release).toHaveBeenCalledWith({ key: 'email-1-2' })
+  })
+
   it('gives up, publishes status=failed with the failure reason, and routes to the DLQ with the terminal attempt count once retries are exhausted', async () => {
     const { useCase, publish } = buildUseCase({ sendResult: 'failure' })
 
@@ -164,6 +222,17 @@ describe('SendEmailUseCase', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({ topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC, headers: { attempt: '4' } })
     )
+  })
+
+  it('propagates a failure when the terminal status=failed publish itself fails, never reaching the DLQ publish', async () => {
+    const { useCase, publish, release } = buildUseCase({ sendResult: 'failure', publishResults: ['failure'] })
+
+    const result = await useCase.execute({ ...BASE_INPUT, attempt: 3 })
+
+    expect(result.isFailure()).toBe(true)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC }))
+    expect(release).toHaveBeenCalledWith({ key: 'email-1-3' })
   })
 
   it('releases the dedup claim when the status-updated publish fails after a successful send, so redelivery is not treated as a duplicate', async () => {
