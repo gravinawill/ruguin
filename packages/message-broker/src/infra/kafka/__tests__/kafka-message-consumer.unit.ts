@@ -271,4 +271,32 @@ describe('KafkaMessageConsumer', () => {
     expect(closeA).toHaveBeenCalledWith(true, expect.any(Function))
     expect(closeB).toHaveBeenCalledWith(true, expect.any(Function))
   })
+
+  it('still closes every other consumer when one close fails, instead of short-circuiting on the first failure', async () => {
+    const closeA = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(new Error('broker unreachable'))
+    })
+    const closeB = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
+      if (isForced) callback(null)
+    })
+    const consumeA = vi.fn().mockResolvedValue(fakeStream([]))
+    const consumeB = vi.fn().mockResolvedValue(fakeStream([]))
+    const createConsumer = vi
+      .fn()
+      .mockReturnValueOnce({ consume: consumeA, close: closeA })
+      .mockReturnValueOnce({ consume: consumeB, close: closeB })
+
+    const kafkaConsumer = new KafkaMessageConsumer(createConsumer)
+    await kafkaConsumer.subscribe({ topic: 'email.send.requested', groupId: 'dispatch-worker', onMessage: vi.fn() })
+    await kafkaConsumer.subscribe({
+      topic: 'email.send.requested.retry',
+      groupId: 'dispatch-worker-retry',
+      onMessage: vi.fn()
+    })
+
+    await expect(kafkaConsumer.onModuleDestroy()).resolves.toBeUndefined()
+
+    expect(closeA).toHaveBeenCalledWith(true, expect.any(Function))
+    expect(closeB).toHaveBeenCalledWith(true, expect.any(Function))
+  })
 })

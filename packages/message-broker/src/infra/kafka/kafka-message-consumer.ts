@@ -101,8 +101,22 @@ export class KafkaMessageConsumer implements MessageConsumerPort, OnModuleDestro
     })
   }
 
+  /*
+   * Promise.all would reject on the first failed close and return before the rest finish,
+   * hiding any additional close failures and leaving onModuleDestroy() unable to confirm every
+   * consumer actually shut down. allSettled lets every close run to completion and surfaces each
+   * failure.
+   */
   public async onModuleDestroy(): Promise<void> {
-    await Promise.all(this.consumers.map((consumer) => KafkaMessageConsumer.closeConsumer(consumer)))
+    const results = await Promise.allSettled(
+      this.consumers.map((consumer) => KafkaMessageConsumer.closeConsumer(consumer))
+    )
+
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        this.logger.error(`Failed to close a Kafka consumer: ${String(result.reason)}`)
+      }
+    }
   }
 
   /*
