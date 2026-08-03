@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing'
+import { success } from '@ruguin/utils'
 import { describe, expect, it } from 'vitest'
 
 import { MESSAGE_CONSUMER_PORT, type MessageConsumerPort } from '../../domain/contracts/message-consumer.port.ts'
@@ -30,7 +31,7 @@ describe('MessageBrokerModule (real Kafka)', () => {
       groupId: `message-broker-int-test-${Date.now()}`,
       onMessage: (message) => {
         received.push(message)
-        return { isFailure: () => false, isSuccess: () => true, value: undefined } as never
+        return Promise.resolve(success(undefined))
       }
     })
 

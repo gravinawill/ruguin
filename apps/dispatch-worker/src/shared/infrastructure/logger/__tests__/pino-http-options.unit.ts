@@ -29,4 +29,14 @@ describe('createPinoHttpOptions', () => {
     expect(options.level).toBe('info')
     expect(options.transport).toBeUndefined()
   })
+
+  it('redacts the authorization and cookie headers', async () => {
+    setEnvironment({ ENVIRONMENT: 'test' })
+    const { createPinoHttpOptions } = await import('../pino-http-options.ts')
+
+    const options = createPinoHttpOptions()
+
+    expect(options.redact).toContain('req.headers.authorization')
+    expect(options.redact).toContain('req.headers.cookie')
+  })
 })

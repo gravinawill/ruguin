@@ -6,6 +6,7 @@ export function createPinoHttpOptions(): Options {
 
   return {
     level: isProduction ? 'info' : 'debug',
-    ...(!isProduction && { transport: { target: 'pino-pretty' } })
+    ...(!isProduction && { transport: { target: 'pino-pretty' } }),
+    redact: ['req.headers.authorization', 'req.headers.cookie']
   }
 }
