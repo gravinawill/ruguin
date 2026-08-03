@@ -7,12 +7,13 @@ export default defineConfig({
     include: ['src/**/__tests__/**/*.unit.ts'],
     clearMocks: true,
     restoreMocks: true,
-    reporters: ['verbose'],
+    reporters: ['verbose', 'vitest-sonar-reporter'],
+    outputFile: { 'vitest-sonar-reporter': './coverage/sonar-report.xml' },
     testTimeout: 5000,
     passWithNoTests: true,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'lcov'],
+      reporter: ['text', 'lcov', 'json-summary'],
       /*
        * `include` matters as much as `exclude`: Vitest 4 dropped `coverage.all`, so without it
        * only files a test actually imports are measured — a file nobody imports yet would be
