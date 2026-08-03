@@ -17,7 +17,9 @@ FROM --platform=$BUILDPLATFORM node:26.5.1-alpine AS builder
 WORKDIR /repo
 # openssl and libc6-compat are here for Prisma's schema-engine, which is native and runs on generate.
 # node:26 dropped the bundled corepack binary; npm is still present, so it installs corepack itself.
-RUN npm install -g corepack@0.35.0 --ignore-scripts && corepack enable && apk add --no-cache openssl=3.5.7-r0 libc6-compat=1.1.0-r4
+RUN npm install -g corepack@0.35.0 --ignore-scripts \
+  && corepack enable \
+  && apk add --no-cache openssl=3.5.7-r0 libc6-compat=1.1.0-r4
 COPY --from=pruner /repo/out/json/ ./
 # out/json ships manifests only, no turbo.json, so the root "postinstall: pnpm run build" (turbo run
 # build) has nothing to build against; strip it so the frozen install only fetches dependencies.
