@@ -184,6 +184,50 @@ um painel único em vez de três lugares diferentes para olhar.
 1. ~~Criar conta em sonarcloud.io, importar `gravinawill/ruguin` como projeto, instalar o SonarCloud
    GitHub App, gerar um `SONAR_TOKEN`.~~ **Feito** — projeto `gravinawill_ruguin` já existe com análise
    automática registrada; `SONAR_TOKEN` já está registrado como secret do repositório.
-2. Gerar um `SEMGREP_APP_TOKEN` na Semgrep AppSec Platform (a conta já existe).
+2. ~~Gerar um `SEMGREP_APP_TOKEN` na Semgrep AppSec Platform.~~ **Feito** — `SEMGREP_APP_TOKEN` já
+   está registrado como secret do repositório.
 3. Depois do primeiro PR real com os novos checks: adicionar os nomes exatos que aparecerem em
    Settings → Branches → Branch protection rules, para que passem a bloquear merge de verdade.
+
+## Resultado
+
+`pnpm run check`, `pnpm build` e `pnpm test:coverage` passam limpos (7/7, 7/7, 5/5) com as 8 tasks
+de implementação aplicadas. Os três arquivos de workflow (`ci.yml`, `codeql.yml`,
+`release-image.yml`) validam como YAML.
+
+### Desvios descobertos durante a implementação
+
+- **`--sarif --output=<path>` estava errado.** A flag real do `semgrep ci` para escrever SARIF em
+  arquivo é `--sarif-output`, não uma combinação genérica de `--sarif` com `--output`. Descoberto
+  rodando `semgrep ci --help` contra a imagem real, como o próprio plano exigia antes de escrever o
+  step — e verificado funcionalmente com um scan de verdade contra um arquivo com uma vulnerabilidade
+  conhecida, não só lendo o texto de ajuda.
+- **`semgrep/semgrep:1` não existe.** O Docker Hub só publica versões de patch completas para essa
+  imagem (`1.172.0` na época da implementação) mais `latest`/`canary` — nenhuma tag de major version
+  solta. Corrigido para `semgrep/semgrep:1.172.0`.
+- **`hadolint` encontrou 5 achados reais** contra o `Dockerfile` do `core-server` na primeira
+  execução: duas versões de pacote `apk` não fixadas (`DL3018`), dois pares de `RUN` consecutivos que
+  deveriam ser consolidados (`DL3059`), e o `USER nestjs` sendo um nome em vez de UID numérico
+  (`DL3066` — relevante porque `securityContext.runAsNonRoot` do Kubernetes não resolve nome, só
+  UID). Todos corrigidos nesta mesma onda, não adiados — incluindo verificar as versões de pacote
+  fixadas contra o índice `apk` real da imagem `node:26.5.1-alpine` antes de commitar, e um rebuild
+  completo confirmando `uid=1001(nestjs) gid=1001(nodejs)` no container final. O mecanismo
+  `--platform=$BUILDPLATFORM` (fix do QEMU, Onda 1) não foi tocado.
+- **Erro no próprio plano:** o Step 4 da Task 4 dizia "Expected: OK, 7 properties", mas o
+  `sonar-project.properties` especificado no Step 1 do mesmo documento tem 8 linhas — sobrou do
+  ajuste tardio que adicionou `sonar.testExecutionReportPaths`. Não afetou a implementação (o
+  validador só confirma que cada linha é `chave=valor`, não uma contagem exata), só a expectativa
+  documentada estava desatualizada.
+- **`vitest-sonar-reporter`'s `outputFile` funcionou de primeira**, sem precisar de ajuste — a
+  convenção padrão de reporter do vitest (`outputFile: { '<nome-do-reporter>': '<caminho>' }`) era
+  a suposição correta.
+
+### O que ainda depende da primeira execução real em CI
+
+- Os nomes exatos de check que cada job novo reporta no GitHub (para poder adicioná-los à branch
+  protection).
+- Se o `trivy-fs` encontra alguma vulnerabilidade pré-existente no repositório que precise de
+  triagem — o job nunca rodou de verdade, só foi validado sintaticamente.
+- Se o step `Danger` (`npx danger ci`, modo que efetivamente posta/atualiza comentário) funciona
+  como o `npx danger pr` (modo dry-run, só leitura) já comprovado funcionar — a diferença de modo
+  nunca foi exercitada contra um evento `pull_request` real do GitHub Actions.
