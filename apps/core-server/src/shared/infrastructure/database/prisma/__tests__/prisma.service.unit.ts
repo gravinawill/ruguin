@@ -1,6 +1,29 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { resolveSchemaFrom } from '../prisma.service'
+import { PrismaService, resolveSchemaFrom } from '../prisma.service'
+
+const connectionString = 'postgresql://u:p@localhost:5432/ruguin?schema=core_server'
+
+describe('PrismaService', () => {
+  /*
+   * The Postgres adapter (and the pg Pool it wraps) only opens a socket lazily, on the first
+   * query — asserted here because CLAUDE.md commits to that contract explicitly ("PrismaService
+   * não chama $connect no boot"): the health check, not module construction, owns reporting a
+   * database being unreachable.
+   */
+  it('constructs without opening a database connection', () => {
+    expect(() => new PrismaService(connectionString)).not.toThrow()
+  })
+
+  it('disconnects the underlying client when the module is destroyed', async () => {
+    const service = new PrismaService(connectionString)
+    const disconnect = vi.spyOn(service, '$disconnect').mockResolvedValue(undefined)
+
+    await service.onModuleDestroy()
+
+    expect(disconnect).toHaveBeenCalledOnce()
+  })
+})
 
 describe('resolveSchemaFrom', () => {
   it('extracts the schema declared in the connection string', () => {
