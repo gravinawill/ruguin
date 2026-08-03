@@ -23,6 +23,18 @@ describe('PrismaService', () => {
 
     expect(disconnect).toHaveBeenCalledOnce()
   })
+
+  it('exposes the schema declared in the connection string, for raw SQL that cannot inherit the adapter option', () => {
+    const service = new PrismaService(connectionString)
+
+    expect(service.schema).toBe('core_server')
+  })
+
+  it('falls back to the public schema when the connection string declares none', () => {
+    const service = new PrismaService('postgresql://u:p@localhost:5432/ruguin')
+
+    expect(service.schema).toBe('public')
+  })
 })
 
 describe('resolveSchemaFrom', () => {
