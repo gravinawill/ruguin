@@ -76,7 +76,9 @@ jobs:
 
       - name: Danger
         if: always() && github.event_name == 'pull_request'
-        run: npx danger ci
+        # pnpm exec runs the pinned `danger` devDependency already resolved by Install
+        # dependencies — npx would instead fetch and run an unpinned version on demand.
+        run: pnpm exec danger ci
         continue-on-error: true
         env:
           DANGER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}

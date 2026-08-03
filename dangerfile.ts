@@ -20,8 +20,14 @@ function readThresholds(configPath: string): Thresholds | undefined {
   const block = /thresholds:\s*\{([^}]+)\}/.exec(text)
   if (block === null) return undefined
   const body = block[1] ?? ''
+  const patterns: Record<CoverageMetric, RegExp> = {
+    statements: /statements:\s*(\d+)/,
+    branches: /branches:\s*(\d+)/,
+    functions: /functions:\s*(\d+)/,
+    lines: /lines:\s*(\d+)/
+  }
   const pick = (key: CoverageMetric): number => {
-    const found = new RegExp(String.raw`${key}:\s*(\d+)`).exec(body)
+    const found = patterns[key].exec(body)
     return found === null ? 0 : Number(found[1])
   }
   return {
