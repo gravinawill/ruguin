@@ -12,10 +12,17 @@ describe('retry-backoff', () => {
     vi.useRealTimers()
   })
 
-  it('computes ~10s / ~20s / ~40s for attempts 1, 2, 3', () => {
-    expect(computeNextRetryAt(1)).toEqual(new Date('2026-08-02T12:00:10.000Z'))
-    expect(computeNextRetryAt(2)).toEqual(new Date('2026-08-02T12:00:20.000Z'))
-    expect(computeNextRetryAt(3)).toEqual(new Date('2026-08-02T12:00:40.000Z'))
+  it('computes a jittered delay within [ceiling/2, ceiling] for attempts 1, 2, 3', () => {
+    const now = Date.now()
+
+    expect(computeNextRetryAt(1).getTime()).toBeGreaterThanOrEqual(now + 5000)
+    expect(computeNextRetryAt(1).getTime()).toBeLessThanOrEqual(now + 10_000)
+
+    expect(computeNextRetryAt(2).getTime()).toBeGreaterThanOrEqual(now + 10_000)
+    expect(computeNextRetryAt(2).getTime()).toBeLessThanOrEqual(now + 20_000)
+
+    expect(computeNextRetryAt(3).getTime()).toBeGreaterThanOrEqual(now + 20_000)
+    expect(computeNextRetryAt(3).getTime()).toBeLessThanOrEqual(now + 40_000)
   })
 
   it('exposes 3 as the max retry attempts', () => {
