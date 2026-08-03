@@ -17,28 +17,31 @@ FROM --platform=$BUILDPLATFORM node:26.5.1-alpine AS builder
 WORKDIR /repo
 # openssl and libc6-compat are here for Prisma's schema-engine, which is native and runs on generate.
 # node:26 dropped the bundled corepack binary; npm is still present, so it installs corepack itself.
-RUN npm install -g corepack@latest && corepack enable && apk add --no-cache openssl libc6-compat
+RUN npm install -g corepack@latest && corepack enable && apk add --no-cache openssl=3.5.7-r0 libc6-compat=1.1.0-r4
 COPY --from=pruner /repo/out/json/ ./
 # out/json ships manifests only, no turbo.json, so the root "postinstall: pnpm run build" (turbo run
 # build) has nothing to build against; strip it so the frozen install only fetches dependencies.
-RUN node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));delete p.scripts.postinstall;fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
-RUN pnpm install --frozen-lockfile
+RUN node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));delete p.scripts.postinstall;fs.writeFileSync('package.json',JSON.stringify(p,null,2));" \
+  && pnpm install --frozen-lockfile
 COPY --from=pruner /repo/out/full/ ./
 # core-server's own `build` script runs directly (prisma generate && nest build), not through turbo,
 # so turbo.json's `dependsOn: ["^build"]` never fires on its own here. Invoking turbo explicitly
 # makes it resolve the graph and build every workspace dependency before core-server itself.
-RUN pnpm exec turbo run build --filter=@ruguin/core-server
-RUN pnpm --filter @ruguin/core-server deploy --prod --legacy /prod
+RUN pnpm exec turbo run build --filter=@ruguin/core-server \
+  && pnpm --filter @ruguin/core-server deploy --prod --legacy /prod
 
 FROM node:26.5.1-alpine AS runner
 # tini is PID 1 because main.ts enables shutdown hooks: without it, SIGTERM would kill the process
 # with the Prisma connection still open instead of closing it.
-RUN apk add --no-cache tini \
-  && addgroup -S nodejs \
-  && adduser -S nestjs -G nodejs
+# UID/GID 1001 pinned explicitly (not left to `-S`'s default allocation) so USER below can be
+# numeric — Kubernetes securityContext.runAsNonRoot and similar host-level checks can't resolve a
+# username, only a uid.
+RUN apk add --no-cache tini=0.19.0-r3 \
+  && addgroup -g 1001 -S nodejs \
+  && adduser -u 1001 -S nestjs -G nodejs
 WORKDIR /app
 COPY --from=builder --chown=nestjs:nodejs /prod ./
-USER nestjs
+USER 1001:1001
 ENV NODE_ENV=production
 EXPOSE 3333
 ENTRYPOINT ["/sbin/tini", "--"]
