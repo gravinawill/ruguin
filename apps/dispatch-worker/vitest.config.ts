@@ -21,6 +21,17 @@ export default defineConfig({
     restoreMocks: true,
     reporters: ['verbose'],
     passWithNoTests: true,
+    /*
+     * integration/e2e files each boot their own EmailModule instance against the same real Kafka
+     * broker, and EmailSendRequestedConsumer/EmailSendRequestedRetryConsumer use hardcoded consumer
+     * group IDs (not per-run-unique) — see email-send-requested(-retry).consumer.ts. Two module
+     * instances racing in the same group cause Kafka to split partitions between them, so a message
+     * one test publishes can be consumed by the *other* test's module instance, whose producer isn't
+     * the one being spied/observed on — a silent cross-file miss, not a flake in either test alone.
+     * false here serializes every file (fast, since unit tests dominate the file count and cost
+     * nothing to run one-at-a-time) so no two EmailModule instances are ever live at once.
+     */
+    fileParallelism: false,
     projects: [
       { extends: true, test: { name: 'unit', include: ['src/**/__tests__/**/*.unit.ts'], testTimeout: 5000 } },
       { extends: true, test: { name: 'integration', include: ['src/**/__tests__/**/*.int.ts'], testTimeout: 20_000 } },
