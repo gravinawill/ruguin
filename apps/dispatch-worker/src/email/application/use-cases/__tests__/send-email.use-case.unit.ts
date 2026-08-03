@@ -4,9 +4,10 @@ import {
   EMAIL_STATUS_UPDATED_TOPIC
 } from '@ruguin/event-schemas'
 import { type MessageProducerPort } from '@ruguin/message-broker'
-import { success } from '@ruguin/utils'
+import { failure, success } from '@ruguin/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { SesSendError } from '../../../domain/errors/ses-send.error.ts'
 import { type DedupClaimPort } from '../../providers/dedup-claim.port.ts'
 import { type EmailSenderPort } from '../../providers/email-sender.port.ts'
 import { type RateLimiterPort } from '../../providers/rate-limiter.port.ts'
@@ -58,7 +59,7 @@ function buildUseCase(overrides: {
 
   const send =
     overrides.sendResult === 'failure'
-      ? vi.fn().mockResolvedValue({ isFailure: () => true, isSuccess: () => false, value: { message: 'SES down' } })
+      ? vi.fn().mockResolvedValue(failure(new SesSendError({ message: 'SES down' })))
       : vi.fn().mockResolvedValue(success({ sesMessageId: 'ses-1' }))
   const emailSender: EmailSenderPort = { send }
 
@@ -149,7 +150,7 @@ describe('SendEmailUseCase', () => {
     expect(release).toHaveBeenCalledWith({ key: 'email-1-0' })
   })
 
-  it('reschedules at the SAME attempt when the rate limit is exceeded, so throttling alone never exhausts retries', async () => {
+  it('reschedules at the SAME attempt when the rate limit is exceeded, so throttling alone never exhausts retries, and releases the claim so the redelivered retry is not skipped as a duplicate', async () => {
     const { useCase, publish, release } = buildUseCase({ allowed: false })
 
     const result = await useCase.execute(BASE_INPUT)
@@ -164,7 +165,13 @@ describe('SendEmailUseCase', () => {
         headers: { attempt: '0', nextAttemptAt: '2026-08-02T12:00:05.000Z' }
       })
     )
-    expect(release).not.toHaveBeenCalled()
+    /*
+     * This path republishes at the SAME attempt (unlike scheduleRetryOrGiveUp, which advances it),
+     * so the redelivered message would compute the exact same dedup key. Without releasing here,
+     * that redelivery finds the key still claimed and is silently skipped as a duplicate — the
+     * email is never actually sent.
+     */
+    expect(release).toHaveBeenCalledWith({ key: 'email-1-0' })
   })
 
   it('releases the dedup claim so a redelivery can retry when the rate-limit reschedule publish itself fails', async () => {

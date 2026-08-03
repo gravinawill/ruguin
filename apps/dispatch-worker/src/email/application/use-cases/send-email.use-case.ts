@@ -59,8 +59,7 @@ export class SendEmailUseCase {
   ) {}
 
   public async execute(input: SendEmailUseCaseInput): Promise<Either<BaseError, SendEmailUseCaseOutput>> {
-    // KeyBuilder forbids ":" in key segments (packages/cache/src/infra/key-builder.ts).
-    const dedupKey = `${input.emailId}-${input.attempt}`
+    const dedupKey = SendEmailUseCase.dedupKeyFor(input)
 
     const claimed = await this.dedupClaim.claim({ key: dedupKey, ttlInMs: DEDUP_CLAIM_TTL_MS })
     if (claimed.isFailure()) return failure(claimed.value)
@@ -90,6 +89,11 @@ export class SendEmailUseCase {
     }
 
     return result
+  }
+
+  // KeyBuilder forbids ":" in key segments (packages/cache/src/infra/key-builder.ts).
+  private static dedupKeyFor(input: SendEmailUseCaseInput): string {
+    return `${input.emailId}-${input.attempt}`
   }
 
   private async processClaimedAttempt(
@@ -139,6 +143,22 @@ export class SendEmailUseCase {
       headers: { attempt: String(input.attempt), nextAttemptAt: nextAttemptAt.toISOString() }
     })
     if (publishedRetry.isFailure()) return failure(publishedRetry.value)
+
+    /*
+     * Unlike scheduleRetryOrGiveUp (which always advances `attempt`, landing the redelivered
+     * message under a fresh dedup key), this path republishes at the SAME attempt on purpose — so
+     * the redelivered message computes the exact same dedupKey as this call. Left claimed, that
+     * redelivery would find the key still held (the claim's 60s TTL comfortably outlives the ~5-40s
+     * backoff) and get skipped as a duplicate: the email would never actually be sent. Releasing
+     * here, on the one path that intentionally reuses its own dedup key, is what makes the
+     * redelivered retry claimable again.
+     */
+    const released = await this.dedupClaim.release({ key: SendEmailUseCase.dedupKeyFor(input) })
+    if (released.isFailure()) {
+      this.logger.error(
+        `Failed to release dedup claim for rate-limited retry of ${input.emailId}: ${released.value.message}`
+      )
+    }
 
     this.logger.warn(`Rate limit exceeded for ${input.emailId} (attempt ${input.attempt}); rescheduled.`)
     return success({ outcome: 'retry-scheduled' })

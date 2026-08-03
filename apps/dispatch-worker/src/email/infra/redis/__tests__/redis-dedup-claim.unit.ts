@@ -13,14 +13,14 @@ describe('RedisDedupClaim', () => {
     const setIfNotExists = vi.fn().mockResolvedValue(success({ stored: true }))
     const claim = new RedisDedupClaim(fakeCache({ setIfNotExists }))
 
-    const result = await claim.claim({ key: 'email-1:0', ttlInMs: 60_000 })
+    const result = await claim.claim({ key: 'email-1-0', ttlInMs: 60_000 })
 
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) {
       expect(result.value.claimed).toBe(true)
     }
     expect(setIfNotExists).toHaveBeenCalledWith({
-      key: 'email-1:0',
+      key: 'email-1-0',
       namespace: 'dispatch-worker-dedup',
       value: true,
       ttlInMs: 60_000
@@ -31,7 +31,7 @@ describe('RedisDedupClaim', () => {
     const setIfNotExists = vi.fn().mockResolvedValue(success({ stored: false }))
     const claim = new RedisDedupClaim(fakeCache({ setIfNotExists }))
 
-    const result = await claim.claim({ key: 'email-1:0', ttlInMs: 60_000 })
+    const result = await claim.claim({ key: 'email-1-0', ttlInMs: 60_000 })
 
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) {
@@ -46,7 +46,7 @@ describe('RedisDedupClaim', () => {
       .mockResolvedValue({ isFailure: () => true, isSuccess: () => false, value: cacheError })
     const claim = new RedisDedupClaim(fakeCache({ setIfNotExists }))
 
-    const result = await claim.claim({ key: 'email-1:0', ttlInMs: 60_000 })
+    const result = await claim.claim({ key: 'email-1-0', ttlInMs: 60_000 })
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) {
@@ -58,10 +58,10 @@ describe('RedisDedupClaim', () => {
     const deleteFunction = vi.fn().mockResolvedValue(success({ existed: true }))
     const claim = new RedisDedupClaim(fakeCache({ delete: deleteFunction }))
 
-    const result = await claim.release({ key: 'email-1:0' })
+    const result = await claim.release({ key: 'email-1-0' })
 
     expect(result.isSuccess()).toBe(true)
-    expect(deleteFunction).toHaveBeenCalledWith({ key: 'email-1:0', namespace: 'dispatch-worker-dedup' })
+    expect(deleteFunction).toHaveBeenCalledWith({ key: 'email-1-0', namespace: 'dispatch-worker-dedup' })
   })
 
   it('propagates a failure from the underlying cache when releasing', async () => {
@@ -71,7 +71,7 @@ describe('RedisDedupClaim', () => {
       .mockResolvedValue({ isFailure: () => true, isSuccess: () => false, value: cacheError })
     const claim = new RedisDedupClaim(fakeCache({ delete: deleteFunction }))
 
-    const result = await claim.release({ key: 'email-1:0' })
+    const result = await claim.release({ key: 'email-1-0' })
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) {
