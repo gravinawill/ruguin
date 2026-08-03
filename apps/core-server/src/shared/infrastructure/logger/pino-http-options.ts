@@ -1,10 +1,12 @@
 import type { Options } from 'pino-http'
 
-export function createPinoHttpOptions(environment: NodeJS.ProcessEnv): Options {
-  const isProduction = environment.NODE_ENV === 'production'
+import { serverENV } from '@ruguin/env'
+
+export function createPinoHttpOptions(): Options {
+  const isProduction = serverENV.ENVIRONMENT === 'production'
 
   return {
-    level: environment.LOG_LEVEL ?? 'info',
+    level: isProduction ? 'info' : 'debug',
     ...(!isProduction && { transport: { target: 'pino-pretty' } }),
     redact: ['req.headers.authorization'],
     /*
