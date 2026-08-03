@@ -9,7 +9,8 @@ import {
   type DedupClaimPort
 } from '../../application/providers/dedup-claim.port.ts'
 
-const NAMESPACE = 'dispatch-worker:dedup'
+/* KeyBuilder forbids ":" in namespace segments (packages/cache/src/infra/key-builder.ts). */
+const NAMESPACE = 'dispatch-worker-dedup'
 
 @Injectable()
 export class RedisDedupClaim implements DedupClaimPort {

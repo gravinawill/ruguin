@@ -46,7 +46,8 @@ export class SendEmailUseCase {
 
   public async execute(input: SendEmailUseCaseInput): Promise<Either<BaseError, SendEmailUseCaseOutput>> {
     const claimed = await this.dedupClaim.claim({
-      key: `${input.emailId}:${input.attempt}`,
+      // KeyBuilder forbids ":" in key segments (packages/cache/src/infra/key-builder.ts).
+      key: `${input.emailId}-${input.attempt}`,
       ttlInMs: DEDUP_CLAIM_TTL_MS
     })
     if (claimed.isFailure()) return failure(claimed.value)

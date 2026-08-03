@@ -21,7 +21,7 @@ describe('RedisRateLimiter', () => {
     }
     expect(increment).toHaveBeenCalledWith({
       key: 'ses-account',
-      namespace: 'dispatch-worker:rate-limit',
+      namespace: 'dispatch-worker-rate-limit',
       windowInMs: 1000
     })
   })

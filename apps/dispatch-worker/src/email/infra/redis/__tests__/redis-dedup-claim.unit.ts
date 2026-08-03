@@ -21,7 +21,7 @@ describe('RedisDedupClaim', () => {
     }
     expect(setIfNotExists).toHaveBeenCalledWith({
       key: 'email-1:0',
-      namespace: 'dispatch-worker:dedup',
+      namespace: 'dispatch-worker-dedup',
       value: true,
       ttlInMs: 60_000
     })

@@ -1,4 +1,4 @@
-import { SendEmailCommand, type SESClient } from '@aws-sdk/client-ses'
+import { SendEmailCommand, SESClient } from '@aws-sdk/client-ses'
 import { Injectable } from '@nestjs/common'
 import { type BaseError } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'

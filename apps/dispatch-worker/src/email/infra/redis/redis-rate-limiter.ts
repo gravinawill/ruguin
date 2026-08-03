@@ -9,7 +9,8 @@ import {
   type RateLimiterPort
 } from '../../application/providers/rate-limiter.port.ts'
 
-const NAMESPACE = 'dispatch-worker:rate-limit'
+/* KeyBuilder forbids ":" in namespace segments (packages/cache/src/infra/key-builder.ts). */
+const NAMESPACE = 'dispatch-worker-rate-limit'
 
 @Injectable()
 export class RedisRateLimiter implements RateLimiterPort {
