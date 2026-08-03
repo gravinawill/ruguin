@@ -73,13 +73,22 @@ ambientes.
 Multi-AZ desligado (custo dobra) e backup automático com retenção mínima (1 dia) — ajustável quando
 houver tráfego real para justificar o custo de alta disponibilidade.
 
-### 6. Exposição: `Service` tipo `LoadBalancer`, não Ingress
+### 6. Exposição: AWS Load Balancer Controller obrigatório, mas só `Service` (NLB), não `Ingress`
 
-Um Network Load Balancer via `Service.spec.type: LoadBalancer` expõe o `core-server` diretamente —
-não o AWS Load Balancer Controller (que exigiria seu próprio Helm chart e uma role IRSA só para
-existir). Ingress com roteamento por path só se justifica quando há mais de um serviço atrás do
-mesmo balanceador; hoje 1 dos 6 serviços do product-spec existe. Trocar para Ingress mais tarde não
-exige recriar o cluster, só adicionar o controller.
+Verificado contra a documentação oficial da AWS antes de assumir: pods em Fargate não têm instância
+EC2 para o balanceador legado (`kube-controller-manager`'s in-tree provider) registrar como alvo —
+esse controller antigo, o único capaz de criar um Load Balancer sem nenhuma peça extra, simplesmente
+não enxerga Fargate. O **AWS Load Balancer Controller** (Helm chart + role IRSA) deixa de ser
+opcional a partir do momento em que a decisão 2 escolheu Fargate — não há como expor o `core-server`
+sem ele, com ou sem Ingress.
+
+O que continua opcional é o `Ingress` (roteamento L7 por path): o controller cria tanto NLB quanto
+ALB, então o `core-server` usa um `Service.spec.type: LoadBalancer` com as anotações
+`service.beta.kubernetes.io/aws-load-balancer-type: "external"` e
+`aws-load-balancer-nlb-target-type: "ip"` (tráfego direto para o pod, não para um node inexistente)
+— um NLB simples, sem `Ingress`. Trocar para `Ingress`/ALB mais tarde, quando existir mais de um
+serviço para rotear por path, não exige remover o controller nem recriar o cluster — só trocar o
+tipo de recurso Kubernetes que o consome.
 
 ### 7. GitOps: ArgoCD bootstrado pelo Terraform, aplicações vivem neste monorepo
 
@@ -123,7 +132,8 @@ cluster de um serviço só — YAGNI, não descuido: a lacuna fica registrada no
 ## Fora de escopo
 
 - Aplicar o Terraform de verdade — sem credenciais AWS neste ambiente (ver Restrição de execução).
-- AWS Load Balancer Controller / Ingress — decisão 6.
+- `Ingress` (roteamento L7 por path) — decisão 6. O AWS Load Balancer Controller em si **está** no
+  escopo, como pré-requisito técnico do Fargate, não como opção.
 - OTel Collector no cluster — decisão 8.
 - Multi-AZ em RDS/ElastiCache, réplicas de leitura — sem tráfego real para justificar ainda.
 - Os outros 5 serviços do product-spec — nenhum existe.
