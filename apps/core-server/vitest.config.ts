@@ -90,7 +90,13 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['src/**/__tests__/**/*.int.ts'],
-          testTimeout: 15_000
+          testTimeout: 15_000,
+          /*
+           * The outbox .int.ts suites share one Postgres database/schema and one outbox_messages
+           * table — OutboxRelayService publishes rows that other suites' partition/retention
+           * assertions depend on, so files in this project must not run concurrently.
+           */
+          fileParallelism: false
         }
       },
       {
