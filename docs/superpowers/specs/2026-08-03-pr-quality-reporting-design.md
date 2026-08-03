@@ -222,12 +222,46 @@ de implementação aplicadas. Os três arquivos de workflow (`ci.yml`, `codeql.y
   convenção padrão de reporter do vitest (`outputFile: { '<nome-do-reporter>': '<caminho>' }`) era
   a suposição correta.
 
-### O que ainda depende da primeira execução real em CI
+### Primeira execução real em CI
 
-- Os nomes exatos de check que cada job novo reporta no GitHub (para poder adicioná-los à branch
-  protection).
-- Se o `trivy-fs` encontra alguma vulnerabilidade pré-existente no repositório que precise de
-  triagem — o job nunca rodou de verdade, só foi validado sintaticamente.
-- Se o step `Danger` (`npx danger ci`, modo que efetivamente posta/atualiza comentário) funciona
-  como o `npx danger pr` (modo dry-run, só leitura) já comprovado funcionar — a diferença de modo
-  nunca foi exercitada contra um evento `pull_request` real do GitHub Actions.
+Os nomes de check confirmados no PR #8: `ci`, `image`, `gitleaks`, `CodeRabbit`, `CodeQL`/`analyze`,
+`Semgrep PRO`/`semgrep`/`semgrep-cloud-platform/scan`, `Trivy`/`trivy-fs`, `actionlint`,
+`SonarCloud Code Analysis`/`sonarqube` — os dois últimos pares são o mesmo tema visto de dois
+lugares: o job deste repositório (`sonarqube`, `semgrep`) e o check nativo que a plataforma externa
+posta direto no PR (`SonarCloud Code Analysis`, `Semgrep PRO`), independente do `GITHUB_TOKEN`.
+
+O `trivy-fs` encontrou 2 vulnerabilidades HIGH reais na primeira execução (`undici` — múltiplos CVEs
+de DoS no cliente WebSocket — e `find-my-way` — CVE-2026-47219, alcançável em produção via
+`@nestjs/platform-fastify`), e o Semgrep supply-chain encontrou mais uma (`js-yaml`,
+GHSA-pm4m-ph32-ghv5). Todas corrigidas via `pnpm-workspace.yaml` `overrides` — não
+`package.json`'s `pnpm` key, que o pnpm 11 silenciosamente ignora (uma primeira tentativa nessa
+localização errada não teve nenhum efeito até o warning do `pnpm install` apontar o motivo).
+`pnpm audit` foi de 3 advisories para 0.
+
+O Semgrep também sinalizou construção dinâmica de regex em `dangerfile.ts` como ReDoS potencial —
+falso positivo genuíno (a variável vem de um union fechado de 4 valores, nunca de input externo),
+mas corrigido de qualquer forma trocando por regex literal por chave, eliminando a construção
+dinâmica em vez de suprimir o achado.
+
+O SonarCloud Quality Gate começou com 9 achados "MAJOR VULNERABILITY"/"CODE_SMELL" no código novo
+(a análise trata o branch inteiro como novo, por ser a primeira vez que roda contra este PR — inclui
+achados em arquivos da Onda 1, não só desta onda). Dois eram no próprio `ci.yml` desta onda
+(`npx danger ci` sem versão fixa — trocado para `pnpm exec danger ci`, que além de resolver o
+achado é mais correto, já que `danger` já é devDependency local). Os outros sete estavam no
+`Dockerfile`/`release.yml` da Onda 1: três foram corrigidos com segurança (`corepack@latest` → pin
+exato `0.35.0` com `--ignore-scripts`; uma linha longa demais quebrada em múltiplas linhas) —
+verificado com rebuild completo, boot, `/health` 200 e `hadolint` limpo depois de cada mudança.
+**Três ficaram deliberadamente sem correção**: `pnpm install --frozen-lockfile` sem
+`--ignore-scripts`, no `Dockerfile` e no `release.yml` (a flag quebraria `prisma generate`/SWC/
+esbuild, que este build genuinamente precisa — o `pnpm-workspace.yaml` já cura via
+`onlyBuiltDependencies`/`allowBuilds` quais pacotes rodam script, uma mitigação mais fina do que a
+flag genérica que a regra do Sonar espera), e o mesmo padrão em `pnpm exec danger ci` no `ci.yml`
+(onde a regra parece não distinguir `exec`, que não instala nada, de `install`).
+
+Resultado: 9 achados do Sonar → 3; 2 HIGH do Trivy → 0; 12 dos 14 checks do PR passam. Os 3
+achados restantes são dívida técnica rastreada, não esquecida — presos ao mesmo trade-off
+(quebrar o build vs. manter o achado), não a um erro de implementação.
+
+O modo `npx danger ci`/`pnpm exec danger ci` (que efetivamente posta/atualiza comentário, diferente
+do `danger pr` em modo dry-run já comprovado antes) foi exercitado com sucesso contra um evento
+`pull_request` real — o comentário no PR #8 confirma cobertura, features e endpoints corretos.
