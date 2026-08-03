@@ -35,18 +35,17 @@ export class SesEmailSender implements EmailSenderPort {
        * routes it through the normal retry path like any other SES anomaly.
        */
       if (response.MessageId === undefined) {
-        return failure(
-          new SesSendError({
-            message: `SES accepted the send from "${input.from}" to "${input.to}" but returned no MessageId.`
-          })
-        )
+        /*
+         * No recipient/sender address here — this message crosses into the email.status.updated
+         * Kafka topic and application logs, and a recipient address is personal data.
+         */
+        return failure(new SesSendError({ message: 'SES accepted the send but returned no MessageId.' }))
       }
 
       return success({ sesMessageId: response.MessageId })
     } catch (error: unknown) {
-      return failure(
-        new SesSendError({ error, message: `Failed to send email from "${input.from}" to "${input.to}" via SES.` })
-      )
+      // Same rationale as above — the original SES error is preserved in `error` for triage.
+      return failure(new SesSendError({ error, message: 'Failed to send the email via SES.' }))
     }
   }
 }

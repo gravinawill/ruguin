@@ -32,6 +32,7 @@ import { createMessageBrokerModuleOptions } from './shared/infrastructure/messag
       invalidationBroadcast: cacheENV.CACHE_INVALIDATION_BROADCAST,
       prefix: cacheENV.CACHE_PREFIX,
       negativeTtlInMs: cacheENV.CACHE_NEGATIVE_TTL_MS,
+      // 10x the operation timeout so a lock always outlives the operation it guards, even under retries.
       lockTtlInMs: cacheENV.CACHE_OPERATION_TIMEOUT_MS * 10,
       operationTimeoutInMs: cacheENV.CACHE_OPERATION_TIMEOUT_MS,
       namespaceVersionLocalTtlInMs: cacheENV.CACHE_NS_VERSION_LOCAL_TTL_MS,
