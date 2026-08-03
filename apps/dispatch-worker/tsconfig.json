@@ -1,12 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@ruguin/typescript-config/base.json",
+  "extends": "@ruguin/typescript-config/nestjs.json",
   "compilerOptions": {
-    "rootDir": ".",
-    "outDir": "./dist",
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true
-  },
-  "include": ["src/**/*.ts", "vitest.config.ts", "vitest.setup.e2e.ts", "eslint.config.ts"],
-  "exclude": ["node_modules", "dist"]
+    "outDir": "./dist"
+  }
 }

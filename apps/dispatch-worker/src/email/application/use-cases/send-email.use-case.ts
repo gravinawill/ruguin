@@ -27,7 +27,11 @@ export type SendEmailUseCaseInput = Readonly<{
   to: string
   subject: string
   html: string
-  idempotencyKey?: string
+  /*
+   * Zod-optional fields infer as `T | undefined`, not just optional — match that spelling for
+   * exactOptionalPropertyTypes compatibility when consumers spread parsed payloads in directly.
+   */
+  idempotencyKey?: string | undefined
   attempt: number
 }>
 
