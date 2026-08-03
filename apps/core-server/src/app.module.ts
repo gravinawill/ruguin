@@ -7,6 +7,7 @@ import { RouterModule } from './router/router.module'
 import { createCacheModuleOptions } from './shared/infrastructure/cache/cache-module-options'
 import { DatabaseModule } from './shared/infrastructure/database/database.module'
 import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-options'
+import { OutboxModule } from './shared/infrastructure/outbox/outbox.module'
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-
       connectionString: databaseENV.DATABASE_URL
     }),
 
+    OutboxModule.forRoot(),
     RouterModule
   ]
 })
