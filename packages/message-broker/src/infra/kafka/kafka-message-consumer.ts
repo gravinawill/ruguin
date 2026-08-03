@@ -94,16 +94,22 @@ export class KafkaMessageConsumer implements MessageConsumerPort, OnModuleDestro
    * unhandled rejection here would crash the whole process under Node's default behavior, taking
    * down every other topic this worker consumes along with it.
    *
-   * The consumer is constructed with autocommit: false (message-broker.module.ts) specifically so
-   * this method controls exactly when an offset is safe to commit: only once onMessage() has
-   * resolved successfully. Committing earlier (or unconditionally) is what made delivery
-   * at-most-once — a crash between fetch and processing would silently lose the message, since
-   * @platformatic/kafka's own autocommit stages the offset the moment a fetched batch reaches the
-   * stream, not once the application has actually handled it. Under autocommit: false the library
-   * binds commit() to its internal offset-commit, which wraps its own callback in a promise when
-   * called with no arguments — so awaiting it here really does wait for the broker to ack the
-   * offset, and a failed commit lands in this same catch (unlike Consumer.close(), no explicit
-   * wrapping needed).
+   * The consumer is constructed with autocommit: false (message-broker.module.ts) so this method
+   * decides when a commit is safe: only after onMessage() resolves successfully, never on a
+   * malformed message or a handler failure. This closes the crash-window bug that made delivery
+   * at-most-once: @platformatic/kafka's own autocommit stages the offset the moment a fetched
+   * batch reaches the stream, before the application has handled it, so a crash between fetch and
+   * processing silently lost the message. Message.commit() called with no arguments returns a
+   * real, awaitable Promise<void> at runtime (unlike Consumer.close(), this is not an
+   * overload-ambiguity trap), so it's safe to await directly inside this same try/catch.
+   *
+   * Known residual gap: Kafka commits a per-partition watermark offset, not a per-message ack.
+   * If message M1 on partition P fails (skipped, no commit) but a later message M2 on the same
+   * partition P succeeds and commits, the committed offset advances past M1 — M1 will not be
+   * redelivered on restart/rebalance even though it was never actually processed. A complete fix
+   * would need to stop consuming a partition after a failure until that message is resolved,
+   * which conflicts with this method's deliberate "one bad message must never stop the loop"
+   * design (first paragraph above). Accepted for now; tracked as follow-up, not blocking this fix.
    */
   private async forwardMessages(stream: AsyncIterable<ConsumedMessage>, onMessage: MessageHandler): Promise<void> {
     for await (const message of stream) {
