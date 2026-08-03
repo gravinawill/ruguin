@@ -18,7 +18,7 @@
 - `apps/dispatch-worker` owns no Postgres schema — rate limiting, idempotency, and retry timing all live in Redis via `@ruguin/cache`.
 - Kafka topic names are never hardcoded outside `packages/event-schemas` — every producer/consumer imports the topic constant.
 - Backoff formula: `nextAttemptAt = Date.now() + BASE_BACKOFF_MS * 2 ** attempts`, no jitter — same shape as `computeNextAttemptAt` in `apps/core-server`'s `outbox-relay.service.ts`, with `BASE_BACKOFF_MS = 5000` so 3 retries land at ~10s / ~20s / ~40s.
-- Idempotency claim key is `${emailId}:${attempt}`, not just `emailId` — a bare `emailId` key would make the *first* claim block every legitimate retry of the same email.
+- Idempotency claim key is `${emailId}-${attempt}`, not just `emailId` — a bare `emailId` key would make the *first* claim block every legitimate retry of the same email. Not `${emailId}:${attempt}` — `@ruguin/cache`'s `KeyBuilder` rejects `:` inside a namespace or key segment (`FORBIDDEN = /[\s:]/`, since the physical Redis key is itself colon-delimited: `${prefix}:${namespace}:v${version}:${key}`); this only surfaces once something exercises the real cache driver, which unit tests that mock `ICacheProvider` never do — Task 16 found it by being the first task to wire everything through real Redis.
 - **Prerequisite:** `MessageProducerPort`, `FakeMessageProducer`, and the `eventId`/`module`/`name`/`nextAttemptAt` version of `apps/core-server/prisma/schema/outbox.prisma` currently exist only in the sibling worktree `core-server-outbox-design`, not on `develop`. Task 4 below creates the (extended) port fresh in `packages/message-broker` regardless of whether that worktree has merged yet, and Task 9 adapts `apps/core-server` defensively — see that task's note.
 
 ---
@@ -2108,15 +2108,15 @@ describe('RedisDedupClaim', () => {
     const setIfNotExists = vi.fn().mockResolvedValue(success({ stored: true }))
     const claim = new RedisDedupClaim(fakeCache(setIfNotExists))
 
-    const result = await claim.claim({ key: 'email-1:0', ttlInMs: 60_000 })
+    const result = await claim.claim({ key: 'email-1-0', ttlInMs: 60_000 })
 
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) {
       expect(result.value.claimed).toBe(true)
     }
     expect(setIfNotExists).toHaveBeenCalledWith({
-      key: 'email-1:0',
-      namespace: 'dispatch-worker:dedup',
+      key: 'email-1-0',
+      namespace: 'dispatch-worker-dedup',
       value: true,
       ttlInMs: 60_000
     })
@@ -2126,7 +2126,7 @@ describe('RedisDedupClaim', () => {
     const setIfNotExists = vi.fn().mockResolvedValue(success({ stored: false }))
     const claim = new RedisDedupClaim(fakeCache(setIfNotExists))
 
-    const result = await claim.claim({ key: 'email-1:0', ttlInMs: 60_000 })
+    const result = await claim.claim({ key: 'email-1-0', ttlInMs: 60_000 })
 
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) {
@@ -2171,7 +2171,7 @@ import {
   type DedupClaimPort
 } from '../../application/providers/dedup-claim.port.ts'
 
-const NAMESPACE = 'dispatch-worker:dedup'
+const NAMESPACE = 'dispatch-worker-dedup'
 
 @Injectable()
 export class RedisDedupClaim implements DedupClaimPort {
@@ -2251,7 +2251,7 @@ describe('RedisRateLimiter', () => {
     if (result.isSuccess()) {
       expect(result.value.allowed).toBe(true)
     }
-    expect(increment).toHaveBeenCalledWith({ key: 'ses-account', namespace: 'dispatch-worker:rate-limit', windowInMs: 1000 })
+    expect(increment).toHaveBeenCalledWith({ key: 'ses-account', namespace: 'dispatch-worker-rate-limit', windowInMs: 1000 })
   })
 
   it('denies the request when the counter exceeds the limit', async () => {
@@ -2303,7 +2303,7 @@ import {
   type RateLimiterPort
 } from '../../application/providers/rate-limiter.port.ts'
 
-const NAMESPACE = 'dispatch-worker:rate-limit'
+const NAMESPACE = 'dispatch-worker-rate-limit'
 
 @Injectable()
 export class RedisRateLimiter implements RateLimiterPort {
@@ -2433,9 +2433,11 @@ export class SesSendError extends BaseError {
 
 - [ ] **Step 6: Create `src/email/infra/ses/ses-email-sender.ts`**
 
+`SESClient` is imported as a real (not `type`-only) import here, unlike the test file's — this class is constructed by NestJS's DI container (Task 16 wires it as a provider), and Nest resolves untyped constructor parameters via `reflect-metadata`'s `design:paramtypes`, which needs the actual runtime class reference. A `type`-only import erases that reference, so Nest sees `Object` instead of `SESClient` and fails to resolve the dependency — a real bug Task 16 found by being the first task to construct this class through the DI container instead of directly via `new` in a test.
+
 ```ts
 import { Injectable } from '@nestjs/common'
-import { SendEmailCommand, type SESClient } from '@aws-sdk/client-ses'
+import { SendEmailCommand, SESClient } from '@aws-sdk/client-ses'
 import { type BaseError } from '@ruguin/ddd-kernel'
 import { type Either, failure, success } from '@ruguin/utils'
 
@@ -2782,7 +2784,7 @@ export class SendEmailUseCase {
   ) {}
 
   public async execute(input: SendEmailUseCaseInput): Promise<Either<BaseError, SendEmailUseCaseOutput>> {
-    const claimed = await this.dedupClaim.claim({ key: `${input.emailId}:${input.attempt}`, ttlInMs: DEDUP_CLAIM_TTL_MS })
+    const claimed = await this.dedupClaim.claim({ key: `${input.emailId}-${input.attempt}`, ttlInMs: DEDUP_CLAIM_TTL_MS })
     if (claimed.isFailure()) return failure(claimed.value)
     if (!claimed.value.claimed) return success({ outcome: 'skipped-duplicate' })
 
@@ -2929,32 +2931,62 @@ Expected: `kafka`, `redis` healthy.
 
 - [ ] **Step 4: Write the failing integration test**
 
+The payload must satisfy `EmailSendRequestedPayloadSchema` (`emailId`/`organizationId`/`projectId` as `z.uuid()`, all required) — the consumer silently drops anything that fails `.safeParse()` (Step 6's deliberate scope cut), so a schema-invalid payload here would make the test time out having proven nothing, not fail loudly. LocalStack SES also rejects sends from an unverified sender identity (`MessageRejected: Email address not verified`) — this is state on the LocalStack container, not per test run, so the test verifies its own sender identity via `VerifyEmailIdentityCommand` before publishing rather than assuming it's already verified.
+
 ```ts
 // apps/dispatch-worker/src/email/consumers/__tests__/email-send-requested.consumer.int.ts
+import { randomUUID } from 'node:crypto'
+
 import { Test } from '@nestjs/testing'
-import { describe, expect, it, vi } from 'vitest'
-import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '@ruguin/message-broker'
+import { SESClient, VerifyEmailIdentityCommand } from '@aws-sdk/client-ses'
+import { awsENV } from '@ruguin/env'
 import { EMAIL_SEND_REQUESTED_TOPIC } from '@ruguin/event-schemas'
+import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '@ruguin/message-broker'
+import { describe, expect, it, vi } from 'vitest'
 
 import { EmailModule } from '../../email.module.ts'
 
 describe('EmailSendRequestedConsumer (real Kafka + Redis)', () => {
-  it('consumes email.send.requested and eventually publishes email.status.updated', async () => {
+  it('consumes email.send.requested and eventually publishes a successful email.status.updated', async () => {
+    const sesClient = new SESClient({
+      region: awsENV.AWS_REGION,
+      endpoint: awsENV.AWS_ENDPOINT_URL,
+      credentials: { accessKeyId: awsENV.AWS_ACCESS_KEY_ID, secretAccessKey: awsENV.AWS_SECRET_ACCESS_KEY }
+    })
+    await sesClient.send(new VerifyEmailIdentityCommand({ EmailAddress: awsENV.SES_FROM_ADDRESS }))
+
     const moduleRef = await Test.createTestingModule({ imports: [EmailModule] }).compile()
     await moduleRef.init()
 
     const producer = moduleRef.get<MessageProducerPort>(MESSAGE_PRODUCER_PORT)
-    const publishSpy = vi.spyOn(producer, 'publish')
+    const originalPublish = producer.publish.bind(producer)
+    const statusPublishes: Array<{ payload: unknown; succeeded: boolean }> = []
+
+    // Spy calls through to the real implementation and records whether each email.status.updated
+    // publish actually SUCCEEDED, not just that a call was attempted — a call that was made but
+    // rejected (e.g. the transient first-publish-to-a-new-topic case @ruguin/message-broker can hit)
+    // would otherwise pass a "was it called" assertion while proving nothing.
+    vi.spyOn(producer, 'publish').mockImplementation(async (input) => {
+      const outcome = await originalPublish(input)
+      if (input.topic === 'email.status.updated') {
+        statusPublishes.push({ payload: input.message.payload, succeeded: outcome.isSuccess() })
+      }
+      return outcome
+    })
+
+    const emailId = randomUUID()
 
     await producer.publish({
       topic: EMAIL_SEND_REQUESTED_TOPIC,
-      key: 'int-test-email-1',
+      key: emailId,
       message: {
-        eventId: 'evt-int-1',
+        eventId: randomUUID(),
         name: 'email.send.requested',
         payload: {
-          emailId: 'int-test-email-1',
-          from: 'sender@ruguin.dev',
+          emailId,
+          organizationId: randomUUID(),
+          projectId: randomUUID(),
+          from: awsENV.SES_FROM_ADDRESS,
           to: 'recipient@ruguin.dev',
           subject: 'Integration test',
           html: '<p>hi</p>',
@@ -2963,10 +2995,10 @@ describe('EmailSendRequestedConsumer (real Kafka + Redis)', () => {
       }
     })
 
-    await vi.waitUntil(
-      () => publishSpy.mock.calls.some(([call]) => call.topic === 'email.status.updated'),
-      { timeout: 15_000, interval: 200 }
-    )
+    await vi.waitUntil(() => statusPublishes.length > 0, { timeout: 15_000, interval: 200 })
+
+    expect(statusPublishes[0]?.succeeded).toBe(true)
+    expect(statusPublishes[0]?.payload).toMatchObject({ emailId, status: 'sent' })
 
     await moduleRef.close()
   }, 20_000)
@@ -3126,7 +3158,7 @@ export class AppModule {}
 - [ ] **Step 11: Run the integration test**
 
 Run: `pnpm --filter @ruguin/dispatch-worker test:integration`
-Expected: PASS — publishing to `email.send.requested` results in a `email.status.updated` publish within 15s (LocalStack SES accepts any well-formed send).
+Expected: PASS — publishing to `email.send.requested` results in a successful `email.status.updated` publish within 15s. On the very first run against a brand-new Kafka broker, this can fail once with `Failed to publish to topic "email.status.updated"` — the same first-publish-to-a-new-topic timing characteristic of `@platformatic/kafka`'s `autoCreateTopics` that Task 7 already documented for `email.send.requested`; every run after the topic exists is reliable, so a single retry clears it.
 
 - [ ] **Step 12: Run the full unit + e2e suite too**
 
@@ -3206,10 +3238,22 @@ describe('EmailSendRequestedRetryConsumer', () => {
 
     await new EmailSendRequestedRetryConsumer(fakeConsumer, sendEmail).onModuleInit()
 
+    // emailId/organizationId/projectId must be real UUIDs — the consumer runs this payload through
+    // EmailSendRequestedPayloadSchema.safeParse() for real; a schema-invalid payload here would be
+    // silently dropped (success(undefined) without ever calling sendEmail.execute), and this test's
+    // assertion would fail with a confusing "not called" instead of a clear parse-failure signal.
     const messagePromise = onMessage({
       eventId: 'evt-1',
       name: 'email.send.requested',
-      payload: { emailId: 'email-1', from: 'a@ruguin.dev', to: 'b@ruguin.dev', subject: 'Hi', html: '<p>Hi</p>' },
+      payload: {
+        emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001',
+        organizationId: '018f9a9e-6f0a-7c3e-9b0a-000000000002',
+        projectId: '018f9a9e-6f0a-7c3e-9b0a-000000000003',
+        from: 'a@ruguin.dev',
+        to: 'b@ruguin.dev',
+        subject: 'Hi',
+        html: '<p>Hi</p>'
+      },
       headers: { attempt: '1', nextAttemptAt: '2026-08-02T12:00:10.000Z' }
     })
 
@@ -3217,7 +3261,7 @@ describe('EmailSendRequestedRetryConsumer', () => {
     await messagePromise
 
     expect(sendEmail.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ emailId: 'email-1', attempt: 1 })
+      expect.objectContaining({ emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001', attempt: 1 })
     )
   })
 })
@@ -3324,16 +3368,22 @@ Expected: `kafka`, `redis`, `localstack` healthy.
 
 - [ ] **Step 2: Write the e2e test**
 
+The payload must satisfy `EmailSendRequestedPayloadSchema` — `emailId`/`organizationId`/`projectId` are `z.uuid()` and required; a non-UUID `emailId` like a bare string, or a payload missing `organizationId`/`projectId`, fails `.safeParse()` and gets silently dropped by the consumer (Task 16 Step 6's deliberate scope cut), which would make both scenarios below time out having proven nothing — this bit Task 16's own integration test during implementation, fixed here from the start. LocalStack SES also rejects sends from an unverified sender identity, so the suite verifies its own sender once in `beforeAll`.
+
 ```ts
 // apps/dispatch-worker/src/email/__tests__/dispatch-email.e2e.ts
+import { randomUUID } from 'node:crypto'
+
 import { Test, type TestingModule } from '@nestjs/testing'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { SESClient, VerifyEmailIdentityCommand } from '@aws-sdk/client-ses'
+import { awsENV } from '@ruguin/env'
 import {
   EMAIL_SEND_REQUESTED_DLQ_TOPIC,
   EMAIL_SEND_REQUESTED_TOPIC,
   EMAIL_STATUS_UPDATED_TOPIC
 } from '@ruguin/event-schemas'
 import { MESSAGE_CONSUMER_PORT, MESSAGE_PRODUCER_PORT, type MessageConsumerPort, type MessageProducerPort } from '@ruguin/message-broker'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { EmailModule } from '../email.module.ts'
 
@@ -3343,6 +3393,13 @@ describe('Dispatch Worker end to end', () => {
   let moduleRef: TestingModule
 
   beforeAll(async () => {
+    const sesClient = new SESClient({
+      region: awsENV.AWS_REGION,
+      endpoint: awsENV.AWS_ENDPOINT_URL,
+      credentials: { accessKeyId: awsENV.AWS_ACCESS_KEY_ID, secretAccessKey: awsENV.AWS_SECRET_ACCESS_KEY }
+    })
+    await sesClient.send(new VerifyEmailIdentityCommand({ EmailAddress: awsENV.SES_FROM_ADDRESS }))
+
     moduleRef = await Test.createTestingModule({ imports: [EmailModule] }).compile()
     await moduleRef.init()
 
@@ -3355,6 +3412,7 @@ describe('Dispatch Worker end to end', () => {
   })
 
   it('sends a well-formed email and publishes email.status.updated with status=sent', async () => {
+    const emailId = randomUUID()
     const statusEvents: unknown[] = []
     await consumer.subscribe({
       topic: EMAIL_STATUS_UPDATED_TOPIC,
@@ -3367,13 +3425,15 @@ describe('Dispatch Worker end to end', () => {
 
     await producer.publish({
       topic: EMAIL_SEND_REQUESTED_TOPIC,
-      key: 'e2e-success',
+      key: emailId,
       message: {
-        eventId: 'evt-e2e-1',
+        eventId: randomUUID(),
         name: 'email.send.requested',
         payload: {
-          emailId: 'e2e-success',
-          from: 'sender@ruguin.dev',
+          emailId,
+          organizationId: randomUUID(),
+          projectId: randomUUID(),
+          from: awsENV.SES_FROM_ADDRESS,
           to: 'recipient@ruguin.dev',
           subject: 'E2E success',
           html: '<p>hi</p>',
@@ -3383,14 +3443,15 @@ describe('Dispatch Worker end to end', () => {
     })
 
     await vi.waitUntil(
-      () => statusEvents.some((event) => (event as { emailId: string }).emailId === 'e2e-success'),
+      () => statusEvents.some((event) => (event as { emailId: string }).emailId === emailId),
       { timeout: 15_000, interval: 200 }
     )
 
-    expect(statusEvents).toContainEqual(expect.objectContaining({ emailId: 'e2e-success', status: 'sent' }))
+    expect(statusEvents).toContainEqual(expect.objectContaining({ emailId, status: 'sent' }))
   }, 20_000)
 
   it('exhausts retries and routes to the DLQ when the "to" address is malformed at the SES layer', async () => {
+    const emailId = randomUUID()
     const dlqMessages: unknown[] = []
     await consumer.subscribe({
       topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC,
@@ -3403,13 +3464,15 @@ describe('Dispatch Worker end to end', () => {
 
     await producer.publish({
       topic: EMAIL_SEND_REQUESTED_TOPIC,
-      key: 'e2e-failure',
+      key: emailId,
       message: {
-        eventId: 'evt-e2e-2',
+        eventId: randomUUID(),
         name: 'email.send.requested',
         payload: {
-          emailId: 'e2e-failure',
-          from: 'sender@ruguin.dev',
+          emailId,
+          organizationId: randomUUID(),
+          projectId: randomUUID(),
+          from: awsENV.SES_FROM_ADDRESS,
           to: 'not-a-valid-address',
           subject: 'E2E failure',
           html: '<p>hi</p>',
@@ -3419,11 +3482,11 @@ describe('Dispatch Worker end to end', () => {
     })
 
     await vi.waitUntil(
-      () => dlqMessages.some((message) => (message as { emailId: string }).emailId === 'e2e-failure'),
+      () => dlqMessages.some((message) => (message as { emailId: string }).emailId === emailId),
       { timeout: 60_000, interval: 500 }
     )
 
-    expect(dlqMessages).toContainEqual(expect.objectContaining({ emailId: 'e2e-failure' }))
+    expect(dlqMessages).toContainEqual(expect.objectContaining({ emailId }))
   }, 70_000)
 })
 ```
@@ -3438,7 +3501,7 @@ Expected: FAIL — `dispatch-email.e2e.ts` doesn't compile yet if `EmailModule`/
 - [ ] **Step 4: Run it for real and fix any issues found**
 
 Run: `pnpm --filter @ruguin/dispatch-worker test:e2e`
-Expected: PASS — both scenarios green. If the success case times out, check `pnpm infra:up` brought up `localstack` with `SERVICES: ses` healthy. If the failure case times out short of 70s, check `computeNextRetryAt`'s `BASE_BACKOFF_MS` matches Task 14's `5000`.
+Expected: PASS — both scenarios green. If the success case times out, check `pnpm infra:up` brought up `localstack` with `SERVICES: ses` healthy, and that the sender identity actually verified (LocalStack's `VerifyEmailIdentityCommand` is synchronous/immediate, unlike real SES). If the very first run against a brand-new Kafka broker fails once on a topic that's never been published to before, that's the same `autoCreateTopics` first-publish timing characteristic noted in Task 16/7 — retry once. If the failure case times out short of 70s, check `computeNextRetryAt`'s `BASE_BACKOFF_MS` matches Task 14's `5000`.
 
 - [ ] **Step 5: Run the full test suite one more time across all three packages/app**
 
