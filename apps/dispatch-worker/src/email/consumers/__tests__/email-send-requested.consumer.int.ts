@@ -30,10 +30,10 @@ describe('EmailSendRequestedConsumer (real Kafka + Redis)', () => {
 
     /*
      * emailId/organizationId/projectId must be real UUIDs and from/to real emails — this is what
-     * EmailSendRequestedPayloadSchema.safeParse requires. A payload that fails validation is
-     * deliberately swallowed by the consumer (see email-send-requested.consumer.ts) rather than
-     * retried, so an invalid payload here would make this test wait out its timeout without ever
-     * proving the chain actually ran.
+     * EmailSendRequestedPayloadSchema.safeParse requires. A payload that fails validation is now
+     * routed to the DLQ (see email-send-requested.consumer.ts) instead of driving
+     * SendEmailUseCase, so an invalid payload here would make this test wait out its timeout
+     * without ever proving the send chain actually ran.
      */
     const emailId = randomUUID()
 

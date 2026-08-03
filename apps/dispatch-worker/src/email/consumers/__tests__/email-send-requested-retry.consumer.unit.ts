@@ -1,4 +1,4 @@
-import { type MessageConsumerPort, type SubscribeInput } from '@ruguin/message-broker'
+import { type MessageConsumerPort, type MessageProducerPort, type SubscribeInput } from '@ruguin/message-broker'
 import { success } from '@ruguin/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -24,10 +24,12 @@ describe('EmailSendRequestedRetryConsumer', () => {
         return success(undefined)
       })
     }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
     const execute = vi.fn().mockResolvedValue(success({ outcome: 'sent' }))
     const sendEmail = { execute } as unknown as SendEmailUseCase
 
-    await new EmailSendRequestedRetryConsumer(fakeConsumer, sendEmail).onModuleInit()
+    await new EmailSendRequestedRetryConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
 
     expect(subscribeInput?.topic).toBe('email.send.requested.retry')
     expect(subscribeInput?.groupId).toBe(RETRY_CONSUMER_GROUP_ID)
@@ -42,16 +44,18 @@ describe('EmailSendRequestedRetryConsumer', () => {
         return success(undefined)
       })
     }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
     const execute = vi.fn().mockResolvedValue(success({ outcome: 'sent' }))
     const sendEmail = { execute } as unknown as SendEmailUseCase
 
-    await new EmailSendRequestedRetryConsumer(fakeConsumer, sendEmail).onModuleInit()
+    await new EmailSendRequestedRetryConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
 
     /*
      * emailId/organizationId/projectId must be real UUIDs — the consumer runs this payload through
      * EmailSendRequestedPayloadSchema.safeParse() for real; a schema-invalid payload here would be
-     * silently dropped (success(undefined) without ever calling sendEmail.execute), and this test's
-     * assertion would fail with a confusing "not called" instead of a clear parse-failure signal.
+     * routed to the DLQ without ever calling sendEmail.execute, and this test's assertion would
+     * fail with a confusing "not called" instead of a clear parse-failure signal.
      */
     const messagePromise = onMessage({
       eventId: 'evt-1',
@@ -73,6 +77,36 @@ describe('EmailSendRequestedRetryConsumer', () => {
 
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({ emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001', attempt: 1 })
+    )
+  })
+
+  it('routes a schema-invalid payload to the DLQ instead of dropping it', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn()
+    const sendEmail = { execute } as unknown as SendEmailUseCase
+
+    await new EmailSendRequestedRetryConsumer(fakeConsumer, producer, sendEmail).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-malformed-retry-1',
+      name: 'email.send.requested',
+      payload: { emailId: 'not-a-uuid' },
+      headers: {}
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ topic: 'email.send.requested.dlq', key: 'evt-malformed-retry-1' })
     )
   })
 })

@@ -1,11 +1,12 @@
 import { type Consumer } from '@platformatic/kafka'
-import { success } from '@ruguin/utils'
+import { failure, success } from '@ruguin/utils'
 import { describe, expect, it, vi } from 'vitest'
 
+import { MessageConsumeError } from '../../../domain/errors/message-consume.error.ts'
 import { KafkaMessageConsumer } from '../kafka-message-consumer.ts'
 
 type StringConsumer = Consumer<string, string, string, string>
-type FakeStreamMessage = { value: string; headers: Map<string, string> }
+type FakeStreamMessage = { value: string; headers: Map<string, string>; commit: () => Promise<void> }
 
 function fakeStream(messages: FakeStreamMessage[]): AsyncIterable<FakeStreamMessage> {
   return {
@@ -16,18 +17,21 @@ function fakeStream(messages: FakeStreamMessage[]): AsyncIterable<FakeStreamMess
   }
 }
 
+function fakeMessage(value: string, headers = new Map<string, string>()): FakeStreamMessage {
+  return { value, headers, commit: vi.fn().mockResolvedValue(undefined) }
+}
+
 function fakeConsumer(consume: StringConsumer['consume']): StringConsumer {
   return { consume } as unknown as StringConsumer
 }
 
 describe('KafkaMessageConsumer', () => {
   it('builds a consumer for the given groupId, consumes the topic, and forwards each message as InboundMessage', async () => {
-    const stream = fakeStream([
-      {
-        value: JSON.stringify({ eventId: 'evt-1', name: 'email.send.requested', payload: { emailId: 'e1' } }),
-        headers: new Map([['attempt', '1']])
-      }
-    ])
+    const message = fakeMessage(
+      JSON.stringify({ eventId: 'evt-1', name: 'email.send.requested', payload: { emailId: 'e1' } }),
+      new Map([['attempt', '1']])
+    )
+    const stream = fakeStream([message])
     const consume = vi.fn().mockResolvedValue(stream)
     const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
 
@@ -73,11 +77,8 @@ describe('KafkaMessageConsumer', () => {
 
   it('does not stop consuming after a message with malformed JSON', async () => {
     const stream = fakeStream([
-      { value: 'not valid json', headers: new Map() },
-      {
-        value: JSON.stringify({ eventId: 'evt-2', name: 'email.send.requested', payload: { emailId: 'e2' } }),
-        headers: new Map()
-      }
+      fakeMessage('not valid json'),
+      fakeMessage(JSON.stringify({ eventId: 'evt-2', name: 'email.send.requested', payload: { emailId: 'e2' } }))
     ])
     const consume = vi.fn().mockResolvedValue(stream)
     const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
@@ -94,6 +95,63 @@ describe('KafkaMessageConsumer', () => {
 
     expect(onMessage).toHaveBeenCalledTimes(1)
     expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'evt-2' }))
+  })
+
+  it('commits the message only after onMessage resolves successfully (at-least-once delivery)', async () => {
+    const message = fakeMessage(
+      JSON.stringify({ eventId: 'evt-3', name: 'email.send.requested', payload: { emailId: 'e3' } })
+    )
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(message.commit).toHaveBeenCalledOnce()
+  })
+
+  it('does not commit the message when onMessage resolves with a failure', async () => {
+    const message = fakeMessage(
+      JSON.stringify({ eventId: 'evt-4', name: 'email.send.requested', payload: { emailId: 'e4' } })
+    )
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(failure(new MessageConsumeError({ message: 'boom' })))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(message.commit).not.toHaveBeenCalled()
+  })
+
+  it('does not commit a message whose JSON is malformed (onMessage never runs)', async () => {
+    const message = fakeMessage('not valid json')
+    const stream = fakeStream([message])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage: vi.fn()
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(message.commit).not.toHaveBeenCalled()
   })
 
   it('closes every consumer it created, on module destroy', async () => {

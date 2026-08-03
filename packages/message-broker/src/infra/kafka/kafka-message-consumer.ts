@@ -13,6 +13,18 @@ import { MessageConsumeError } from '../../domain/errors/message-consume.error.t
 
 export type CreateConsumer = (groupId: string) => Consumer<string, string, string, string>
 
+/*
+ * commit() mirrors @platformatic/kafka's own Message.commit(callback?): void | Promise<void>
+ * rather than narrowing to Promise<void> — the union is what the library declares, so narrowing it
+ * here makes the real MessagesStream fail to satisfy this type. The promise half is the one that
+ * materializes for us: see the await in forwardMessages().
+ */
+type ConsumedMessage = Readonly<{
+  value: string
+  headers: Map<string, string>
+  commit(callback?: (error?: Error) => void): void | Promise<void>
+}>
+
 function decodeHeaders(headers: Map<string, string> | undefined): Record<string, string> {
   if (headers === undefined) return {}
 
@@ -81,11 +93,19 @@ export class KafkaMessageConsumer implements MessageConsumerPort, OnModuleDestro
    * (malformed JSON, or onMessage rejecting/throwing) must never escape this loop uncaught — an
    * unhandled rejection here would crash the whole process under Node's default behavior, taking
    * down every other topic this worker consumes along with it.
+   *
+   * The consumer is constructed with autocommit: false (message-broker.module.ts) specifically so
+   * this method controls exactly when an offset is safe to commit: only once onMessage() has
+   * resolved successfully. Committing earlier (or unconditionally) is what made delivery
+   * at-most-once — a crash between fetch and processing would silently lose the message, since
+   * @platformatic/kafka's own autocommit stages the offset the moment a fetched batch reaches the
+   * stream, not once the application has actually handled it. Under autocommit: false the library
+   * binds commit() to its internal offset-commit, which wraps its own callback in a promise when
+   * called with no arguments — so awaiting it here really does wait for the broker to ack the
+   * offset, and a failed commit lands in this same catch (unlike Consumer.close(), no explicit
+   * wrapping needed).
    */
-  private async forwardMessages(
-    stream: AsyncIterable<{ value: string; headers: Map<string, string> }>,
-    onMessage: MessageHandler
-  ): Promise<void> {
+  private async forwardMessages(stream: AsyncIterable<ConsumedMessage>, onMessage: MessageHandler): Promise<void> {
     for await (const message of stream) {
       try {
         const parsed = JSON.parse(message.value) as { eventId: string; name: string; payload: unknown }
@@ -95,7 +115,10 @@ export class KafkaMessageConsumer implements MessageConsumerPort, OnModuleDestro
 
         if (result.isFailure()) {
           this.logger.error(`Message handler failed: ${result.value.message}`)
+          continue
         }
+
+        await message.commit()
       } catch (error: unknown) {
         this.logger.error(
           `Failed to process a consumed message: ${error instanceof Error ? error.message : String(error)}`

@@ -47,6 +47,14 @@ export class MessageBrokerModule {
         bootstrapBrokers: [...config.brokers],
         deserializers: stringDeserializers,
         autocreateTopics: config.autoCreateTopics ?? false,
+        /*
+         * autocommit defaults to true and stages offsets for commit as soon as a fetched batch is
+         * pushed onto the consumer's stream — before forwardMessages() ever hands the message to
+         * onMessage(). false pairs with KafkaMessageConsumer.forwardMessages() calling
+         * message.commit() itself, only after onMessage() succeeds, so delivery is at-least-once
+         * instead of at-most-once.
+         */
+        autocommit: false,
         ...(config.ssl === true && { tls: {} })
       })
 

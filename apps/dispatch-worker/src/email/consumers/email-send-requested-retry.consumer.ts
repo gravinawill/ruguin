@@ -1,6 +1,17 @@
+import { randomUUID } from 'node:crypto'
+
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
-import { EMAIL_SEND_REQUESTED_RETRY_TOPIC, EmailSendRequestedPayloadSchema } from '@ruguin/event-schemas'
-import { MESSAGE_CONSUMER_PORT, type MessageConsumerPort } from '@ruguin/message-broker'
+import {
+  EMAIL_SEND_REQUESTED_DLQ_TOPIC,
+  EMAIL_SEND_REQUESTED_RETRY_TOPIC,
+  EmailSendRequestedPayloadSchema
+} from '@ruguin/event-schemas'
+import {
+  MESSAGE_CONSUMER_PORT,
+  MESSAGE_PRODUCER_PORT,
+  type MessageConsumerPort,
+  type MessageProducerPort
+} from '@ruguin/message-broker'
 import { failure, success } from '@ruguin/utils'
 
 import { SendEmailUseCase } from '../application/use-cases/send-email.use-case.ts'
@@ -16,6 +27,7 @@ function waitUntil(dueAt: Date): Promise<void> {
 export class EmailSendRequestedRetryConsumer implements OnModuleInit {
   constructor(
     @Inject(MESSAGE_CONSUMER_PORT) private readonly consumer: MessageConsumerPort,
+    @Inject(MESSAGE_PRODUCER_PORT) private readonly producer: MessageProducerPort,
     private readonly sendEmail: SendEmailUseCase
   ) {}
 
@@ -25,7 +37,14 @@ export class EmailSendRequestedRetryConsumer implements OnModuleInit {
       groupId: RETRY_CONSUMER_GROUP_ID,
       onMessage: async (message) => {
         const parsed = EmailSendRequestedPayloadSchema.safeParse(message.payload)
-        if (!parsed.success) return success(undefined)
+        if (!parsed.success) {
+          // Same rationale as the main consumer — see email-send-requested.consumer.ts.
+          return this.producer.publish({
+            topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC,
+            key: message.eventId,
+            message: { eventId: randomUUID(), name: 'email.send.requested', payload: message.payload }
+          })
+        }
 
         const attempt = Number(message.headers.attempt ?? '0')
         const nextAttemptAt = new Date(message.headers.nextAttemptAt ?? new Date().toISOString())
