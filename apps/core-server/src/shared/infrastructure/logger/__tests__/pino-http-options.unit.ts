@@ -1,24 +1,40 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createPinoHttpOptions } from '../pino-http-options'
+const setEnvironment = (environment: Record<string, string>): void => {
+  for (const [key, value] of Object.entries(environment)) vi.stubEnv(key, value)
+}
 
 describe('createPinoHttpOptions', () => {
-  it('defaults to info level and pretty-prints outside production', () => {
-    const options = createPinoHttpOptions({ NODE_ENV: 'development' })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
 
-    expect(options.level).toBe('info')
+  it('defaults to debug level and pretty-prints outside production', async () => {
+    setEnvironment({ ENVIRONMENT: 'develop' })
+    const { createPinoHttpOptions } = await import('../pino-http-options')
+
+    const options = createPinoHttpOptions()
+
+    expect(options.level).toBe('debug')
     expect(options.transport).toEqual({ target: 'pino-pretty' })
   })
 
-  it('respects LOG_LEVEL and disables pretty-print in production', () => {
-    const options = createPinoHttpOptions({ NODE_ENV: 'production', LOG_LEVEL: 'warn' })
+  it('raises the level to info and disables pretty-print in production', async () => {
+    setEnvironment({ ENVIRONMENT: 'production' })
+    const { createPinoHttpOptions } = await import('../pino-http-options')
 
-    expect(options.level).toBe('warn')
+    const options = createPinoHttpOptions()
+
+    expect(options.level).toBe('info')
     expect(options.transport).toBeUndefined()
   })
 
-  it('redacts the authorization header', () => {
-    const options = createPinoHttpOptions({})
+  it('redacts the authorization header', async () => {
+    setEnvironment({ ENVIRONMENT: 'test' })
+    const { createPinoHttpOptions } = await import('../pino-http-options')
+
+    const options = createPinoHttpOptions()
 
     expect(options.redact).toContain('req.headers.authorization')
   })
