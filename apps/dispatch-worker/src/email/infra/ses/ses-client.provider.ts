@@ -11,5 +11,3 @@ export const sesClientProvider: Provider = {
       credentials: { accessKeyId: awsENV.AWS_ACCESS_KEY_ID, secretAccessKey: awsENV.AWS_SECRET_ACCESS_KEY }
     })
 }
-
-export { SESClient as SES_CLIENT_PROVIDER } from '@aws-sdk/client-ses'

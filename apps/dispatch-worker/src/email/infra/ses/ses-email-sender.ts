@@ -27,7 +27,22 @@ export class SesEmailSender implements EmailSenderPort {
         })
       )
 
-      return success({ sesMessageId: response.MessageId ?? '' })
+      /*
+       * A successful SendEmailCommand always carries a MessageId per the SES API contract — its
+       * absence means the SDK response can't be trusted. Falling back to an empty string would
+       * publish a `sent` status event with a sesMessageId that violates
+       * EmailStatusUpdatedPayloadSchema's own z.string().min(1); treating it as a failure instead
+       * routes it through the normal retry path like any other SES anomaly.
+       */
+      if (response.MessageId === undefined) {
+        return failure(
+          new SesSendError({
+            message: `SES accepted the send from "${input.from}" to "${input.to}" but returned no MessageId.`
+          })
+        )
+      }
+
+      return success({ sesMessageId: response.MessageId })
     } catch (error: unknown) {
       return failure(
         new SesSendError({ error, message: `Failed to send email from "${input.from}" to "${input.to}" via SES.` })

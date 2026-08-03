@@ -42,4 +42,16 @@ describe('SesEmailSender', () => {
       expect(result.value.name).toBe('SesSendError')
     }
   })
+
+  it('returns a SesSendError instead of an empty sesMessageId when SES reports no MessageId', async () => {
+    const send = vi.fn().mockResolvedValue({})
+    const sender = new SesEmailSender(fakeSesClient(send))
+
+    const result = await sender.send({ from: 'a@ruguin.dev', to: 'b@ruguin.dev', subject: 'Hi', html: '<p>Hi</p>' })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) {
+      expect(result.value.name).toBe('SesSendError')
+    }
+  })
 })

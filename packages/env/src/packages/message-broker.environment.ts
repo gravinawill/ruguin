@@ -8,7 +8,6 @@ export const messageBrokerENV = lazyEnvironment(() =>
     server: {
       KAFKA_BOOTSTRAP_BROKERS: z.string().min(1),
       KAFKA_CLIENT_ID: z.string().min(1).default('ruguin'),
-      KAFKA_CONSUMER_GROUP_ID: z.string().min(1),
       /*
        * Robust boolean parse: z.coerce.boolean() treats the string "false" as true,
        * which would silently enable auto-create — dangerous given the safe default.
