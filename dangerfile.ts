@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 import { danger, markdown } from 'danger'
 
@@ -96,5 +96,73 @@ function featuresSection(): string {
   return ['## 📋 Changes in this PR', '', ...sections].join('\n\n')
 }
 
-const sections = [coverageSection(), featuresSection()].filter((section) => section !== '')
+/*
+ * Mirrors apps/core-server/src/shared/infrastructure/bootstrap/configure-app.ts's
+ * app.enableVersioning({ defaultVersion: '1' }) — this is a static scan, it can't read the
+ * running app's config, so it hardcodes the same default. Keep in sync if that call changes.
+ */
+const DEFAULT_API_VERSION = '1'
+const HTTP_METHODS = ['Get', 'Post', 'Put', 'Patch', 'Delete'] as const
+
+function findControllerFiles(directory: string): string[] {
+  if (!existsSync(directory)) return []
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const fullPath = `${directory}/${entry.name}`
+    if (entry.isDirectory()) return findControllerFiles(fullPath)
+    return entry.isFile() && entry.name.endsWith('.controller.ts') ? [fullPath] : []
+  })
+}
+
+function resolveVersion(versionMatch: RegExpExecArray | null): string {
+  if (versionMatch === null) return DEFAULT_API_VERSION
+  if (versionMatch[1] === 'VERSION_NEUTRAL') return ''
+  return versionMatch[2] ?? DEFAULT_API_VERSION
+}
+
+function extractControllerMeta(text: string): { path: string; version: string } {
+  const objectForm = /@Controller\(\s*\{([^}]*)\}\s*\)/.exec(text)
+  if (objectForm !== null) {
+    const body = objectForm[1] ?? ''
+    const pathMatch = /\bpath:\s*['"`]([^'"`]*)['"`]/.exec(body)
+    const versionMatch = /\bversion:\s*(VERSION_NEUTRAL|['"`]([^'"`]*)['"`])/.exec(body)
+    return { path: pathMatch?.[1] ?? '', version: resolveVersion(versionMatch) }
+  }
+  const stringForm = /@Controller\(\s*['"`]([^'"`]*)['"`]\s*\)/.exec(text)
+  return { path: stringForm?.[1] ?? '', version: DEFAULT_API_VERSION }
+}
+
+function endpointsSection(): string {
+  const controllerFiles = existsSync('apps')
+    ? readdirSync('apps').flatMap((app) => findControllerFiles(`apps/${app}/src`))
+    : []
+
+  const rows: string[] = []
+  for (const file of controllerFiles) {
+    const text = readFileSync(file, 'utf8')
+    const { path: prefix, version } = extractControllerMeta(text)
+    const versionSegment = version === '' ? '' : `v${version}`
+    for (const method of HTTP_METHODS) {
+      const regex = new RegExp(`@${method}\\(\\s*['"\`]?([^'"\`)]*)['"\`]?\\s*\\)`, 'g')
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(text)) !== null) {
+        const endpointPath = match[1] ?? ''
+        const fullPath = [versionSegment, prefix, endpointPath].filter((part) => part !== '').join('/')
+        rows.push(`| ${method.toUpperCase()} | /${fullPath} |`)
+      }
+    }
+  }
+
+  if (rows.length === 0) return ''
+  return [
+    '## 🔌 API Endpoints',
+    '',
+    '| Método | Path |',
+    '|---|---|',
+    ...rows,
+    '',
+    `_${rows.length} endpoint${rows.length === 1 ? '' : 's'} no total_`
+  ].join('\n')
+}
+
+const sections = [coverageSection(), featuresSection(), endpointsSection()].filter((section) => section !== '')
 if (sections.length > 0) markdown(sections.join('\n\n'))
