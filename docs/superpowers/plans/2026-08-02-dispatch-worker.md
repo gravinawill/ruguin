@@ -3370,6 +3370,8 @@ Expected: `kafka`, `redis`, `localstack` healthy.
 
 The payload must satisfy `EmailSendRequestedPayloadSchema` — `emailId`/`organizationId`/`projectId` are `z.uuid()` and required; a non-UUID `emailId` like a bare string, or a payload missing `organizationId`/`projectId`, fails `.safeParse()` and gets silently dropped by the consumer (Task 16 Step 6's deliberate scope cut), which would make both scenarios below time out having proven nothing — this bit Task 16's own integration test during implementation, fixed here from the start. LocalStack SES also rejects sends from an unverified sender identity, so the suite verifies its own sender once in `beforeAll`.
 
+The failure scenario needs an SES-layer rejection that survives schema validation — `to: 'not-a-valid-address'` does not: `EmailSendRequestedPayloadSchema`'s `to: z.email()` rejects it before the message ever reaches the consumer, so it gets silently dropped the same way a bad `emailId` would, and the test would idle out having triggered nothing. LocalStack's `SendEmail` also validates `to` far more loosely than `z.email()` — there is no string that's simultaneously schema-valid and SES-rejected on `to`. Use an **unverified sender** instead: a well-formed `from` address that's never passed to `VerifyEmailIdentityCommand` (only `awsENV.SES_FROM_ADDRESS` is, in `beforeAll`) — LocalStack SES rejects every send from an unverified sender synchronously with `MessageRejected: Email address not verified`, on every attempt, which is exactly the "fails every retry" shape this scenario needs.
+
 ```ts
 // apps/dispatch-worker/src/email/__tests__/dispatch-email.e2e.ts
 import { randomUUID } from 'node:crypto'
@@ -3450,7 +3452,7 @@ describe('Dispatch Worker end to end', () => {
     expect(statusEvents).toContainEqual(expect.objectContaining({ emailId, status: 'sent' }))
   }, 20_000)
 
-  it('exhausts retries and routes to the DLQ when the "to" address is malformed at the SES layer', async () => {
+  it('exhausts retries and routes to the DLQ when the sender is rejected by SES on every attempt', async () => {
     const emailId = randomUUID()
     const dlqMessages: unknown[] = []
     await consumer.subscribe({
@@ -3472,8 +3474,11 @@ describe('Dispatch Worker end to end', () => {
           emailId,
           organizationId: randomUUID(),
           projectId: randomUUID(),
-          from: awsENV.SES_FROM_ADDRESS,
-          to: 'not-a-valid-address',
+          // Never passed to VerifyEmailIdentityCommand (only awsENV.SES_FROM_ADDRESS is, in
+          // beforeAll) — LocalStack SES rejects every send from an unverified sender synchronously,
+          // on every attempt, which is what this scenario needs to prove the retry chain exhausts.
+          from: 'unverified-sender@ruguin.dev',
+          to: 'recipient@ruguin.dev',
           subject: 'E2E failure',
           html: '<p>hi</p>',
           attempt: 0
@@ -3481,17 +3486,19 @@ describe('Dispatch Worker end to end', () => {
       }
     })
 
+    // Backoff alone sums to 10s + 20s + 40s = 70,000ms (Task 14) before the final attempt even
+    // starts — the window must clear that floor with real margin for SES/Kafka round-trips.
     await vi.waitUntil(
       () => dlqMessages.some((message) => (message as { emailId: string }).emailId === emailId),
-      { timeout: 60_000, interval: 500 }
+      { timeout: 85_000, interval: 500 }
     )
 
     expect(dlqMessages).toContainEqual(expect.objectContaining({ emailId }))
-  }, 70_000)
+  }, 90_000)
 })
 ```
 
-The failure path relies on LocalStack SES rejecting `to: 'not-a-valid-address'` as a synchronous SDK error on every attempt (main + 3 retries), and needs the full ~70s of backoff (10s+20s+40s) to play out — hence the long timeout.
+The failure path relies on LocalStack SES synchronously rejecting every send from the unverified `unverified-sender@ruguin.dev` (main + 3 retries), and needs the full ~70s of backoff (10s+20s+40s) to play out — hence the long timeout, with margin above the 70s floor.
 
 - [ ] **Step 3: Run it to verify it fails**
 
@@ -3503,17 +3510,57 @@ Expected: FAIL — `dispatch-email.e2e.ts` doesn't compile yet if `EmailModule`/
 Run: `pnpm --filter @ruguin/dispatch-worker test:e2e`
 Expected: PASS — both scenarios green. If the success case times out, check `pnpm infra:up` brought up `localstack` with `SERVICES: ses` healthy, and that the sender identity actually verified (LocalStack's `VerifyEmailIdentityCommand` is synchronous/immediate, unlike real SES). If the very first run against a brand-new Kafka broker fails once on a topic that's never been published to before, that's the same `autoCreateTopics` first-publish timing characteristic noted in Task 16/7 — retry once. If the failure case times out short of 70s, check `computeNextRetryAt`'s `BASE_BACKOFF_MS` matches Task 14's `5000`.
 
-- [ ] **Step 5: Run the full test suite one more time across all three packages/app**
+- [ ] **Step 5: Add `fileParallelism: false` to `apps/dispatch-worker/vitest.config.ts`**
+
+Running every project together (`test:all`, Step 6 below) can deterministically fail Task 16's `email-send-requested.consumer.int.ts` with a timeout: `EmailSendRequestedConsumer`/`EmailSendRequestedRetryConsumer` use fixed, non-per-run-unique consumer group IDs (`'dispatch-worker'`/`'dispatch-worker-retry'`, Tasks 16/17 — correct for production, where you want a stable group so offset tracking survives restarts), and this e2e test's `EmailModule` instance now stays alive for the DLQ scenario's ~70s+, long enough to overlap with Task 16's integration test's own separately-booted `EmailModule` instance. Two live instances in the same Kafka consumer group means a rebalance can hand one test's message to the *other* test's module — whose `producer`/`consumer` aren't the ones being observed — causing a silent miss. Serializing test files (not test *cases* within a file) avoids two `EmailModule` instances ever running concurrently, without touching the production group-ID constants:
+
+```ts
+export default defineConfig({
+  oxc: false,
+  plugins: [swcPlugin],
+  test: {
+    globals: true,
+    environment: 'node',
+    clearMocks: true,
+    restoreMocks: true,
+    reporters: ['verbose'],
+    passWithNoTests: true,
+    // Task 18: email-send-requested.consumer.int.ts (Task 16) and dispatch-email.e2e.ts (this
+    // task) each boot their own EmailModule against the same fixed Kafka consumer group IDs — two
+    // concurrently-live instances race a partition rebalance and can silently steal each other's
+    // messages. Serializing files (not cases within a file) keeps at most one EmailModule alive at
+    // a time; total wall time is unaffected since it's already dominated by the ~70s DLQ scenario.
+    fileParallelism: false,
+    projects: [
+      { extends: true, test: { name: 'unit', include: ['src/**/__tests__/**/*.unit.ts'], testTimeout: 5000 } },
+      { extends: true, test: { name: 'integration', include: ['src/**/__tests__/**/*.int.ts'], testTimeout: 20_000 } },
+      {
+        extends: true,
+        test: {
+          name: 'e2e',
+          include: ['src/**/__tests__/**/*.e2e.ts'],
+          setupFiles: ['./vitest.setup.e2e.ts'],
+          testTimeout: 30_000
+        }
+      }
+    ]
+  }
+})
+```
+
+(everything else in this file is unchanged from Task 8 — the DLQ scenario's own `it(..., 90_000)` third argument overrides the `e2e` project's `testTimeout: 30_000` default for that one test, per Vitest's per-test timeout precedence; the project default doesn't need to change.)
+
+- [ ] **Step 6: Run the full test suite one more time across all three packages/app**
 
 Run: `pnpm --filter @ruguin/event-schemas test:all && pnpm --filter @ruguin/message-broker test:all && pnpm --filter @ruguin/dispatch-worker test:all`
-Expected: PASS across the board.
+Expected: PASS across the board (dispatch-worker's `test:all` now takes ~90s, dominated by the DLQ scenario — this is expected, not a hang).
 
-- [ ] **Step 6: Run the repo-wide checks**
+- [ ] **Step 7: Run the repo-wide checks**
 
 Run: `pnpm run check`
-Expected: types, lint, format, and spelling all pass. Fix any issues surfaced (new files commonly trip spelling on domain terms — add to `.cspell.json` if a real word gets flagged).
+Expected: types, lint, format, and spelling all pass for everything this plan's tasks touch. Pre-existing, unrelated failures elsewhere in the monorepo (e.g. a `check:types` arity mismatch in `apps/core-server`'s `cache-module-options.unit.ts`/`pino-http-options.unit.ts`, predating this plan) are not this task's to fix — confirm any failure is pre-existing by checking it reproduces with your own changes stashed, and only fix what's actually caused by this task.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add apps/dispatch-worker
