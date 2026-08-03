@@ -10,6 +10,7 @@ import { EMAIL_SENDER_PROVIDER } from './application/providers/email-sender.port
 import { RATE_LIMITER_PROVIDER } from './application/providers/rate-limiter.port.ts'
 import { SendEmailUseCase } from './application/use-cases/send-email.use-case.ts'
 import { EmailSendRequestedConsumer } from './consumers/email-send-requested.consumer.ts'
+import { EmailSendRequestedRetryConsumer } from './consumers/email-send-requested-retry.consumer.ts'
 import { RedisDedupClaim } from './infra/redis/redis-dedup-claim.ts'
 import { RedisRateLimiter } from './infra/redis/redis-rate-limiter.ts'
 import { sesClientProvider } from './infra/ses/ses-client.provider.ts'
@@ -45,7 +46,8 @@ import { SesEmailSender } from './infra/ses/ses-email-sender.ts'
     { provide: RATE_LIMITER_PROVIDER, useClass: RedisRateLimiter },
     { provide: EMAIL_SENDER_PROVIDER, useClass: SesEmailSender },
     SendEmailUseCase,
-    EmailSendRequestedConsumer
+    EmailSendRequestedConsumer,
+    EmailSendRequestedRetryConsumer
   ]
 })
 export class EmailModule {}
