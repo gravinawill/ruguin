@@ -31,6 +31,23 @@ function decodeHeaders(headers: Map<string, string> | undefined): Record<string,
   return Object.fromEntries(headers)
 }
 
+type ParsedEnvelope = Readonly<{ eventId: string; name: string; payload: unknown }>
+
+/*
+ * This package deliberately doesn't depend on any domain event schema (packages/event-schemas) —
+ * a transport adapter has no business knowing per-topic payload shapes. But eventId/name are
+ * transport-level concerns, not domain ones, so validating just the envelope here (rather than
+ * trusting a blind `as` cast on whatever JSON.parse returns) is fair game and closes a real gap:
+ * an envelope missing eventId/name used to be cast into InboundMessage as if those fields were
+ * always present.
+ */
+function isValidEnvelope(value: unknown): value is ParsedEnvelope {
+  if (typeof value !== 'object' || value === null) return false
+
+  const candidate = value as Record<string, unknown>
+  return typeof candidate.eventId === 'string' && typeof candidate.name === 'string' && 'payload' in candidate
+}
+
 @Injectable()
 export class KafkaMessageConsumer implements MessageConsumerPort, OnModuleDestroy {
   private readonly logger = new Logger(KafkaMessageConsumer.name)
@@ -114,8 +131,14 @@ export class KafkaMessageConsumer implements MessageConsumerPort, OnModuleDestro
   private async forwardMessages(stream: AsyncIterable<ConsumedMessage>, onMessage: MessageHandler): Promise<void> {
     for await (const message of stream) {
       try {
-        const parsed = JSON.parse(message.value) as { eventId: string; name: string; payload: unknown }
-        const inbound: InboundMessage = { ...parsed, headers: decodeHeaders(message.headers) }
+        const parsedJson: unknown = JSON.parse(message.value)
+
+        if (!isValidEnvelope(parsedJson)) {
+          this.logger.error('Received a message whose envelope is missing eventId/name; skipping.')
+          continue
+        }
+
+        const inbound: InboundMessage = { ...parsedJson, headers: decodeHeaders(message.headers) }
 
         const result = await onMessage(inbound)
 

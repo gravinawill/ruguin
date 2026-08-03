@@ -154,6 +154,27 @@ describe('KafkaMessageConsumer', () => {
     expect(message.commit).not.toHaveBeenCalled()
   })
 
+  it('skips a message whose envelope is valid JSON but missing eventId/name, without calling onMessage or committing', async () => {
+    const stream = fakeStream([
+      fakeMessage(JSON.stringify({ payload: { emailId: 'e5' } })),
+      fakeMessage(JSON.stringify({ eventId: 'evt-6', name: 'email.send.requested', payload: { emailId: 'e6' } }))
+    ])
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const onMessage = vi.fn().mockResolvedValue(success(undefined))
+    await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage
+    })
+
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(onMessage).toHaveBeenCalledTimes(1)
+    expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'evt-6' }))
+  })
+
   it('closes every consumer it created, on module destroy', async () => {
     // close(force, callback) — the real client is callback-style; it never returns a Promise directly.
     const closeA = vi.fn((isForced: boolean, callback: (error: Error | null) => void) => {
