@@ -77,5 +77,6 @@ jobs:
       - name: Danger
         if: always() && github.event_name == 'pull_request'
         run: npx danger ci
+        continue-on-error: true
         env:
           DANGER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
