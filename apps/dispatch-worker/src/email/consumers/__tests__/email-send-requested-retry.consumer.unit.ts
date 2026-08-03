@@ -143,8 +143,17 @@ describe('EmailSendRequestedRetryConsumer', () => {
 
     expect(execute).not.toHaveBeenCalled()
     expect(result.isSuccess()).toBe(true)
+    /*
+     * The malformed attempt/nextAttemptAt values only exist in the headers, not the payload — the
+     * DLQ publish must forward the original headers, or that diagnostic is lost once the message
+     * reaches the DLQ.
+     */
     expect(publish).toHaveBeenCalledWith(
-      expect.objectContaining({ topic: 'email.send.requested.dlq', key: 'evt-bad-header-1' })
+      expect.objectContaining({
+        topic: 'email.send.requested.dlq',
+        key: 'evt-bad-header-1',
+        headers: { attempt: 'not-a-number', nextAttemptAt: '2026-08-02T12:00:10.000Z' }
+      })
     )
   })
 

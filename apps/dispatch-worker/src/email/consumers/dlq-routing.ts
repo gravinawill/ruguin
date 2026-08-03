@@ -19,6 +19,8 @@ export function publishMalformedMessageToDlq(
   return producer.publish({
     topic: EMAIL_SEND_REQUESTED_DLQ_TOPIC,
     key: message.eventId,
-    message: { eventId: randomUUID(), name: 'email.send.requested', payload: message.payload }
+    message: { eventId: randomUUID(), name: 'email.send.requested', payload: message.payload },
+    // Preserves the diagnostic value — e.g. the retry consumer's malformed attempt/nextAttemptAt.
+    headers: message.headers
   })
 }

@@ -158,6 +158,15 @@ export class SendEmailUseCase {
       this.logger.error(
         `Failed to release dedup claim for rate-limited retry of ${input.emailId}: ${released.value.message}`
       )
+      /*
+       * The retry publish above already succeeded, so a redelivery of THIS message computes the
+       * exact same dedupKey. If the release also failed, that key is still held — returning
+       * success here would let Kafka commit the offset with no further chance to release it, and
+       * the redelivered retry would be silently skipped as a duplicate for the rest of the TTL.
+       * Returning failure keeps this message uncommitted so Kafka redelivers it and this method
+       * gets another chance to release the claim.
+       */
+      return failure(released.value)
     }
 
     this.logger.warn(`Rate limit exceeded for ${input.emailId} (attempt ${input.attempt}); rescheduled.`)

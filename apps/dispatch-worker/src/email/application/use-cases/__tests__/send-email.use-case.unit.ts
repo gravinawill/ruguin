@@ -3,8 +3,8 @@ import {
   EMAIL_SEND_REQUESTED_RETRY_TOPIC,
   EMAIL_STATUS_UPDATED_TOPIC
 } from '@ruguin/event-schemas'
-import { type MessageProducerPort } from '@ruguin/message-broker'
-import { failure, success } from '@ruguin/utils'
+import { type MessageProducerPort, MessagePublishError } from '@ruguin/message-broker'
+import { type Either, failure, success } from '@ruguin/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SesSendError } from '../../../domain/errors/ses-send.error.ts'
@@ -63,10 +63,12 @@ function buildUseCase(overrides: {
       : vi.fn().mockResolvedValue(success({ sesMessageId: 'ses-1' }))
   const emailSender: EmailSenderPort = { send }
 
-  const publishError = { isFailure: () => true, isSuccess: () => false, value: { message: 'broker unavailable' } }
+  const publishError: Either<MessagePublishError, void> = failure(
+    new MessagePublishError({ message: 'broker unavailable' })
+  )
   const publishQueue = [...(overrides.publishResults ?? [])]
   // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async publish contract; stub has nothing to await
-  const publish = vi.fn().mockImplementation(async () => {
+  const publish = vi.fn<MessageProducerPort['publish']>().mockImplementation(async () => {
     const next = publishQueue.shift()
     return next === 'failure' ? publishError : success(undefined)
   })
@@ -162,9 +164,17 @@ describe('SendEmailUseCase', () => {
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({
         topic: EMAIL_SEND_REQUESTED_RETRY_TOPIC,
-        headers: { attempt: '0', nextAttemptAt: '2026-08-02T12:00:05.000Z' }
+        headers: expect.objectContaining({ attempt: '0' })
       })
     )
+    /*
+     * computeNextRetryAt applies half jitter, so the published nextAttemptAt lands somewhere in
+     * [ceiling/2, ceiling] rather than at the exact ceiling — assert the range, not a timestamp.
+     */
+    const [rescheduleCall] = publish.mock.calls.find(([call]) => call.topic === EMAIL_SEND_REQUESTED_RETRY_TOPIC)!
+    const nextAttemptAtMs = Date.parse(rescheduleCall.headers!.nextAttemptAt!)
+    expect(nextAttemptAtMs).toBeGreaterThanOrEqual(Date.parse('2026-08-02T12:00:02.500Z'))
+    expect(nextAttemptAtMs).toBeLessThanOrEqual(Date.parse('2026-08-02T12:00:05.000Z'))
     /*
      * This path republishes at the SAME attempt (unlike scheduleRetryOrGiveUp, which advances it),
      * so the redelivered message would compute the exact same dedup key. Without releasing here,
@@ -180,6 +190,23 @@ describe('SendEmailUseCase', () => {
     const result = await useCase.execute(BASE_INPUT)
 
     expect(result.isFailure()).toBe(true)
+    expect(release).toHaveBeenCalledWith({ key: 'email-1-0' })
+  })
+
+  it('propagates a failure when the same-attempt dedup release itself fails after a successful reschedule publish, so Kafka does not commit and the key gets another release attempt', async () => {
+    const { useCase, release } = buildUseCase({ allowed: false })
+    release.mockResolvedValueOnce(infraFailure('dedup store down'))
+
+    const result = await useCase.execute(BASE_INPUT)
+
+    /*
+     * The retry-topic publish already succeeded before the release failed, so returning success
+     * here would let Kafka commit the offset with the dedup key still held — the redelivered
+     * retry would then be silently skipped as a duplicate for the rest of the claim's TTL.
+     * execute()'s own failure handler retries the release once more on the same key.
+     */
+    expect(result.isFailure()).toBe(true)
+    expect(release).toHaveBeenCalledTimes(2)
     expect(release).toHaveBeenCalledWith({ key: 'email-1-0' })
   })
 
