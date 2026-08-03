@@ -2,14 +2,25 @@ import { messageBrokerENV } from '@ruguin/env'
 import { type MessageBrokerModuleOptions } from '@ruguin/message-broker'
 
 export function createMessageBrokerModuleOptions(): MessageBrokerModuleOptions {
+  /*
+   * Trimmed and filtered so a whitespace-padded or trailing-comma value ("a:9092, b:9092,")
+   * never reaches Kafka as a broker entry that's blank or carries stray leading/trailing spaces.
+   */
+  const brokers = messageBrokerENV.KAFKA_BOOTSTRAP_BROKERS.split(',')
+    .map((broker) => broker.trim())
+    .filter((broker) => broker.length > 0)
+
+  /*
+   * KAFKA_BOOTSTRAP_BROKERS is only validated as non-empty at the env layer — a value like ","
+   * or " " passes that check but normalizes to zero usable brokers here. Fail fast at startup
+   * instead of handing the Kafka client an empty broker list.
+   */
+  if (brokers.length === 0) {
+    throw new Error('KAFKA_BOOTSTRAP_BROKERS must contain at least one non-empty broker after trimming.')
+  }
+
   return {
-    /*
-     * Trimmed and filtered so a whitespace-padded or trailing-comma value ("a:9092, b:9092,")
-     * never reaches Kafka as a broker entry that's blank or carries stray leading/trailing spaces.
-     */
-    brokers: messageBrokerENV.KAFKA_BOOTSTRAP_BROKERS.split(',')
-      .map((broker) => broker.trim())
-      .filter((broker) => broker.length > 0),
+    brokers,
     clientId: messageBrokerENV.KAFKA_CLIENT_ID,
     ssl: messageBrokerENV.KAFKA_SSL,
     /*

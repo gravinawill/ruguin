@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 describe('createMessageBrokerModuleOptions', () => {
   beforeEach(() => {
-    process.env.KAFKA_CLIENT_ID = 'ruguin'
+    vi.stubEnv('KAFKA_CLIENT_ID', 'ruguin')
   })
 
   afterEach(() => {
@@ -16,5 +16,13 @@ describe('createMessageBrokerModuleOptions', () => {
     const { createMessageBrokerModuleOptions } = await import('../message-broker-module-options')
 
     expect(createMessageBrokerModuleOptions().brokers).toEqual(['broker-a:9092', 'broker-b:9092'])
+  })
+
+  it('throws when KAFKA_BOOTSTRAP_BROKERS normalizes to an empty broker list', async () => {
+    vi.stubEnv('KAFKA_BOOTSTRAP_BROKERS', ' , ,')
+
+    const { createMessageBrokerModuleOptions } = await import('../message-broker-module-options')
+
+    expect(() => createMessageBrokerModuleOptions()).toThrow(/at least one non-empty broker/)
   })
 })
