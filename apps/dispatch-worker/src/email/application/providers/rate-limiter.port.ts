@@ -1,4 +1,4 @@
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 export const RATE_LIMITER_PROVIDER = Symbol('RATE_LIMITER_PROVIDER')

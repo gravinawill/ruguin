@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-`@ruguin/cache` — Clean Architecture cache provider for the monorepo's services. Domain contracts describe every leaf operation (get/set/delete, counters, locks, sorted scores, namespace invalidation, connection lifecycle, health) plus the two orchestrators composed on top of them. Drivers adapt one storage technology to the leaf contracts; all three drivers ship today. Depends on `@ruguin/utils` (for `Either`) and `@ruguin/ddd-kernel`.
+`@ruguin/cache` — Clean Architecture cache provider for the monorepo's services. Domain contracts describe every leaf operation (get/set/delete, counters, locks, sorted scores, namespace invalidation, connection lifecycle, health) plus the two orchestrators composed on top of them. Drivers adapt one storage technology to the leaf contracts; all three drivers ship today. Depends on `@ruguin/utils` (for `Either`) and `@ruguin/shared-domain`.
 
 ## Structure
 

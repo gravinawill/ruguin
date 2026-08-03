@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto'
 
 import { Inject, Injectable } from '@nestjs/common'
-import { type BaseError } from '@ruguin/ddd-kernel'
 import {
   EMAIL_SEND_REQUESTED_DLQ_TOPIC,
   EMAIL_SEND_REQUESTED_RETRY_TOPIC,
   EMAIL_STATUS_UPDATED_TOPIC
 } from '@ruguin/event-schemas'
 import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '@ruguin/message-broker'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import { DEDUP_CLAIM_PROVIDER, type DedupClaimPort } from '../providers/dedup-claim.port.ts'

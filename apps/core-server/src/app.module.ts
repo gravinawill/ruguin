@@ -4,11 +4,12 @@ import { databaseENV } from '@ruguin/env'
 import { MessageBrokerModule } from '@ruguin/message-broker'
 import { LoggerModule } from 'nestjs-pino'
 
-import { HealthModule } from './modules/health/health.module'
+import { RouterModule } from './router/router.module'
 import { createCacheModuleOptions } from './shared/infrastructure/cache/cache-module-options'
 import { DatabaseModule } from './shared/infrastructure/database/database.module'
 import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-options'
 import { createMessageBrokerModuleOptions } from './shared/infrastructure/message-broker/message-broker-module-options'
+import { OutboxModule } from './shared/infrastructure/outbox/outbox.module'
 
 @Module({
   imports: [
@@ -32,9 +33,8 @@ import { createMessageBrokerModuleOptions } from './shared/infrastructure/messag
       connectionString: databaseENV.DATABASE_URL
     }),
 
-    HealthModule
-  ],
-  controllers: [],
-  providers: []
+    OutboxModule.forRoot(),
+    RouterModule
+  ]
 })
 export class AppModule {}

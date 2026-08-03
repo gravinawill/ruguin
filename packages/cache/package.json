@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
-    "@ruguin/ddd-kernel": "workspace:*",
+    "@ruguin/shared-domain": "workspace:*",
     "@ruguin/utils": "workspace:*",
     "iovalkey": "^0.4.0"
   },

@@ -1,4 +1,4 @@
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 export const MESSAGE_CONSUMER_PORT = Symbol('MESSAGE_CONSUMER_PORT')

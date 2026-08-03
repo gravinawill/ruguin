@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rename `apps/api-server` to `apps/core-server`, adopt the `__tests__/`-folder test convention (`.unit.ts`/`.int.ts`/`.e2e.ts`), and build `packages/ddd-kernel` (`BaseError`, `StatusError`, the `ID` value object) — the shared foundation that the DDD/hexagonal architecture in `docs/superpowers/specs/2026-07-29-core-server-architecture-design.md` is built on top of.
+**Goal:** Rename `apps/api-server` to `apps/core-server`, adopt the `__tests__/`-folder test convention (`.unit.ts`/`.int.ts`/`.e2e.ts`), and build `packages/shared-domain` (`BaseError`, `StatusError`, the `ID` value object) — the shared foundation that the DDD/hexagonal architecture in `docs/superpowers/specs/2026-07-29-core-server-architecture-design.md` is built on top of.
 
-**Architecture:** Mechanical rename of the existing NestJS app first (proves nothing breaks), then a new dependency-free-except-`@ruguin/utils` package (`packages/ddd-kernel`) built test-first, one class at a time, mirroring the layout and conventions already used by `packages/utils`.
+**Architecture:** Mechanical rename of the existing NestJS app first (proves nothing breaks), then a new dependency-free-except-`@ruguin/utils` package (`packages/shared-domain`) built test-first, one class at a time, mirroring the layout and conventions already used by `packages/utils`.
 
 **Tech Stack:** TypeScript (strict), pnpm workspaces + Turborepo, Vitest, `uuid` (UUID v7), `@ruguin/utils` (`Either`/`Success`/`Failure`).
 
@@ -12,10 +12,10 @@
 
 - TypeScript strict mode everywhere (`@ruguin/typescript-config/base.json`) — do not weaken compiler options.
 - Every package/app is ESM (`"type": "module"`).
-- Tests live in `__tests__/` folders, three suffixes: `.unit.ts` (no I/O, mock via `vitest-mock-extended` where applicable), `.int.ts` (real infra), `.e2e.ts` (full app). This plan only produces `.unit.ts` tests (`ddd-kernel` has no infra to integration-test) plus migrates the one existing `.e2e.ts`.
+- Tests live in `__tests__/` folders, three suffixes: `.unit.ts` (no I/O, mock via `vitest-mock-extended` where applicable), `.int.ts` (real infra), `.e2e.ts` (full app). This plan only produces `.unit.ts` tests (`shared-domain` has no infra to integration-test) plus migrates the one existing `.e2e.ts`.
 - Expected/domain failures use `Either`/`Success`/`Failure` from `@ruguin/utils` — never `throw` for domain errors.
-- Every domain error class extends `BaseError` (`packages/ddd-kernel`) and sets `name` + `status` (`StatusError`).
-- `packages/ddd-kernel` is "raw TS, no build" — same convention as `packages/utils`: `exports: { ".": "./src/index.ts" }`, no `dist/`, no `build` script.
+- Every domain error class extends `BaseError` (`packages/shared-domain`) and sets `name` + `status` (`StatusError`).
+- `packages/shared-domain` is "raw TS, no build" — same convention as `packages/utils`: `exports: { ".": "./src/index.ts" }`, no `dist/`, no `build` script.
 - No `Co-Authored-By` trailer in commits (this project's `.claude/settings.json` does not set `attribution.commit`).
 - Node `26.5.0`, pnpm `11.17.0` (pinned in root `package.json`).
 
@@ -335,27 +335,27 @@ git commit -m "test(core-server): move tests into __tests__/ folders, adopt .int
 
 ---
 
-### Task 3: Scaffold `packages/ddd-kernel`
+### Task 3: Scaffold `packages/shared-domain`
 
 **Files:**
-- Create: `packages/ddd-kernel/package.json`
-- Create: `packages/ddd-kernel/tsconfig.json`
-- Create: `packages/ddd-kernel/eslint.config.ts`
-- Create: `packages/ddd-kernel/vitest.config.ts`
-- Create: `packages/ddd-kernel/CLAUDE.md`
+- Create: `packages/shared-domain/package.json`
+- Create: `packages/shared-domain/tsconfig.json`
+- Create: `packages/shared-domain/eslint.config.ts`
+- Create: `packages/shared-domain/vitest.config.ts`
+- Create: `packages/shared-domain/CLAUDE.md`
 - Modify: `.cspell.json`
 
 **Interfaces:**
 - Consumes: `@ruguin/utils` (workspace, already published as `Either`/`success`/`failure` from `packages/utils/src/index.ts`).
-- Produces: an installable, lintable, type-checkable, testable empty package `@ruguin/ddd-kernel` that Tasks 4–8 add source files to.
+- Produces: an installable, lintable, type-checkable, testable empty package `@ruguin/shared-domain` that Tasks 4–8 add source files to.
 
 - [ ] **Step 1: Create `package.json`**
 
-`packages/ddd-kernel/package.json`:
+`packages/shared-domain/package.json`:
 
 ```json
 {
-  "name": "@ruguin/ddd-kernel",
+  "name": "@ruguin/shared-domain",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -391,7 +391,7 @@ git commit -m "test(core-server): move tests into __tests__/ folders, adopt .int
 
 - [ ] **Step 2: Create `tsconfig.json`**
 
-`packages/ddd-kernel/tsconfig.json`:
+`packages/shared-domain/tsconfig.json`:
 
 ```json
 {
@@ -408,7 +408,7 @@ git commit -m "test(core-server): move tests into __tests__/ folders, adopt .int
 
 - [ ] **Step 3: Create `eslint.config.ts`**
 
-`packages/ddd-kernel/eslint.config.ts`:
+`packages/shared-domain/eslint.config.ts`:
 
 ```ts
 import { defineConfig } from '@ruguin/eslint-config'
@@ -418,7 +418,7 @@ export default defineConfig({})
 
 - [ ] **Step 4: Create `vitest.config.ts`**
 
-`packages/ddd-kernel/vitest.config.ts`:
+`packages/shared-domain/vitest.config.ts`:
 
 ```ts
 import { defineConfig } from 'vitest/config'
@@ -440,10 +440,10 @@ export default defineConfig({
 - [ ] **Step 5: Add the `uuid` dependency**
 
 ```bash
-pnpm add uuid --filter @ruguin/ddd-kernel
+pnpm add uuid --filter @ruguin/shared-domain
 ```
 
-Expected: `packages/ddd-kernel/package.json`'s `dependencies` gains a `"uuid": "^<resolved-version>"` entry, and the root lockfile updates.
+Expected: `packages/shared-domain/package.json`'s `dependencies` gains a `"uuid": "^<resolved-version>"` entry, and the root lockfile updates.
 
 - [ ] **Step 6: Link the workspace**
 
@@ -451,7 +451,7 @@ Expected: `packages/ddd-kernel/package.json`'s `dependencies` gains a `"uuid": "
 pnpm install
 ```
 
-Expected: `@ruguin/ddd-kernel` now resolves `@ruguin/utils` via the workspace symlink.
+Expected: `@ruguin/shared-domain` now resolves `@ruguin/utils` via the workspace symlink.
 
 - [ ] **Step 7: Allow-list the "ddd" word for spell-check**
 
@@ -467,7 +467,7 @@ In `.cspell.json`, insert `"ddd"` into the alphabetically-ordered `words` array 
 
 - [ ] **Step 8: Create `CLAUDE.md`**
 
-`packages/ddd-kernel/CLAUDE.md`:
+`packages/shared-domain/CLAUDE.md`:
 
 ```markdown
 # CLAUDE.md
@@ -476,7 +476,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-`@ruguin/ddd-kernel` — DDD building blocks shared across the monorepo's services (today only `core-server`, but meant for the future `dispatch-worker`, `tracking-service`, etc.): `BaseError`, `StatusError`, and generic value objects like `ID`. Depends on `@ruguin/utils` (for `Either`); no other package in the monorepo depends on this one in the other direction.
+`@ruguin/shared-domain` — DDD building blocks shared across the monorepo's services (today only `core-server`, but meant for the future `dispatch-worker`, `tracking-service`, etc.): `BaseError`, `StatusError`, and generic value objects like `ID`. Depends on `@ruguin/utils` (for `Either`); no other package in the monorepo depends on this one in the other direction.
 
 ## Structure
 
@@ -499,8 +499,8 @@ src/
 ## Commands
 
 \`\`\`bash
-pnpm --filter @ruguin/ddd-kernel test:unit
-pnpm --filter @ruguin/ddd-kernel check:types
+pnpm --filter @ruguin/shared-domain test:unit
+pnpm --filter @ruguin/shared-domain check:types
 \`\`\`
 ```
 
@@ -508,7 +508,7 @@ pnpm --filter @ruguin/ddd-kernel check:types
 
 ```bash
 git add -A
-git commit -m "chore(ddd-kernel): scaffold package"
+git commit -m "chore(shared-domain): scaffold package"
 ```
 
 ---
@@ -516,9 +516,9 @@ git commit -m "chore(ddd-kernel): scaffold package"
 ### Task 4: `StatusError` enum
 
 **Files:**
-- Create: `packages/ddd-kernel/src/enums/status-error.enum.ts`
-- Create: `packages/ddd-kernel/src/enums/index.ts`
-- Test: `packages/ddd-kernel/src/enums/__tests__/status-error.enum.unit.ts`
+- Create: `packages/shared-domain/src/enums/status-error.enum.ts`
+- Create: `packages/shared-domain/src/enums/index.ts`
+- Test: `packages/shared-domain/src/enums/__tests__/status-error.enum.unit.ts`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -526,7 +526,7 @@ git commit -m "chore(ddd-kernel): scaffold package"
 
 - [ ] **Step 1: Write the failing test**
 
-`packages/ddd-kernel/src/enums/__tests__/status-error.enum.unit.ts`:
+`packages/shared-domain/src/enums/__tests__/status-error.enum.unit.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
@@ -550,14 +550,14 @@ describe('StatusError', () => {
 - [ ] **Step 2: Run it, verify it fails**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:unit
+pnpm --filter @ruguin/shared-domain test:unit
 ```
 
 Expected: FAIL — `Cannot find module '../status-error.enum'`.
 
 - [ ] **Step 3: Implement**
 
-`packages/ddd-kernel/src/enums/status-error.enum.ts`:
+`packages/shared-domain/src/enums/status-error.enum.ts`:
 
 ```ts
 export enum StatusError {
@@ -572,7 +572,7 @@ export enum StatusError {
 }
 ```
 
-`packages/ddd-kernel/src/enums/index.ts`:
+`packages/shared-domain/src/enums/index.ts`:
 
 ```ts
 export * from './status-error.enum'
@@ -581,7 +581,7 @@ export * from './status-error.enum'
 - [ ] **Step 4: Run it, verify it passes**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:unit
+pnpm --filter @ruguin/shared-domain test:unit
 ```
 
 Expected: PASS.
@@ -590,7 +590,7 @@ Expected: PASS.
 
 ```bash
 git add -A
-git commit -m "feat(ddd-kernel): add StatusError enum"
+git commit -m "feat(shared-domain): add StatusError enum"
 ```
 
 ---
@@ -598,9 +598,9 @@ git commit -m "feat(ddd-kernel): add StatusError enum"
 ### Task 5: `BaseError` abstract class
 
 **Files:**
-- Create: `packages/ddd-kernel/src/errors/base-error.ts`
-- Create: `packages/ddd-kernel/src/errors/index.ts`
-- Test: `packages/ddd-kernel/src/errors/__tests__/base-error.unit.ts`
+- Create: `packages/shared-domain/src/errors/base-error.ts`
+- Create: `packages/shared-domain/src/errors/index.ts`
+- Test: `packages/shared-domain/src/errors/__tests__/base-error.unit.ts`
 
 **Interfaces:**
 - Consumes: `StatusError` from Task 4 (`import { type StatusError } from '../enums'`).
@@ -608,7 +608,7 @@ git commit -m "feat(ddd-kernel): add StatusError enum"
 
 - [ ] **Step 1: Write the failing test**
 
-`packages/ddd-kernel/src/errors/__tests__/base-error.unit.ts`:
+`packages/shared-domain/src/errors/__tests__/base-error.unit.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
@@ -647,14 +647,14 @@ describe('BaseError', () => {
 - [ ] **Step 2: Run it, verify it fails**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:unit
+pnpm --filter @ruguin/shared-domain test:unit
 ```
 
 Expected: FAIL — `Cannot find module '../base-error'`.
 
 - [ ] **Step 3: Implement**
 
-`packages/ddd-kernel/src/errors/base-error.ts`:
+`packages/shared-domain/src/errors/base-error.ts`:
 
 ```ts
 import { type StatusError } from '../enums'
@@ -672,7 +672,7 @@ export abstract class BaseError {
 }
 ```
 
-`packages/ddd-kernel/src/errors/index.ts`:
+`packages/shared-domain/src/errors/index.ts`:
 
 ```ts
 export * from './base-error'
@@ -681,7 +681,7 @@ export * from './base-error'
 - [ ] **Step 4: Run it, verify it passes**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:unit
+pnpm --filter @ruguin/shared-domain test:unit
 ```
 
 Expected: PASS.
@@ -690,7 +690,7 @@ Expected: PASS.
 
 ```bash
 git add -A
-git commit -m "feat(ddd-kernel): add BaseError abstract class"
+git commit -m "feat(shared-domain): add BaseError abstract class"
 ```
 
 ---
@@ -698,11 +698,11 @@ git commit -m "feat(ddd-kernel): add BaseError abstract class"
 ### Task 6: `ID` value object errors — `InvalidIDError`, `GenerateIDError`
 
 **Files:**
-- Create: `packages/ddd-kernel/src/value-objects/id/errors/invalid-id.error.ts`
-- Create: `packages/ddd-kernel/src/value-objects/id/errors/generate-id.error.ts`
-- Create: `packages/ddd-kernel/src/value-objects/id/errors/index.ts`
-- Test: `packages/ddd-kernel/src/value-objects/id/errors/__tests__/invalid-id.error.unit.ts`
-- Test: `packages/ddd-kernel/src/value-objects/id/errors/__tests__/generate-id.error.unit.ts`
+- Create: `packages/shared-domain/src/value-objects/id/errors/invalid-id.error.ts`
+- Create: `packages/shared-domain/src/value-objects/id/errors/generate-id.error.ts`
+- Create: `packages/shared-domain/src/value-objects/id/errors/index.ts`
+- Test: `packages/shared-domain/src/value-objects/id/errors/__tests__/invalid-id.error.unit.ts`
+- Test: `packages/shared-domain/src/value-objects/id/errors/__tests__/generate-id.error.unit.ts`
 
 **Interfaces:**
 - Consumes: `BaseError` (Task 5, `import { BaseError } from '../../../errors'`), `StatusError` (Task 4, `import { StatusError } from '../../../enums'`).
@@ -710,7 +710,7 @@ git commit -m "feat(ddd-kernel): add BaseError abstract class"
 
 - [ ] **Step 1: Write the failing tests**
 
-`packages/ddd-kernel/src/value-objects/id/errors/__tests__/invalid-id.error.unit.ts`:
+`packages/shared-domain/src/value-objects/id/errors/__tests__/invalid-id.error.unit.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
@@ -735,7 +735,7 @@ describe('InvalidIDError', () => {
 })
 ```
 
-`packages/ddd-kernel/src/value-objects/id/errors/__tests__/generate-id.error.unit.ts`:
+`packages/shared-domain/src/value-objects/id/errors/__tests__/generate-id.error.unit.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
@@ -766,14 +766,14 @@ describe('GenerateIDError', () => {
 - [ ] **Step 2: Run them, verify they fail**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:unit
+pnpm --filter @ruguin/shared-domain test:unit
 ```
 
 Expected: FAIL — `Cannot find module '../invalid-id.error'` / `'../generate-id.error'`.
 
 - [ ] **Step 3: Implement**
 
-`packages/ddd-kernel/src/value-objects/id/errors/invalid-id.error.ts`:
+`packages/shared-domain/src/value-objects/id/errors/invalid-id.error.ts`:
 
 ```ts
 import { BaseError } from '../../../errors'
@@ -793,7 +793,7 @@ export class InvalidIDError extends BaseError {
 }
 ```
 
-`packages/ddd-kernel/src/value-objects/id/errors/generate-id.error.ts`:
+`packages/shared-domain/src/value-objects/id/errors/generate-id.error.ts`:
 
 ```ts
 import { BaseError } from '../../../errors'
@@ -813,7 +813,7 @@ export class GenerateIDError extends BaseError {
 }
 ```
 
-`packages/ddd-kernel/src/value-objects/id/errors/index.ts`:
+`packages/shared-domain/src/value-objects/id/errors/index.ts`:
 
 ```ts
 export * from './generate-id.error'
@@ -823,7 +823,7 @@ export * from './invalid-id.error'
 - [ ] **Step 4: Run them, verify they pass**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:unit
+pnpm --filter @ruguin/shared-domain test:unit
 ```
 
 Expected: PASS.
@@ -832,7 +832,7 @@ Expected: PASS.
 
 ```bash
 git add -A
-git commit -m "feat(ddd-kernel): add InvalidIDError and GenerateIDError"
+git commit -m "feat(shared-domain): add InvalidIDError and GenerateIDError"
 ```
 
 ---
@@ -840,11 +840,11 @@ git commit -m "feat(ddd-kernel): add InvalidIDError and GenerateIDError"
 ### Task 7: `ID` value object
 
 **Files:**
-- Create: `packages/ddd-kernel/src/value-objects/id/id.value-object.ts`
-- Create: `packages/ddd-kernel/src/value-objects/id/index.ts`
-- Create: `packages/ddd-kernel/src/value-objects/index.ts`
-- Test: `packages/ddd-kernel/src/value-objects/id/__tests__/id.value-object.unit.ts`
-- Test: `packages/ddd-kernel/src/value-objects/id/__tests__/id.value-object.generate-error.unit.ts`
+- Create: `packages/shared-domain/src/value-objects/id/id.value-object.ts`
+- Create: `packages/shared-domain/src/value-objects/id/index.ts`
+- Create: `packages/shared-domain/src/value-objects/index.ts`
+- Test: `packages/shared-domain/src/value-objects/id/__tests__/id.value-object.unit.ts`
+- Test: `packages/shared-domain/src/value-objects/id/__tests__/id.value-object.generate-error.unit.ts`
 
 **Interfaces:**
 - Consumes: `Either`/`success`/`failure` from `@ruguin/utils`; `InvalidIDError`, `GenerateIDError` from Task 6 (`import { GenerateIDError, InvalidIDError } from './errors'`); `v7 as uuidv7` from `uuid`.
@@ -852,7 +852,7 @@ git commit -m "feat(ddd-kernel): add InvalidIDError and GenerateIDError"
 
 - [ ] **Step 1: Write the failing tests (main behavior)**
 
-`packages/ddd-kernel/src/value-objects/id/__tests__/id.value-object.unit.ts`:
+`packages/shared-domain/src/value-objects/id/__tests__/id.value-object.unit.ts`:
 
 ```ts
 import { describe, expect, it } from 'vitest'
@@ -951,7 +951,7 @@ describe('ID#getPartition', () => {
 
 - [ ] **Step 2: Write the failing test (generator failure path)**
 
-`packages/ddd-kernel/src/value-objects/id/__tests__/id.value-object.generate-error.unit.ts`:
+`packages/shared-domain/src/value-objects/id/__tests__/id.value-object.generate-error.unit.ts`:
 
 ```ts
 import { describe, expect, it, vi } from 'vitest'
@@ -983,14 +983,14 @@ describe('ID.generate', () => {
 - [ ] **Step 3: Run both, verify they fail**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:unit
+pnpm --filter @ruguin/shared-domain test:unit
 ```
 
 Expected: FAIL — `Cannot find module '../id.value-object'`.
 
 - [ ] **Step 4: Implement**
 
-`packages/ddd-kernel/src/value-objects/id/id.value-object.ts`:
+`packages/shared-domain/src/value-objects/id/id.value-object.ts`:
 
 ```ts
 import { type Either, failure, success } from '@ruguin/utils'
@@ -1063,14 +1063,14 @@ export class ID {
 }
 ```
 
-`packages/ddd-kernel/src/value-objects/id/index.ts`:
+`packages/shared-domain/src/value-objects/id/index.ts`:
 
 ```ts
 export * from './errors'
 export * from './id.value-object'
 ```
 
-`packages/ddd-kernel/src/value-objects/index.ts`:
+`packages/shared-domain/src/value-objects/index.ts`:
 
 ```ts
 export * from './id'
@@ -1079,7 +1079,7 @@ export * from './id'
 - [ ] **Step 5: Run both, verify they pass**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:unit
+pnpm --filter @ruguin/shared-domain test:unit
 ```
 
 Expected: PASS — all tests across the package green.
@@ -1088,7 +1088,7 @@ Expected: PASS — all tests across the package green.
 
 ```bash
 git add -A
-git commit -m "feat(ddd-kernel): add ID value object"
+git commit -m "feat(shared-domain): add ID value object"
 ```
 
 ---
@@ -1096,15 +1096,15 @@ git commit -m "feat(ddd-kernel): add ID value object"
 ### Task 8: Public barrel export + full verification
 
 **Files:**
-- Create: `packages/ddd-kernel/src/index.ts`
+- Create: `packages/shared-domain/src/index.ts`
 
 **Interfaces:**
 - Consumes: everything from Tasks 3–7.
-- Produces: the package's public API — `import { BaseError, StatusError, ID, InvalidIDError, GenerateIDError } from '@ruguin/ddd-kernel'` — which the follow-up Prisma/transaction/outbox plan imports from.
+- Produces: the package's public API — `import { BaseError, StatusError, ID, InvalidIDError, GenerateIDError } from '@ruguin/shared-domain'` — which the follow-up Prisma/transaction/outbox plan imports from.
 
 - [ ] **Step 1: Create the top-level barrel**
 
-`packages/ddd-kernel/src/index.ts`:
+`packages/shared-domain/src/index.ts`:
 
 ```ts
 export * from './enums'
@@ -1115,7 +1115,7 @@ export * from './value-objects'
 - [ ] **Step 2: Type-check**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel check:types
+pnpm --filter @ruguin/shared-domain check:types
 ```
 
 Expected: 0 errors.
@@ -1123,15 +1123,15 @@ Expected: 0 errors.
 - [ ] **Step 3: Lint**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel check:lint
+pnpm --filter @ruguin/shared-domain check:lint
 ```
 
-Expected: 0 errors/warnings. If import ordering or similar auto-fixable issues are reported, run `pnpm --filter @ruguin/ddd-kernel fix:lint` and re-check.
+Expected: 0 errors/warnings. If import ordering or similar auto-fixable issues are reported, run `pnpm --filter @ruguin/shared-domain fix:lint` and re-check.
 
 - [ ] **Step 4: Run the full test suite**
 
 ```bash
-pnpm --filter @ruguin/ddd-kernel test:all
+pnpm --filter @ruguin/shared-domain test:all
 ```
 
 Expected: PASS — `StatusError`, `BaseError`, `InvalidIDError`, `GenerateIDError`, `ID` (including the mocked-generator-failure test) all green.
@@ -1151,11 +1151,11 @@ pnpm build
 pnpm check:types
 ```
 
-Expected: both succeed — `@ruguin/ddd-kernel` and `@ruguin/core-server` coexist cleanly alongside the rest of the workspace.
+Expected: both succeed — `@ruguin/shared-domain` and `@ruguin/core-server` coexist cleanly alongside the rest of the workspace.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(ddd-kernel): add public barrel export"
+git commit -m "feat(shared-domain): add public barrel export"
 ```

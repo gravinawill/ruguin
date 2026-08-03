@@ -1,4 +1,4 @@
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either } from '@ruguin/utils'
 
 import { type TransactionContext } from './transaction-context.contract'

@@ -1,4 +1,4 @@
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class MessagePublishError extends BaseError {
   readonly name = 'MessagePublishError'

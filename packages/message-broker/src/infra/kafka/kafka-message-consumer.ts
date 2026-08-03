@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common'
 import { type Consumer } from '@platformatic/kafka'
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import {

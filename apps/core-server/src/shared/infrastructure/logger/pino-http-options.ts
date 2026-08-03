@@ -1,6 +1,5 @@
-import type { Options } from 'pino-http'
-
 import { serverENV } from '@ruguin/env'
+import { type Options } from 'pino-http'
 
 export function createPinoHttpOptions(): Options {
   const isProduction = serverENV.ENVIRONMENT === 'production'

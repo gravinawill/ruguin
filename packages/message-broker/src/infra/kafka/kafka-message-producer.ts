@@ -1,6 +1,6 @@
 import { Injectable, type OnModuleDestroy } from '@nestjs/common'
 import { type Producer } from '@platformatic/kafka'
-import { type BaseError } from '@ruguin/ddd-kernel'
+import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import { type MessageProducerPort, type OutboundMessage } from '../../domain/contracts/message-producer.port.ts'

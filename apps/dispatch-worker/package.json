@@ -24,10 +24,10 @@
     "@nestjs/platform-fastify": "^11.1.28",
     "@nestjs/terminus": "^11.1.1",
     "@ruguin/cache": "workspace:*",
-    "@ruguin/ddd-kernel": "workspace:*",
     "@ruguin/env": "workspace:*",
     "@ruguin/event-schemas": "workspace:*",
     "@ruguin/message-broker": "workspace:*",
+    "@ruguin/shared-domain": "workspace:*",
     "@ruguin/utils": "workspace:*",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
