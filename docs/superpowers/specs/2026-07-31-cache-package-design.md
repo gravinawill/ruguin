@@ -166,7 +166,7 @@ packages/cache/src/
   index.ts
 ```
 
-`packages/cache/package.json` segue a convenção de `@ruguin/utils` e `@ruguin/ddd-kernel`: **TypeScript cru, sem build, sem `dist/`**, com dois export paths:
+`packages/cache/package.json` segue a convenção de `@ruguin/utils` e `@ruguin/shared-domain`: **TypeScript cru, sem build, sem `dist/`**, com dois export paths:
 
 ```json
 "exports": {
@@ -175,7 +175,7 @@ packages/cache/src/
 }
 ```
 
-**Dependencies:** `iovalkey`, `@ruguin/utils` (workspace), `@ruguin/ddd-kernel` (workspace).
+**Dependencies:** `iovalkey`, `@ruguin/utils` (workspace), `@ruguin/shared-domain` (workspace).
 
 O pacote **não** depende de `@ruguin/env`. Toda configuração entra por construtor, e é quem compõe (a `CacheFactory`, ou o `CacheModule` do NestJS) que decide de onde tira os valores. Isso mantém o núcleo testável sem tocar em `process.env` — a suíte inteira roda sem nenhuma variável de ambiente definida.
 **PeerDependencies (opcionais, só para `./nestjs`):** `@nestjs/common`, `@nestjs/terminus`, `@opentelemetry/api`.
@@ -639,7 +639,7 @@ this.health.check([() => this.cacheHealth.isHealthy('cache')])
 
 ## 11. Erros
 
-Todos estendem `BaseError` de `@ruguin/ddd-kernel`, com `name` e `status`:
+Todos estendem `BaseError` de `@ruguin/shared-domain`, com `name` e `status`:
 
 | Erro                       | `StatusError`    | Origem                                                                            |
 | -------------------------- | ---------------- | --------------------------------------------------------------------------------- |

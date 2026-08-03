@@ -1,4 +1,4 @@
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 /*
  * Raised by the composition root, not by an operation. `@ruguin/env` already refuses a `valkey`

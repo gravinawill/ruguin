@@ -12,14 +12,14 @@
 
 ## Global Constraints
 
-- **TypeScript cru, sem build.** `packages/cache` exporta `./src/index.ts` diretamente. Nenhum `dist/`, nenhum script `build` — mesma convenção de `@ruguin/utils` e `@ruguin/ddd-kernel`.
+- **TypeScript cru, sem build.** `packages/cache` exporta `./src/index.ts` diretamente. Nenhum `dist/`, nenhum script `build` — mesma convenção de `@ruguin/utils` e `@ruguin/shared-domain`.
 - **Nenhuma exceção para falha esperada.** Todo caminho retorna `Either<F, S>` de `@ruguin/utils`. `throw` só para bug de programação.
-- **Todo erro estende `BaseError`** de `@ruguin/ddd-kernel` e declara `readonly name` e `readonly status`.
+- **Todo erro estende `BaseError`** de `@ruguin/shared-domain` e declara `readonly name` e `readonly status`.
 - **`tsconfig` herda `@ruguin/typescript-config/base.json`**, que liga `noUncheckedIndexedAccess`, `noUnusedLocals`, `noUnusedParameters`, `exactOptionalPropertyTypes` não. Acesso indexado devolve `T | undefined` — trate sempre.
 - **Testes unitários:** `src/**/__tests__/**/*.unit.ts`. **Integração:** `src/**/__tests__/**/*.int.ts`.
 - **Genéricos ficam no método**, nunca na interface — `ICacheProvider` não pode ter parâmetro de tipo.
 - **Padrão de contrato:** um `export namespace <Nome>ProviderDTO` com `Input` / `OutputError` / `OutputSuccess` / `Output`, e um `export interface I<Nome>Provider` com um método só.
-- **Import de `@ruguin/ddd-kernel` é pelo barrel** (`import { BaseError, StatusError } from '@ruguin/ddd-kernel'`) — a proibição de barrel documentada no CLAUDE.md daquele pacote vale apenas para imports internos dele.
+- **Import de `@ruguin/shared-domain` é pelo barrel** (`import { BaseError, StatusError } from '@ruguin/shared-domain'`) — a proibição de barrel documentada no CLAUDE.md daquele pacote vale apenas para imports internos dele.
 - **Commits:** Conventional Commits, escopo `cache` (ou `env` na Task 1). **Nunca** adicionar trailer `Co-Authored-By`.
 
 ## File Structure
@@ -257,7 +257,7 @@ git commit -m "feat(env): add valkey driver and cache connection variables"
     "*.ts": "eslint --fix"
   },
   "dependencies": {
-    "@ruguin/ddd-kernel": "workspace:*",
+    "@ruguin/shared-domain": "workspace:*",
     "@ruguin/env": "workspace:*",
     "@ruguin/utils": "workspace:*"
   },
@@ -367,7 +367,7 @@ Expected: FAIL — `Cannot find module '../index'`.
 
 - [ ] **Step 5: Implementar os enums**
 
-O monorepo evita `enum` do TypeScript (quebra sob ESM de Node, como já documentado no `ddd-kernel`). Use objeto `as const` mais `type` homônimo, exatamente como `StatusError`.
+O monorepo evita `enum` do TypeScript (quebra sob ESM de Node, como já documentado no `shared-domain`). Use objeto `as const` mais `type` homônimo, exatamente como `StatusError`.
 
 `packages/cache/src/domain/enums/cache-driver.enum.ts`:
 
@@ -460,7 +460,7 @@ git commit -m "feat(cache): scaffold package and add domain enums"
 
 **Interfaces:**
 
-- Consumes: `BaseError`, `StatusError` de `@ruguin/ddd-kernel`.
+- Consumes: `BaseError`, `StatusError` de `@ruguin/shared-domain`.
 - Produces: sete classes mais o alias `CacheOperationError`. Construtores — `CacheConnectionError({ operation: string; error?: unknown })`, `CacheTimeoutError({ operation: string; timeoutInMs: number })`, `CacheSerializationError({ operation: string; error?: unknown })`, `CacheNotInitializedError({ operation: string })`, `InvalidCacheKeyError({ field: 'key' | 'namespace'; value: string; reason: string })`, `LockNotAcquiredError({ lockKey: string; attempts: number })`, `LockNotOwnedError({ lockKey: string })`.
 
 - [ ] **Step 1: Escrever o teste que falha**
@@ -468,7 +468,7 @@ git commit -m "feat(cache): scaffold package and add domain enums"
 `packages/cache/src/domain/errors/__tests__/cache-errors.unit.ts`:
 
 ```ts
-import { StatusError } from '@ruguin/ddd-kernel'
+import { StatusError } from '@ruguin/shared-domain'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -549,7 +549,7 @@ Expected: FAIL — módulo `../index` não existe.
 
 ```ts
 // packages/cache/src/domain/errors/cache-connection.error.ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class CacheConnectionError extends BaseError {
   readonly name = 'CacheConnectionError'
@@ -563,7 +563,7 @@ export class CacheConnectionError extends BaseError {
 
 ```ts
 // packages/cache/src/domain/errors/cache-timeout.error.ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class CacheTimeoutError extends BaseError {
   readonly name = 'CacheTimeoutError'
@@ -577,7 +577,7 @@ export class CacheTimeoutError extends BaseError {
 
 ```ts
 // packages/cache/src/domain/errors/cache-serialization.error.ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class CacheSerializationError extends BaseError {
   readonly name = 'CacheSerializationError'
@@ -591,7 +591,7 @@ export class CacheSerializationError extends BaseError {
 
 ```ts
 // packages/cache/src/domain/errors/cache-not-initialized.error.ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class CacheNotInitializedError extends BaseError {
   readonly name = 'CacheNotInitializedError'
@@ -605,7 +605,7 @@ export class CacheNotInitializedError extends BaseError {
 
 ```ts
 // packages/cache/src/domain/errors/invalid-cache-key.error.ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class InvalidCacheKeyError extends BaseError {
   readonly name = 'InvalidCacheKeyError'
@@ -619,7 +619,7 @@ export class InvalidCacheKeyError extends BaseError {
 
 ```ts
 // packages/cache/src/domain/errors/lock-not-acquired.error.ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class LockNotAcquiredError extends BaseError {
   readonly name = 'LockNotAcquiredError'
@@ -633,7 +633,7 @@ export class LockNotAcquiredError extends BaseError {
 
 ```ts
 // packages/cache/src/domain/errors/lock-not-owned.error.ts
-import { BaseError, StatusError } from '@ruguin/ddd-kernel'
+import { BaseError, StatusError } from '@ruguin/shared-domain'
 
 export class LockNotOwnedError extends BaseError {
   readonly name = 'LockNotOwnedError'
@@ -4888,7 +4888,7 @@ Expected: PASS. Este é o portão final do plano — o pacote está funcional co
 
 - [ ] **Step 5: Escrever o `CLAUDE.md` do pacote**
 
-Crie `packages/cache/CLAUDE.md` seguindo o formato de `packages/ddd-kernel/CLAUDE.md`: seções `## Purpose`, `## Structure`, `## Rules`, `## Commands`. Registre em `Rules`:
+Crie `packages/cache/CLAUDE.md` seguindo o formato de `packages/shared-domain/CLAUDE.md`: seções `## Purpose`, `## Structure`, `## Rules`, `## Commands`. Registre em `Rules`:
 
 - TypeScript cru, sem build — exporta `./src/index.ts` direto, sem `dist/`.
 - Driver implementa `ICacheDriver` (contratos folha); `getOrSet` e `executeWithLock` vivem em `application/` e servem a qualquer driver.
@@ -4899,7 +4899,7 @@ Crie `packages/cache/CLAUDE.md` seguindo o formato de `packages/ddd-kernel/CLAUD
 - [ ] **Step 6: Verificar o monorepo inteiro**
 
 Run: `pnpm check:types && pnpm test`
-Expected: PASS — confirma que o pacote novo não quebrou `env`, `utils`, `ddd-kernel` nem `core-server`.
+Expected: PASS — confirma que o pacote novo não quebrou `env`, `utils`, `shared-domain` nem `core-server`.
 
 - [ ] **Step 7: Commit**
 

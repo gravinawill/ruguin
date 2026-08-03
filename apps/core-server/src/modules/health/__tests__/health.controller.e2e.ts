@@ -1,5 +1,4 @@
-import type { INestApplication } from '@nestjs/common'
-
+import { type INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'

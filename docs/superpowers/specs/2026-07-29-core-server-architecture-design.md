@@ -1,7 +1,7 @@
 # Core Server — Arquitetura (DDD + Hexagonal) — Design
 
 **Data:** 2026-07-29
-**Escopo:** `apps/core-server` (renomeado de `apps/api-server`), `packages/ddd-kernel` (novo)
+**Escopo:** `apps/core-server` (renomeado de `apps/api-server`), `packages/shared-domain` (novo)
 
 ## Contexto
 
@@ -11,7 +11,7 @@ Este design renomeia `api-server` para `core-server` (nome mais alinhado ao pape
 
 ## Objetivo
 
-Estabelecer a arquitetura modular do `core-server` — estrutura de pastas, regras de dependência entre camadas, kernel DDD compartilhado (`packages/ddd-kernel`), padrão de repositório com inversão de dependência, mecanismo de transação/outbox, e convenção de testes — de forma que features de domínio (organizations, projects, api-keys, templates, domains, emails) possam ser implementadas de forma consistente e testável.
+Estabelecer a arquitetura modular do `core-server` — estrutura de pastas, regras de dependência entre camadas, kernel DDD compartilhado (`packages/shared-domain`), padrão de repositório com inversão de dependência, mecanismo de transação/outbox, e convenção de testes — de forma que features de domínio (organizations, projects, api-keys, templates, domains, emails) possam ser implementadas de forma consistente e testável.
 
 ## Fora de escopo
 
@@ -76,12 +76,12 @@ Controller → Service → Use Case → { Repository (interface) | Provider (int
 - **Repository/Provider**: interface declarada em `application/`, implementação em `infra/`. O módulo Nest faz o bind por token (`{ provide: EMAIL_REPOSITORY, useClass: PrismaEmailRepository }`) — essa indireção é a inversão de dependência que permite mockar com `vitest-mock-extended` nos testes `.unit.ts` sem tocar em Prisma.
 - **Model**: entidade de domínio com invariantes e métodos de negócio; nunca é o tipo gerado pelo Prisma. A conversão `linha Prisma ↔ Model` é responsabilidade exclusiva do repositório (mapper privado).
 
-## 3. Kernel DDD (`packages/ddd-kernel`)
+## 3. Kernel DDD (`packages/shared-domain`)
 
-Pacote novo, sem dependência de outros pacotes do monorepo além de `@ruguin/utils` (reexporta `Either`/`success`/`failure`) e libs externas (`uuid`). Mantém a direção de dependência de mão única: `ddd-kernel` depende de `utils`, `utils` nunca depende de `ddd-kernel`.
+Pacote novo, sem dependência de outros pacotes do monorepo além de `@ruguin/utils` (reexporta `Either`/`success`/`failure`) e libs externas (`uuid`). Mantém a direção de dependência de mão única: `shared-domain` depende de `utils`, `utils` nunca depende de `shared-domain`.
 
 ```
-packages/ddd-kernel/
+packages/shared-domain/
   src/
     errors/base-error.ts
     enums/status-error.enum.ts
@@ -298,9 +298,9 @@ Regra prática: **um use case nunca tem `.int.ts`** — ele só depende de inter
 
 ## Resumo de dependências novas
 
-**`packages/ddd-kernel` (novo pacote):** depende de `@ruguin/utils` (workspace) + `uuid`.
+**`packages/shared-domain` (novo pacote):** depende de `@ruguin/utils` (workspace) + `uuid`.
 
-**`apps/core-server` (dependencies novas):** `@ruguin/ddd-kernel` (workspace), `@prisma/client`, `@nestjs/schedule` (outbox relay).
+**`apps/core-server` (dependencies novas):** `@ruguin/shared-domain` (workspace), `@prisma/client`, `@nestjs/schedule` (outbox relay).
 
 **`apps/core-server` (devDependencies novas):** `prisma`, `vitest-mock-extended`.
 
