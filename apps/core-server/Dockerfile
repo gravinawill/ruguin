@@ -1,13 +1,19 @@
 # syntax=docker/dockerfile:1
 
-FROM node:26.5.1-alpine AS pruner
+# Both build stages pin --platform=$BUILDPLATFORM: core-server ships zero native (.node) runtime
+# dependencies (verified via `pnpm deploy --prod`), so nothing here needs to match the target
+# image's architecture — only the final runner stage does. Building natively instead of under the
+# target platform matters because `prisma generate` invokes a native schema-engine binary that is
+# unreliable under QEMU emulation (corrupted stdout — "Unable to parse JSON [Context: getDmmf]" —
+# when cross-building linux/arm64 on an amd64 runner). This also makes cross-arch builds much faster.
+FROM --platform=$BUILDPLATFORM node:26.5.1-alpine AS pruner
 WORKDIR /repo
 # node:26 dropped the bundled corepack binary; npm is still present, so it installs corepack itself.
 RUN npm install -g corepack@latest && corepack enable
 COPY . .
 RUN pnpm dlx turbo@2.10.8 prune @ruguin/core-server --docker
 
-FROM node:26.5.1-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:26.5.1-alpine AS builder
 WORKDIR /repo
 # openssl and libc6-compat are here for Prisma's schema-engine, which is native and runs on generate.
 # node:26 dropped the bundled corepack binary; npm is still present, so it installs corepack itself.
