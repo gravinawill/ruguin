@@ -54,6 +54,7 @@ reviews:
     - '!**/*.remember'
     - '!**/*.superpowers'
     - '!**/*.swarm'
+    - '!**/docs/superpowers/**'
 
   path_instructions:
     - path: '**/domain/**'
