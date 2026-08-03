@@ -25,6 +25,20 @@ function fakeConsumer(consume: StringConsumer['consume']): StringConsumer {
   return { consume } as unknown as StringConsumer
 }
 
+/*
+ * Simulates @platformatic/kafka terminating the stream and emitting 'error' after its own retries
+ * are exhausted (e.g. a sustained broker disconnect) — the async iterator's next() call rejects,
+ * which happens outside forwardMessages' per-message try/catch. A plain iterator object (not a
+ * generator function) so there is no "yield" to satisfy — this iterator never produces a value.
+ */
+function fakeFailingStream(error: Error): AsyncIterable<FakeStreamMessage> {
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => Promise.reject(error)
+    })
+  }
+}
+
 describe('KafkaMessageConsumer', () => {
   it('builds a consumer for the given groupId, consumes the topic, and forwards each message as InboundMessage', async () => {
     const message = fakeMessage(
@@ -163,6 +177,28 @@ describe('KafkaMessageConsumer', () => {
     expect(onMessage).toHaveBeenCalledTimes(2)
     expect(failingMessage.commit).not.toHaveBeenCalled()
     expect(succeedingMessage.commit).toHaveBeenCalledOnce()
+  })
+
+  it('survives a stream-level error (e.g. a sustained broker disconnect) instead of crashing the detached loop', async () => {
+    const stream = fakeFailingStream(new Error('stream terminated: broker disconnected'))
+    const consume = vi.fn().mockResolvedValue(stream)
+    const createConsumer = vi.fn().mockReturnValue(fakeConsumer(consume))
+
+    const result = await new KafkaMessageConsumer(createConsumer).subscribe({
+      topic: 'email.send.requested',
+      groupId: 'dispatch-worker',
+      onMessage: vi.fn()
+    })
+
+    // subscribe() itself succeeds — the failure surfaces later, inside the detached forward loop.
+    expect(result.isSuccess()).toBe(true)
+
+    /*
+     * The real assertion is implicit: if forwardMessages let this error escape uncaught, it would
+     * surface as an unhandled promise rejection and fail this test run. Reaching this line at all
+     * proves the outer try/catch absorbed it.
+     */
+    await new Promise((resolve) => setImmediate(resolve))
   })
 
   it('does not commit a message whose JSON is malformed (onMessage never runs)', async () => {

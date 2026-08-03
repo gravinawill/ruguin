@@ -129,30 +129,47 @@ export class KafkaMessageConsumer implements MessageConsumerPort, OnModuleDestro
    * design (first paragraph above). Accepted for now; tracked as follow-up, not blocking this fix.
    */
   private async forwardMessages(stream: AsyncIterable<ConsumedMessage>, onMessage: MessageHandler): Promise<void> {
-    for await (const message of stream) {
-      try {
-        const parsedJson: unknown = JSON.parse(message.value)
+    /*
+     * The outer try/catch guards the `for await` iteration protocol itself, not just the loop
+     * body: @platformatic/kafka terminates the stream and surfaces an 'error' event when its own
+     * retries are exhausted (e.g. a sustained broker disconnect), which throws out of the
+     * iterator's next() call — outside the inner try/catch below, which only wraps processing a
+     * single already-received message. Left unguarded, that throw would propagate out of this
+     * method entirely; since subscribe() calls forwardMessages() detached (`void`, no .catch()),
+     * an uncaught rejection here crashes the whole process the same way an unhandled per-message
+     * error would. This stops that crash and ends consumption for this topic; it does not attempt
+     * to recreate the stream and resume — that recovery is tracked as follow-up, not blocking.
+     */
+    try {
+      for await (const message of stream) {
+        try {
+          const parsedJson: unknown = JSON.parse(message.value)
 
-        if (!isValidEnvelope(parsedJson)) {
-          this.logger.error('Received a message whose envelope is missing eventId/name; skipping.')
-          continue
+          if (!isValidEnvelope(parsedJson)) {
+            this.logger.error('Received a message whose envelope is missing eventId/name; skipping.')
+            continue
+          }
+
+          const inbound: InboundMessage = { ...parsedJson, headers: decodeHeaders(message.headers) }
+
+          const result = await onMessage(inbound)
+
+          if (result.isFailure()) {
+            this.logger.error(`Message handler failed: ${result.value.message}`)
+            continue
+          }
+
+          await message.commit()
+        } catch (error: unknown) {
+          this.logger.error(
+            `Failed to process a consumed message: ${error instanceof Error ? error.message : String(error)}`
+          )
         }
-
-        const inbound: InboundMessage = { ...parsedJson, headers: decodeHeaders(message.headers) }
-
-        const result = await onMessage(inbound)
-
-        if (result.isFailure()) {
-          this.logger.error(`Message handler failed: ${result.value.message}`)
-          continue
-        }
-
-        await message.commit()
-      } catch (error: unknown) {
-        this.logger.error(
-          `Failed to process a consumed message: ${error instanceof Error ? error.message : String(error)}`
-        )
       }
+    } catch (error: unknown) {
+      this.logger.error(
+        `Consumer stream failed and consumption stopped: ${error instanceof Error ? error.message : String(error)}`
+      )
     }
   }
 }
