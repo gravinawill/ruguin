@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-server
+  namespace: default
+  labels:
+    app: core-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: core-server
+  template:
+    metadata:
+      labels:
+        app: core-server
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: core-server
+          # sha-<commit> tag from release-image.yml's tagging scheme (see .github/workflows/
+          # release-image.yml) — bump this line and let ArgoCD sync it for every new deploy;
+          # there's no automation wiring a tag bump to this file yet (see the design doc's Risks).
+          image: ghcr.io/gravinawill/ruguin/core-server:latest
+          ports:
+            - containerPort: 3333
+              name: http
+          envFrom:
+            - configMapRef:
+                name: core-server-config
+            - secretRef:
+                name: core-server-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
