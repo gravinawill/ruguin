@@ -52,7 +52,8 @@ resource "aws_db_instance" "core_server" {
 
   multi_az = false
 
-  backup_retention_period = 1
+  # AWS's own recommended floor for a real recovery window — 1 day only covers same-day mistakes.
+  backup_retention_period = 7
 
   # A final snapshot is the recovery point for a *deliberate*, authorized deletion (someone
   # cleared deletion_protection below on purpose) — deletion_protection is what stops the
