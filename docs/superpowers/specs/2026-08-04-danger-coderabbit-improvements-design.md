@@ -167,6 +167,10 @@ Adiciona `'!infrastructure/terraform/**/.terraform.lock.hcl'`, mesmo padrão já
   usado deliberadamente e documentado (ex: teste temporariamente desabilitado com issue linkada).
   Não há mecanismo de exceção conhecido no plugin — se isso virar necessário, a solução é remover
   a chamada `noTestShortcuts()` para aquele caso específico via revisão manual, não configuração.
+- **`danger-plugin-todos` não lista TODOs em arquivos totalmente novos.** O plugin só reporta
+  quando o diff do arquivo tem linhas adicionadas E removidas — um arquivo criado do zero (só
+  adições) nunca dispara, mesmo com um TODO na primeira linha. Confirmado lendo o código-fonte
+  do plugin (`dist/index.js`), não é um bug da integração deste repositório.
 
 ## Resultado
 

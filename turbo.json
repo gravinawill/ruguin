@@ -40,7 +40,8 @@
       "dependsOn": ["^update:deps"]
     },
     "check:lint": {
-      "dependsOn": ["^check:lint"]
+      "dependsOn": ["^check:lint"],
+      "outputs": ["eslint-checkstyle-report.xml"]
     },
     "check:types": {
       "dependsOn": ["^check:types"]

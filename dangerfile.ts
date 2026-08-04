@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
-import { danger, markdown, schedule } from 'danger'
+import { danger, markdown, schedule, warn } from 'danger'
 import lintReport from 'danger-plugin-lint-report'
 import noTestShortcutsPkg from 'danger-plugin-no-test-shortcuts'
 import todosPkg from 'danger-plugin-todos'
@@ -10,43 +10,16 @@ type CoverageSummary = { total: Record<CoverageMetric, { pct: number }> }
 type Thresholds = Record<CoverageMetric, number>
 
 /*
- * Both plugins ship CJS-only with no ESM build. Node's native ESM interop makes the default
- * import resolve to the whole `module.exports` object (not the function it wraps), because each
- * package's own `exports.default = ...` assignment only unwraps under bundler-style interop
- * (Babel/webpack), not Node's spec-compliant loader that `danger local` runs under.
+ * Both plugins are CJS-only (exports.default = fn, no ESM build). Danger evaluates dangerfile.ts
+ * through its own transpiler (ts.transpileModule against the nearest tsconfig.json), not Node's
+ * native ESM loader — and this repo's root tsconfig.json has no compilerOptions block, so
+ * TypeScript's esModuleInterop defaults to false. That's why a bare default import binds to the
+ * raw CJS exports object here instead of being auto-unwrapped, and why .default must be
+ * dereferenced explicitly below. This would silently break if the root tsconfig.json ever gains
+ * an explicit compilerOptions block that sets esModuleInterop: true.
  */
 const noTestShortcuts = (noTestShortcutsPkg as unknown as { default: typeof noTestShortcutsPkg }).default
 const todos = (todosPkg as unknown as { default: typeof todosPkg }).default
-
-noTestShortcuts({
-  testFilePredicate: (filePath) => /\.(?:unit|int|e2e)\.ts$/.test(filePath),
-  skippedTests: 'fail'
-})
-
-/*
- * todos() is async — schedule() is danger's own hook for that, confirmed from the plugin's
- * own README usage example, not assumed.
- */
-schedule(todos())
-
-/*
- * '**' would also be true for the report file's path as seen through every workspace package's
- * own node_modules/@ruguin/* symlink to it (pnpm links every dependency of every workspace
- * package this way), so the same physical report gets glob-matched once per symlink and each of
- * its violations gets reported that many times over. Verified empirically: with '**' this
- * repo's own report at packages/utils/eslint-checkstyle-report.xml resolved 7 times (6 dependent
- * packages' symlinks + the real path) for 2 violations, i.e. 14 duplicate annotations. The CI
- * step generates one report per workspace member's own root (see pnpm-workspace.yaml), so
- * anchoring the mask to those three root globs finds each report exactly once without
- * descending into any node_modules.
- */
-schedule(
-  lintReport.scan({
-    fileMask: '{apps,packages,configs}/*/eslint-checkstyle-report.xml',
-    reportSeverity: true,
-    requireLineModification: true
-  })
-)
 
 const PACKAGES: ReadonlyArray<{ name: string; dir: string }> = [
   { name: '@ruguin/cache', dir: 'packages/cache' },
@@ -217,13 +190,59 @@ function gifSection(): string {
    * Optional chaining: danger.github is undefined under `danger local` (no real PR exists in
    * that mode) — reading .pr off it would throw synchronously during module evaluation, which
    * skips Danger's runAllScheduledTasks() entirely and silently breaks every schedule()-based
-   * check in this file, not just this one. No PR means nothing to nudge about, so '' is correct.
+   * check in this file, not just this one.
    */
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- danger.github can be undefined at runtime (danger local mode) despite being typed as non-null
-  const hasGif = (danger.github?.pr?.body ?? '').includes('.gif')
-  if (hasGif) return ''
-  return '⚠️ Essa PR não tem gif na descrição. Considere adicionar um.'
+  const body = danger.github?.pr?.body
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, sonarjs/different-types-comparison -- body's static type is always `string` because danger.github is (wrongly) typed non-null, but it's genuinely `undefined` at runtime under `danger local`
+  if (body === undefined) return ''
+  return body.includes('.gif') ? '' : '⚠️ Essa PR não tem gif na descrição. Considere adicionar um.'
 }
+
+noTestShortcuts({
+  testFilePredicate: (filePath) => /\.(?:unit|int|e2e)\.ts$/.test(filePath),
+  skippedTests: 'fail'
+})
+
+/*
+ * todos() is async — schedule() is danger's own hook for that, confirmed from the plugin's
+ * own README usage example, not assumed.
+ *
+ * danger-plugin-todos never reports anything from a brand-new file (only additions, no
+ * removals) — the plugin needs both added and removed lines in a file's diff to register a
+ * match, even when the new code has a marker comment on line one. Confirmed by reading the
+ * plugin's own dist source, not assumed.
+ */
+schedule(
+  // eslint-disable-next-line unicorn/prefer-await, unicorn/prefer-top-level-await -- schedule() needs a promise handle, not real await: dangerfile.ts transpiles to CommonJS (see interop comment above), where top-level await isn't valid syntax
+  todos().catch((error: unknown) => {
+    warn(`danger-plugin-todos falhou: ${String(error)}`)
+  })
+)
+
+/*
+ * '**' would also be true for the report file's path as seen through every workspace package's
+ * own node_modules/@ruguin/* symlink to it (pnpm links every dependency of every workspace
+ * package this way), so the same physical report gets glob-matched once per symlink and each of
+ * its violations gets reported that many times over. Verified empirically: with '**' this
+ * repo's own report at packages/utils/eslint-checkstyle-report.xml resolved 7 times (6 dependent
+ * packages' symlinks + the real path) for 2 violations, i.e. 14 duplicate annotations. The CI
+ * step generates one report per workspace member's own root (see pnpm-workspace.yaml), so
+ * anchoring the mask to those three root globs finds each report exactly once without
+ * descending into any node_modules.
+ */
+schedule(
+  lintReport
+    .scan({
+      fileMask: '{apps,packages,configs}/*/eslint-checkstyle-report.xml',
+      reportSeverity: true,
+      requireLineModification: true
+    })
+    // eslint-disable-next-line unicorn/prefer-await, unicorn/prefer-top-level-await -- schedule() needs a promise handle, not real await: dangerfile.ts transpiles to CommonJS (see interop comment above), where top-level await isn't valid syntax
+    .catch((error: unknown) => {
+      warn(`danger-plugin-lint-report falhou: ${String(error)}`)
+    })
+)
 
 const sections = [coverageSection(), featuresSection(), endpointsSection(), gifSection()].filter(
   (section) => section !== ''
