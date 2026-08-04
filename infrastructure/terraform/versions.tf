@@ -14,6 +14,14 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.16"
     }
+    # hashicorp/kubernetes's own kubernetes_manifest resource validates against the target CRD's
+    # schema at plan time — which doesn't exist yet on a first apply, since the ArgoCD Helm release
+    # in this same module is what installs it. alekc/kubectl's kubectl_manifest resource applies
+    # server-side without that plan-time validation, sidestepping the chicken-and-egg problem.
+    kubectl = {
+      source  = "alekc/kubectl"
+      version = "~> 2.4"
+    }
   }
 
   # Bucket and table names come from bootstrap/'s outputs (Task 1) — filled in once that module

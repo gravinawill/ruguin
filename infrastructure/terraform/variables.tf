@@ -68,3 +68,9 @@ variable "docs_password" {
   type        = string
   sensitive   = true
 }
+
+variable "argocd_repo_url" {
+  description = "Git URL ArgoCD watches for infrastructure/k8s/core-server manifests."
+  type        = string
+  default     = "https://github.com/gravinawill/ruguin.git"
+}
