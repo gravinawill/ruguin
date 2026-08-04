@@ -44,8 +44,11 @@ resource "aws_db_instance" "core_server" {
 
   db_name  = "ruguin"
   username = var.database_username
-  password = var.database_password
   port     = 5432
+
+  # AWS manages this secret end to end (creation, storage, rotation) — Terraform never sees the
+  # value, so it never enters state. Mutually exclusive with a `password` argument.
+  manage_master_user_password = true
 
   db_subnet_group_name   = module.vpc.database_subnet_group_name
   vpc_security_group_ids = [aws_security_group.rds.id]
