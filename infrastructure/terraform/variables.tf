@@ -27,3 +27,15 @@ variable "kubernetes_version" {
   type        = string
   default     = "1.34"
 }
+
+variable "database_username" {
+  description = "Master username for the RDS PostgreSQL instance."
+  type        = string
+  default     = "ruguin"
+}
+
+variable "database_password" {
+  description = "Master password for the RDS PostgreSQL instance."
+  type        = string
+  sensitive   = true
+}
