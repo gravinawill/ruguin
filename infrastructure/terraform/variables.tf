@@ -39,39 +39,15 @@ variable "database_username" {
   default     = "ruguin"
 }
 
-variable "database_password" {
-  description = "Master password for the RDS PostgreSQL instance."
-  type        = string
-  sensitive   = true
-}
-
 variable "ghcr_username" {
   description = "GitHub username that owns the GHCR Personal Access Token below — used to build the imagePullSecret core-server's Deployment references."
   type        = string
-}
-
-variable "ghcr_token" {
-  description = "GHCR Personal Access Token with read:packages scope, used as the imagePullSecret for pulling ghcr.io/gravinawill/ruguin/core-server."
-  type        = string
-  sensitive   = true
-}
-
-variable "honeycomb_api_key" {
-  description = "Honeycomb API key with send-events permission, used as OTEL_EXPORTER_OTLP_HEADERS' x-honeycomb-team value."
-  type        = string
-  sensitive   = true
 }
 
 variable "docs_username" {
   description = "Basic Auth username for core-server's /docs endpoint in production."
   type        = string
   default     = "docs"
-}
-
-variable "docs_password" {
-  description = "Basic Auth password for core-server's /docs endpoint in production."
-  type        = string
-  sensitive   = true
 }
 
 variable "argocd_repo_url" {
