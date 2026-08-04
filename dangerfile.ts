@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 import { danger, markdown, schedule } from 'danger'
+import lintReport from 'danger-plugin-lint-report'
 import noTestShortcutsPkg from 'danger-plugin-no-test-shortcuts'
 import todosPkg from 'danger-plugin-todos'
 
@@ -27,6 +28,25 @@ noTestShortcuts({
  * own README usage example, not assumed.
  */
 schedule(todos())
+
+/*
+ * '**' would also be true for the report file's path as seen through every workspace package's
+ * own node_modules/@ruguin/* symlink to it (pnpm links every dependency of every workspace
+ * package this way), so the same physical report gets glob-matched once per symlink and each of
+ * its violations gets reported that many times over. Verified empirically: with '**' this
+ * repo's own report at packages/utils/eslint-checkstyle-report.xml resolved 7 times (6 dependent
+ * packages' symlinks + the real path) for 2 violations, i.e. 14 duplicate annotations. The CI
+ * step generates one report per workspace member's own root (see pnpm-workspace.yaml), so
+ * anchoring the mask to those three root globs finds each report exactly once without
+ * descending into any node_modules.
+ */
+schedule(
+  lintReport.scan({
+    fileMask: '{apps,packages,configs}/*/eslint-checkstyle-report.xml',
+    reportSeverity: true,
+    requireLineModification: true
+  })
+)
 
 const PACKAGES: ReadonlyArray<{ name: string; dir: string }> = [
   { name: '@ruguin/cache', dir: 'packages/cache' },

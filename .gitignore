@@ -20,6 +20,7 @@ node_modules
 
 # Testing
 coverage
+eslint-checkstyle-report.xml
 
 # Turbo
 .turbo

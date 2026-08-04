@@ -45,6 +45,11 @@ jobs:
       - name: Check (types, lint, format, spelling)
         run: pnpm check
 
+      - name: Generate ESLint checkstyle report (for Danger)
+        if: always() && github.event_name == 'pull_request'
+        run: pnpm exec turbo run check:lint -- --format checkstyle --output-file eslint-checkstyle-report.xml
+        continue-on-error: true
+
       # @ruguin/cache's coverage gate is calibrated on unit + integration together (see its
       # vitest.config.ts), and the integration suite needs a live master + replica. GitHub
       # Actions `services:` can't override a container's command (no field for it), which the
