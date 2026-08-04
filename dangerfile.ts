@@ -185,7 +185,14 @@ function endpointsSection(): string {
 }
 
 function gifSection(): string {
-  const hasGif = (danger.github.pr.body || '').includes('.gif')
+  /*
+   * Optional chaining: danger.github is undefined under `danger local` (no real PR exists in
+   * that mode) — reading .pr off it would throw synchronously during module evaluation, which
+   * skips Danger's runAllScheduledTasks() entirely and silently breaks every schedule()-based
+   * check in this file, not just this one. No PR means nothing to nudge about, so '' is correct.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- danger.github can be undefined at runtime (danger local mode) despite being typed as non-null
+  const hasGif = (danger.github?.pr?.body ?? '').includes('.gif')
   if (hasGif) return ''
   return '⚠️ Essa PR não tem gif na descrição. Considere adicionar um.'
 }
