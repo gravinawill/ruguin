@@ -1,7 +1,12 @@
+# Values land in raw Terraform state (Terraform's own limitation with kubernetes_secret) — a
+# deliberate tradeoff, not an oversight: Decision 10 of the design spec chose sensitive Terraform
+# variables over AWS Secrets Manager / an External Secrets Operator, since neither existed as
+# infrastructure yet and this is a first deploy. Migrating to ESO later needs the current values
+# revoked and replaced, since prior state versions retain them either way.
 resource "kubernetes_secret" "core_server_secrets" {
   metadata {
     name      = "core-server-secrets"
-    namespace = "default"
+    namespace = "core-server"
   }
 
   data = {
@@ -11,13 +16,13 @@ resource "kubernetes_secret" "core_server_secrets" {
     OTEL_EXPORTER_OTLP_HEADERS = "x-honeycomb-team=${var.honeycomb_api_key}"
   }
 
-  depends_on = [aws_db_instance.core_server]
+  depends_on = [aws_db_instance.core_server, kubernetes_namespace.core_server]
 }
 
 resource "kubernetes_secret" "ghcr_pull" {
   metadata {
     name      = "ghcr-pull-secret"
-    namespace = "default"
+    namespace = "core-server"
   }
 
   type = "kubernetes.io/dockerconfigjson"
@@ -33,4 +38,6 @@ resource "kubernetes_secret" "ghcr_pull" {
       }
     })
   }
+
+  depends_on = [kubernetes_namespace.core_server]
 }

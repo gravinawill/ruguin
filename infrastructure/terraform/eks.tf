@@ -14,6 +14,11 @@ module "eks" {
   # over the private endpoint without traversing the NAT Gateway.
   endpoint_public_access  = true
   endpoint_private_access = true
+  # This module's default is ["0.0.0.0/0"] — every IPv4 address could reach the API otherwise.
+  # No safe default exists (it depends on wherever Terraform actually runs from), so the variable
+  # has no default either: applying without setting it is a deliberate, visible failure, not a
+  # silent wide-open endpoint.
+  endpoint_public_access_cidrs = var.eks_public_access_cidrs
 
   # No node group: every workload runs on Fargate, so every namespace that runs pods needs a profile
   # listed here. For kube-system the profile is necessary but not sufficient — see `addons` below for
@@ -26,10 +31,10 @@ module "eks" {
       ]
       subnet_ids = module.vpc.private_subnets
     }
-    default = {
-      name = "default"
+    core_server = {
+      name = "core-server"
       selectors = [
-        { namespace = "default" }
+        { namespace = "core-server" }
       ]
       subnet_ids = module.vpc.private_subnets
     }

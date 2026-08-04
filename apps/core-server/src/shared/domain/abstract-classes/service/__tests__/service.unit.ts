@@ -1,17 +1,17 @@
 import { performance } from 'node:perf_hooks'
 
 import { type Either, failure, success } from '@ruguin/utils'
-import { type Logger } from 'nestjs-pino'
 import { describe, expect, it, vi } from 'vitest'
 
+import { type LoggerPort } from '../../../contracts/logger.contract'
 import { Service } from '../service'
 
 type Parameters_ = { readonly value: number }
 
-function createLogger(): { logger: Logger; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> } {
+function createLogger(): { logger: LoggerPort; warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> } {
   const warn = vi.fn()
   const error = vi.fn()
-  return { error, logger: { error, warn } as unknown as Logger, warn }
+  return { error, logger: { error, warn }, warn }
 }
 
 class EchoService extends Service<Parameters_, string, number> {
@@ -28,7 +28,7 @@ class RejectingService extends Service<Parameters_, string, number> {
 
 class ThrowingService extends Service<Parameters_, string, number> {
   constructor(
-    logger: Logger,
+    logger: LoggerPort,
     private readonly toThrow: unknown
   ) {
     super(logger)

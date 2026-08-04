@@ -19,7 +19,7 @@ WORKDIR /repo
 # node:26 dropped the bundled corepack binary; npm is still present, so it installs corepack itself.
 RUN npm install -g corepack@0.35.0 --ignore-scripts \
   && corepack enable \
-  && apk add --no-cache openssl=3.5.7-r0 libc6-compat=1.1.0-r4
+  && apk add --no-cache openssl=3.5.7-r0
 COPY --from=pruner /repo/out/json/ ./
 # out/json ships manifests only, no turbo.json, so the root "postinstall: pnpm run build" (turbo run
 # build) has nothing to build against; strip it so the frozen install only fetches dependencies.
@@ -29,7 +29,7 @@ RUN node -e " \
   delete p.scripts.postinstall; \
   fs.writeFileSync('package.json', JSON.stringify(p, null, 2)); \
   " \
-  && pnpm install --frozen-lockfile
+  && pnpm install --frozen-lockfile --ignore-scripts
 COPY --from=pruner /repo/out/full/ ./
 # core-server's own `build` script runs directly (prisma generate && nest build), not through turbo,
 # so turbo.json's `dependsOn: ["^build"]` never fires on its own here. Invoking turbo explicitly

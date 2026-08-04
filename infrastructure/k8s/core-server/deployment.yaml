@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: core-server
-  namespace: default
+  namespace: core-server
   labels:
     app: core-server
 spec:
@@ -15,6 +15,11 @@ spec:
       labels:
         app: core-server
     spec:
+      # core-server never calls the Kubernetes API, so the default token has nothing to do here.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       imagePullSecrets:
         - name: ghcr-pull-secret
       containers:
@@ -23,6 +28,12 @@ spec:
           # release-image.yml) — bump this line and let ArgoCD sync it for every new deploy;
           # there's no automation wiring a tag bump to this file yet (see the design doc's Risks).
           image: ghcr.io/gravinawill/ruguin/core-server:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 3333
               name: http

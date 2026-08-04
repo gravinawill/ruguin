@@ -52,7 +52,8 @@
       "dependsOn": ["^test:all"]
     },
     "test:cov": {
-      "dependsOn": ["^test:cov"]
+      "dependsOn": ["^test:cov"],
+      "outputs": ["coverage/**"]
     },
     "fix:format": {
       "dependsOn": ["^fix:format"]

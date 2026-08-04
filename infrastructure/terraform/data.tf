@@ -25,6 +25,12 @@ resource "aws_security_group" "rds" {
   tags = local.tags
 }
 
+# Suffixes the final snapshot identifier below so a second apply/destroy cycle (or a
+# replacement-forcing change) never collides with a snapshot name RDS already has on file.
+resource "random_id" "rds_final_snapshot" {
+  byte_length = 4
+}
+
 resource "aws_db_instance" "core_server" {
   identifier     = "${local.cluster_name}-core-server"
   engine         = "postgres"
@@ -47,11 +53,13 @@ resource "aws_db_instance" "core_server" {
   multi_az = false
 
   backup_retention_period = 1
-  skip_final_snapshot     = true
 
-  # With no final snapshot, anything that deletes this instance — a stray destroy, a
-  # replacement-forcing attribute change — takes the data with it and leaves nothing to restore
-  # from. Deleting it for real means clearing this flag first, on purpose.
+  # A final snapshot is the recovery point for a *deliberate*, authorized deletion (someone
+  # cleared deletion_protection below on purpose) — deletion_protection is what stops the
+  # accidental kind. The random suffix keeps re-applies from colliding with a prior snapshot name.
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${local.cluster_name}-core-server-final-${random_id.rds_final_snapshot.hex}"
+
   deletion_protection = true
 
   tags = local.tags

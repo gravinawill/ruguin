@@ -1,7 +1,7 @@
 resource "kubernetes_config_map" "core_server_config" {
   metadata {
     name      = "core-server-config"
-    namespace = "default"
+    namespace = "core-server"
   }
 
   data = {
@@ -14,8 +14,11 @@ resource "kubernetes_config_map" "core_server_config" {
 
     DOCS_USERNAME = var.docs_username
 
+    # Full path, not a base URL: create-tracing-sdk.ts passes this straight through as
+    # OTLPTraceExporter's `url` option, which is used as-is — the SDK only auto-appends
+    # `/v1/traces` when `url` is left unset and it falls back to reading the env var itself.
     OTEL_EXPORTER_OTLP_ENDPOINT = "https://api.honeycomb.io/v1/traces"
   }
 
-  depends_on = [aws_elasticache_replication_group.core_server]
+  depends_on = [aws_elasticache_replication_group.core_server, kubernetes_namespace.core_server]
 }

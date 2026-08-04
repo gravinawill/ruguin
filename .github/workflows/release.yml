@@ -18,8 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # @semantic-release/github only creates releases and comments on issues/PRs referenced
+      # by a commit — issues: write covers both, since GitHub's comment API treats a PR as an
+      # issue. No plugin here creates or edits pull requests, so pull-requests: write is unused.
       issues: write
-      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -36,7 +38,9 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # --ignore-scripts: this job never builds the apps (only runs semantic-release), so no
+        # native binary (Prisma/SWC/esbuild) is needed here at all.
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Release
         run: pnpm exec semantic-release

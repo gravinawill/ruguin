@@ -79,6 +79,7 @@ describe('ID#equals', () => {
     const a = ID.validate({ id: VALID_UUID_V7, modelName: 'Email' })
     const notAnID = { value: VALID_UUID_V7 } as unknown as ID
 
+    expect(a.isSuccess()).toBe(true)
     if (a.isSuccess()) {
       expect(a.value.idValidated.equals({ otherID: notAnID })).toBe(false)
     }

@@ -34,7 +34,10 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # --ignore-scripts: no dependency's lifecycle script runs unreviewed during install.
+        # Verified this doesn't break the build — the native binaries the build step below
+        # needs (@prisma/engines, @swc/core, esbuild) still resolve without it.
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: pnpm build
@@ -128,7 +131,9 @@ jobs:
   semgrep:
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep:1.172.0
+      # semgrep/semgrep:1.172.0, digest-pinned so a tag retag can't swap the scanner underneath
+      # this workflow — verified against the registry with `docker buildx imagetools inspect`.
+      image: semgrep/semgrep@sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b
     permissions:
       contents: read
       security-events: write

@@ -28,6 +28,11 @@ variable "kubernetes_version" {
   default     = "1.34"
 }
 
+variable "eks_public_access_cidrs" {
+  description = "CIDR blocks allowed to reach the EKS public API endpoint (the network Terraform itself runs from). No default on purpose — the module's own default is 0.0.0.0/0, and this variable exists specifically so applying without an explicit value fails instead of silently allowing every IPv4 address."
+  type        = list(string)
+}
+
 variable "database_username" {
   description = "Master username for the RDS PostgreSQL instance."
   type        = string
