@@ -5,8 +5,13 @@
 # reload; without a mount this still works off the COPY below, just without picking up edits.
 #
 #   docker build -f apps/core-server/Dockerfile.dev -t ruguin/core-server:dev .
-#   docker run --rm -it -p 3333:3333 -v "$(pwd)":/repo -w /repo/apps/core-server \
-#     --network ruguin_default ruguin/core-server:dev
+#   docker run --rm -it -p 3333:3333 -v "$(pwd)":/repo \
+#     -v /repo/node_modules -v /repo/apps/core-server/node_modules \
+#     -w /repo/apps/core-server --network ruguin_default ruguin/core-server:dev
+#
+# The two extra -v flags are anonymous volumes over the bind mount's node_modules subpaths —
+# without them, the host's bind-mounted /repo shadows the image-installed dependencies entirely
+# (the host repo has no node_modules unless it happens to have been installed there too).
 #
 # The backing services (Postgres, Kafka, Valkey, LocalStack, ...) still come from
 # infrastructure/local/docker-compose.yml — this image only runs the app itself.

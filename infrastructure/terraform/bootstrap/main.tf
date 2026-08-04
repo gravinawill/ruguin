@@ -85,6 +85,12 @@ resource "aws_dynamodb_table" "terraform_lock" {
     type = "S"
   }
 
+  # AWS-owned key by default either way; this steps up to an AWS-managed key (still no separate
+  # KMS key resource to create/rotate) for a lock table that holds no application data.
+  server_side_encryption {
+    enabled = true
+  }
+
   lifecycle {
     prevent_destroy = true
   }

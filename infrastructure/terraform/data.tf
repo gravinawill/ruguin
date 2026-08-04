@@ -62,6 +62,8 @@ resource "aws_db_instance" "core_server" {
 
   deletion_protection = true
 
+  enabled_cloudwatch_logs_exports = ["postgresql"]
+
   tags = local.tags
 }
 
