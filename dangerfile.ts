@@ -1,24 +1,32 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
-import { danger, markdown } from 'danger'
+import { danger, markdown, schedule } from 'danger'
 import noTestShortcutsPkg from 'danger-plugin-no-test-shortcuts'
+import todosPkg from 'danger-plugin-todos'
 
 type CoverageMetric = 'statements' | 'branches' | 'functions' | 'lines'
 type CoverageSummary = { total: Record<CoverageMetric, { pct: number }> }
 type Thresholds = Record<CoverageMetric, number>
 
 /*
- * This package ships CJS-only with no ESM build. Node's native ESM interop makes the default
- * import resolve to the whole `module.exports` object (not the function it wraps), because the
- * package's own `exports.default = noTestShortcuts` assignment only unwraps under bundler-style
- * interop (Babel/webpack), not Node's spec-compliant loader that `danger local` runs under.
+ * Both plugins ship CJS-only with no ESM build. Node's native ESM interop makes the default
+ * import resolve to the whole `module.exports` object (not the function it wraps), because each
+ * package's own `exports.default = ...` assignment only unwraps under bundler-style interop
+ * (Babel/webpack), not Node's spec-compliant loader that `danger local` runs under.
  */
 const noTestShortcuts = (noTestShortcutsPkg as unknown as { default: typeof noTestShortcutsPkg }).default
+const todos = (todosPkg as unknown as { default: typeof todosPkg }).default
 
 noTestShortcuts({
   testFilePredicate: (filePath) => /\.(?:unit|int|e2e)\.ts$/.test(filePath),
   skippedTests: 'fail'
 })
+
+/*
+ * todos() is async — schedule() is danger's own hook for that, confirmed from the plugin's
+ * own README usage example, not assumed.
+ */
+schedule(todos())
 
 const PACKAGES: ReadonlyArray<{ name: string; dir: string }> = [
   { name: '@ruguin/cache', dir: 'packages/cache' },
