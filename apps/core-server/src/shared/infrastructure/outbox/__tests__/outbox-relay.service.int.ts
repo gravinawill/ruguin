@@ -1,8 +1,8 @@
+import { type MessageProducerPort, type OutboundMessage } from '@ruguin/message-broker'
 import { BaseError, Event, StatusError } from '@ruguin/shared-domain'
 import { type Either, failure } from '@ruguin/utils'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
-import { type MessageProducerPort, type OutboundMessage } from '../../../domain/contracts/message-producer.port'
 import { type PrismaService } from '../../database/prisma/prisma.service'
 import { PrismaTransactionManager } from '../../database/prisma/prisma-transaction-manager'
 import { FakeMessageProducer } from '../../events/fake-message-producer'

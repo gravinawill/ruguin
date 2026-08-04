@@ -7,12 +7,14 @@
     "PORT",
     "DATABASE_URL",
     "LOGGER_DRIVER",
+    "AWS_*",
     "CACHE_*",
     "DOCS_*",
     "JWT_*",
     "KAFKA_*",
     "LOG_*",
-    "OTEL_*"
+    "OTEL_*",
+    "SES_*"
   ],
   "tasks": {
     "build": {

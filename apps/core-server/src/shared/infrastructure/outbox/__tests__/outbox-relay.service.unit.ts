@@ -1,8 +1,8 @@
+import { type MessageProducerPort } from '@ruguin/message-broker'
 import { BaseError, StatusError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 import { describe, expect, it, vi } from 'vitest'
 
-import { type MessageProducerPort } from '../../../domain/contracts/message-producer.port'
 import { type PrismaService } from '../../database/prisma/prisma.service'
 import { OutboxRelayService } from '../outbox-relay.service'
 

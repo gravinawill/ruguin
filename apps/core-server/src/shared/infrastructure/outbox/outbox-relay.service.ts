@@ -1,22 +1,18 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule'
-import { type JsonValue } from '@ruguin/shared-domain'
+import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '@ruguin/message-broker'
 
-import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '../../domain/contracts/message-producer.port'
 import { OutboxStatus, Prisma } from '../database/prisma/generated/client'
 import { PrismaService } from '../database/prisma/prisma.service'
 
 /*
- * Known limitations, tracked for whoever plugs in the real Kafka producer:
+ * Known limitation, tracked for whoever splits this transaction up:
  * - publish() runs INSIDE the row-locking DB transaction (below), sequentially, for up to
- *   BATCH_SIZE rows. With a fast in-memory fake this is instant; with a real broker at ~250ms per
- *   publish, a full batch can approach the transaction timeout, aborting the whole batch and
- *   republishing already-delivered messages on the next tick (still at-least-once, but noisier).
- *   Splitting "publish" from "mark published" into separate short transactions removes this
- *   coupling without changing the delivery semantics — worth doing before this carries real
- *   traffic.
- * - MESSAGE_PRODUCER_PORT defaults to FakeMessageProducer (see OutboxModule) until that real
- *   producer lands — see FakeMessageProducer's own warning log.
+ *   BATCH_SIZE rows. Against a real broker at ~250ms per publish, a full batch can approach the
+ *   transaction timeout, aborting the whole batch and republishing already-delivered messages on
+ *   the next tick (still at-least-once, but noisier). Splitting "publish" from "mark published"
+ *   into separate short transactions removes this coupling without changing the delivery
+ *   semantics — worth doing before this carries real traffic.
  */
 const RELAY_INTERVAL_MS = 1000
 const RELAY_TRANSACTION_TIMEOUT_MS = 5000
@@ -209,12 +205,7 @@ export class OutboxRelayService {
     try {
       const published = await this.messageProducer.publish({
         key: row.key,
-        /*
-         * Prisma's JsonValue treats object properties as optional, so it does not structurally
-         * satisfy the domain JsonValue's non-optional index signature — the column is validated
-         * JSON either way, so this is a plain infra-to-domain type translation, not a runtime risk.
-         */
-        message: { eventId: row.eventId, name: row.name, payload: row.payload as JsonValue },
+        message: { eventId: row.eventId, name: row.name, payload: row.payload },
         topic: row.topic
       })
 
