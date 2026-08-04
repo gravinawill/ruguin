@@ -20,28 +20,50 @@ Valkey (próxima sub-wave) já nasce usando o mecanismo certo em vez de virar ou
 
 ### 1. Escopo: só o que é genuinamente segredo
 
-Migram para o AWS Secrets Manager: `database_password`, `docs_password`, `honeycomb_api_key`,
-`ghcr_token`. `ghcr_username` continua uma variável Terraform comum — é o dono do token, não um
-segredo em si, e tratá-lo como um não adiciona proteção real.
+Saem do Terraform state: `database_password`, `docs_password`, `honeycomb_api_key`, `ghcr_token`.
+`ghcr_username` continua uma variável Terraform comum — é o dono do token, não um segredo em si, e
+tratá-lo como um não adiciona proteção real. `database_password` usa um mecanismo diferente dos
+outros três (Decisão 2) — o RDS tem um jeito nativo de nunca precisar que ninguém, nem o Terraform
+nem um operador, saiba o valor.
 
-### 2. Terraform cria o container, nunca o valor
+### 2. Senha do RDS: `manage_master_user_password`, não um container manual
 
-Cada segredo vira um `aws_secretsmanager_secret` (só nome + tags + política de acesso via IAM,
-Decisão 4) criado pelo Terraform. Nenhum `aws_secretsmanager_secret_version` é gerenciado pelo
-Terraform — se fosse, o valor voltaria a entrar no state, só que como um recurso diferente, sem
-resolver o problema original. O valor real é escrito depois, fora do Terraform, por um operador
-humano (Decisão 8).
-
-Nomeação: `ruguin/production/<nome>` — `ruguin/production/database-password`,
-`ruguin/production/docs-password`, `ruguin/production/honeycomb-api-key`,
-`ruguin/production/ghcr-token`.
+`aws_db_instance` é diferente dos outros três segredos: a criação do recurso em si **exige** que
+alguém forneça uma senha no momento do `apply` — não dá para "criar o container vazio e deixar um
+operador preencher depois" como nos outros, porque não existe instância sem senha definida. A AWS
+resolve isso nativamente: `manage_master_user_password = true` faz o próprio RDS criar e girar um
+secret no Secrets Manager, sem que o Terraform (ou qualquer humano) jamais veja o valor — mutuamente
+exclusivo com o argumento `password` de hoje, que sai do recurso.
 
 ```hcl
-resource "aws_secretsmanager_secret" "database_password" {
-  name = "ruguin/production/database-password"
-  tags = local.tags
-}
+resource "aws_db_instance" "core_server" {
+  # ... (demais argumentos inalterados)
 
+  username                    = var.database_username
+  manage_master_user_password = true
+  # password removido — mutuamente exclusivo com manage_master_user_password acima
+}
+```
+
+O secret criado assim é um blob JSON (`username`, `password`, `host`, `port`, `dbname` — formato
+padrão da integração RDS/Secrets Manager, confirmado na documentação oficial da AWS, não
+presumido), referenciado via o atributo computado `aws_db_instance.core_server.master_user_secret[0].
+secret_arn` — só existe depois do `apply` que cria a instância, então qualquer coisa que dependa
+dele (Decisões 4 e 6) precisa de `depends_on = [aws_db_instance.core_server]`.
+
+### 3. Terraform cria o container, nunca o valor (para os outros três)
+
+`docs_password`, `honeycomb_api_key` e `ghcr_token` não têm o problema da Decisão 2 — nenhum
+recurso da AWS exige o valor deles no momento da criação. Cada um vira um
+`aws_secretsmanager_secret` (só nome + tags + política de acesso via IAM, Decisão 5) criado pelo
+Terraform. Nenhum `aws_secretsmanager_secret_version` é gerenciado pelo Terraform — se fosse, o
+valor voltaria a entrar no state, só que como um recurso diferente, sem resolver o problema
+original. O valor real é escrito depois, fora do Terraform, por um operador humano (Decisão 8).
+
+Nomeação: `ruguin/production/<nome>` — `ruguin/production/docs-password`,
+`ruguin/production/honeycomb-api-key`, `ruguin/production/ghcr-token`.
+
+```hcl
 resource "aws_secretsmanager_secret" "docs_password" {
   name = "ruguin/production/docs-password"
   tags = local.tags
@@ -58,7 +80,7 @@ resource "aws_secretsmanager_secret" "ghcr_token" {
 }
 ```
 
-### 3. External Secrets Operator via `helm_release`, mesmo padrão do ArgoCD
+### 4. External Secrets Operator via `helm_release`, mesmo padrão do ArgoCD
 
 `infrastructure/terraform/argocd.tf` já instala o ArgoCD assim; um arquivo novo
 `infrastructure/terraform/external-secrets.tf` segue o idêntico:
@@ -88,12 +110,13 @@ resource "helm_release" "external_secrets" {
 }
 ```
 
-### 4. IRSA reaproveitando o OIDC provider existente
+### 5. IRSA reaproveitando o OIDC provider existente
 
 O módulo EKS já roda com `enable_irsa = true` e já expõe `module.eks.oidc_provider_arn`
 (reutilizado hoje por `load_balancer_controller_irsa` em `eks.tf`) — o mesmo padrão, com uma
-policy nova restrita à leitura dos quatro segredos acima. Esse módulo (`iam-role-for-service-accounts`,
-não a variante `-eks`) na versão `~> 6.0` já está baixado localmente em
+policy nova restrita à leitura dos três secrets criados na Decisão 3 **e** do secret que o RDS
+gerencia sozinho (Decisão 2). Esse módulo (`iam-role-for-service-accounts`, não a variante `-eks`)
+na versão `~> 6.0` já está baixado localmente em
 `.terraform/modules/load_balancer_controller_irsa/modules/iam-role-for-service-accounts` confirma
 que o input certo para uma policy customizada é `permissions` (mapa de statements), não um
 `aws_iam_policy` avulso amarrado por ARN — verificado lendo `variables.tf` do módulo real, não
@@ -111,7 +134,7 @@ module "external_secrets_irsa" {
       sid     = "SecretsManagerRead"
       actions = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
       resources = [
-        aws_secretsmanager_secret.database_password.arn,
+        aws_db_instance.core_server.master_user_secret[0].secret_arn,
         aws_secretsmanager_secret.docs_password.arn,
         aws_secretsmanager_secret.honeycomb_api_key.arn,
         aws_secretsmanager_secret.ghcr_token.arn
@@ -127,14 +150,16 @@ module "external_secrets_irsa" {
   }
 
   tags = local.tags
+
+  depends_on = [aws_db_instance.core_server]
 }
 ```
 
 `namespace_service_accounts = ["external-secrets:external-secrets"]` assume que o chart cria uma
 ServiceAccount chamada `external-secrets` no namespace `external-secrets` (nome padrão do chart) —
-confirmar o nome exato contra o chart real na implementação (mesmo cuidado da Decisão 3).
+confirmar o nome exato contra o chart real na implementação (mesmo cuidado da Decisão 4).
 
-### 5. `ClusterSecretStore`, não `SecretStore`
+### 6. `ClusterSecretStore`, não `SecretStore`
 
 Escopo de cluster, não de namespace — os outros serviços do produto (a arquitetura de
 `core-server` já documenta que o Postgres é compartilhado por até cinco serviços futuros) vão
@@ -174,14 +199,15 @@ resource "kubectl_manifest" "cluster_secret_store" {
 do Helm instalar o operador — o mesmo problema de ovo-e-galinha documentado em `versions.tf` para
 o CRD `Application` do ArgoCD, resolvido do mesmo jeito.
 
-### 6. `ExternalSecret` substitui os `kubernetes_secret` de `secrets.tf`
+### 7. `ExternalSecret` substitui os `kubernetes_secret` de `secrets.tf`
 
 Os dois recursos `kubernetes_secret` saem inteiros de `secrets.tf`. Em seu lugar, dois
 `kubectl_manifest` com `ExternalSecret` — mantendo o **mesmo nome** de Secret k8s resultante
 (`core-server-secrets`, `ghcr-pull-secret`), então nada em `deployment.yaml` muda.
 
 `DATABASE_URL` continua composta, mas agora via template do ESO (o Terraform não conhece mais a
-senha):
+senha). A senha vem direto do secret que o RDS gerencia sozinho (Decisão 2) — um blob JSON, por
+isso o `remoteRef` usa `property: password` para extrair só o campo que interessa:
 
 ```hcl
 resource "kubectl_manifest" "core_server_secrets" {
@@ -209,7 +235,13 @@ resource "kubectl_manifest" "core_server_secrets" {
         }
       }
       data = [
-        { secretKey = "databasePassword", remoteRef = { key = aws_secretsmanager_secret.database_password.name } },
+        {
+          secretKey = "databasePassword"
+          remoteRef = {
+            key      = aws_db_instance.core_server.master_user_secret[0].secret_arn
+            property = "password"
+          }
+        },
         { secretKey = "docsPassword", remoteRef = { key = aws_secretsmanager_secret.docs_password.name } },
         { secretKey = "honeycombApiKey", remoteRef = { key = aws_secretsmanager_secret.honeycomb_api_key.name } }
       ]
@@ -256,14 +288,16 @@ Padrão de template (`.dockerconfigjson` combinando um valor fixo do Terraform c
 do Secrets Manager via `{{ .ghcrToken }}`) confirmado contra a documentação oficial do ESO
 (`external-secrets.io/latest/guides/common-k8s-secret-types`), não inventado.
 
-### 7. Rollout: passo manual de operador antes do primeiro apply real
+### 8. Rollout: passo manual de operador antes do primeiro apply real
 
-Depois do `terraform apply` que cria os quatro `aws_secretsmanager_secret` (containers vazios), um
-operador roda, uma vez, para cada um:
+A senha do RDS (Decisão 2) não precisa de nenhum passo manual — o próprio RDS já cria o valor
+sozinho no momento em que a instância sobe. Só os três secrets da Decisão 3 precisam disso: depois
+do `terraform apply` que cria os `aws_secretsmanager_secret` (containers vazios), um operador
+roda, uma vez, para cada um:
 
 ```bash
 aws secretsmanager put-secret-value \
-  --secret-id ruguin/production/database-password \
+  --secret-id ruguin/production/docs-password \
   --secret-string "<valor real>"
 ```
 
@@ -271,12 +305,13 @@ Até isso acontecer, o `ExternalSecret` correspondente fica em `SecretSyncedErro
 esperado, não um bug do Terraform nem do ESO. A implementação documenta esse passo no runbook do
 módulo (mesmo lugar onde `versions.tf` já documenta o runbook do backend S3).
 
-### 8. `secrets.tf` desaparece, conteúdo se espalha
+### 9. `secrets.tf` desaparece, conteúdo se espalha
 
 O arquivo `secrets.tf` inteiro é removido — os dois recursos que ele tinha (`kubernetes_secret.
 core_server_secrets`, `kubernetes_secret.ghcr_pull`) não existem mais nessa forma. O novo arquivo
 `external-secrets.tf` concentra tudo desta wave: o namespace, o Helm release, a IRSA role, o
-`ClusterSecretStore` e os dois `ExternalSecret`.
+`ClusterSecretStore` e os dois `ExternalSecret`. A alteração em `data.tf` (Decisão 2) fica onde
+está — `aws_db_instance` já mora lá.
 
 ## Riscos
 
@@ -290,6 +325,19 @@ core_server_secrets`, `kubernetes_secret.ghcr_pull`) não existem mais nessa for
   (`external-secrets.io/latest/eso-blogs`) porque a projeção de token da ServiceAccount tem
   particularidades nesse modo; a implementação precisa ler essa seção antes de assumir que o
   padrão "EC2 normal" funciona sem ajuste.
+- **`master_user_secret[0]` só existe depois do apply que cria a instância** — é um atributo
+  computado pela AWS, não conhecido em `plan`. Um issue real do provider (hashicorp/terraform-
+  provider-aws#34094) documenta falhas ao acessar esse atributo na MESMA operação que ativa
+  `manage_master_user_password` pela primeira vez. Como este projeto ainda não tem a instância
+  real criada (é um primeiro deploy), o cenário problemático do issue — trocar de senha manual
+  para gerenciada numa instância já existente — não se aplica aqui; mesmo assim, a implementação
+  confirma com um `terraform plan` real que o `depends_on` explícito nas Decisões 5 e 7 é
+  suficiente antes de dar como resolvido.
+- **`variables.tf` fica com quatro variáveis mortas** — `database_password`, `docs_password`,
+  `honeycomb_api_key` e `ghcr_token` param de ser referenciadas em qualquer lugar depois desta
+  wave (os valores agora vêm do Secrets Manager, nunca de uma `-var`). A implementação remove as
+  quatro declarações; deixá-las seria configuração morta que engana o próximo operador a pensar
+  que ainda precisa fornecer esses valores num `apply`.
 - **Rollout depende de um humano rodar `put-secret-value` fora do Terraform** — se isso não
   acontecer, o `ExternalSecret` fica em erro de sync indefinidamente; não há automação nem alerta
   configurado para isso nesta wave (fora de escopo — o operador acompanha o `kubectl get
