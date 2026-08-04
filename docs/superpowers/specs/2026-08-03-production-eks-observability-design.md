@@ -159,3 +159,74 @@ cluster de um serviço só — YAGNI, não descuido: a lacuna fica registrada no
   guards (Basic Auth em `/docs`, por exemplo), mas nada impede tráfego direto de chegar até a
   aplicação. Aceitável para um serviço ainda sem usuários reais; registrar como próximo passo antes
   de tráfego de produção de verdade.
+
+## Resultado
+
+**Suíte de validação completa, a partir de estado limpo (Task 8):**
+
+```bash
+cd infrastructure/terraform
+rm -rf .terraform .terraform.lock.hcl
+terraform fmt -check -diff .
+terraform init -backend=false
+TF_VAR_database_password=placeholder TF_VAR_ghcr_username=placeholder \
+  TF_VAR_ghcr_token=placeholder TF_VAR_honeycomb_api_key=placeholder \
+  TF_VAR_docs_password=placeholder terraform validate
+tflint
+cd ../..
+kubeconform -strict -summary infrastructure/k8s/core-server/*.yaml
+terraform -chdir=infrastructure/terraform/bootstrap fmt -check -diff .
+terraform -chdir=infrastructure/terraform/bootstrap init -backend=false
+terraform -chdir=infrastructure/terraform/bootstrap validate
+```
+
+Os oito comandos passaram limpos: `fmt` sem diffs nos dois módulos; `init -backend=false` baixou de
+novo, do zero, todos os providers e módulos de terceiros do módulo principal (`eks` 21.24.1, `vpc`
+6.6.1, `iam` 6.8.0, `kms` 4.0.0, entre outros) sem erro; `validate` reportou "Success! The
+configuration is valid." nos dois módulos; `tflint` não encontrou nada a apontar; `kubeconform
+-strict` reportou "2 resources found in 2 files - Valid: 2, Invalid: 0, Errors: 0, Skipped: 0". O
+`.terraform.lock.hcl` do módulo principal, regenerado do zero, saiu idêntico ao já commitado —
+nenhuma versão de provider mudou entre a escrita deste plano e esta validação final. Nada aqui
+substitui um `apply` real (ver abaixo); é confirmação de que a sintaxe, os tipos e os módulos
+referenciados continuam corretos.
+
+**Erros reais que a autoria deste plano capturou antes de chegarem ao documento final:**
+
+- A premissa original do spec de design — "AWS Load Balancer Controller opcional" — estava errada:
+  pods Fargate não têm instância EC2 para o provider de load balancer in-tree (legado) apontar,
+  então o Controller é obrigatório a partir do momento em que Fargate é a escolha de compute.
+  Corrigido no spec de design antes do plano ser escrito (commit `539291c`, "fix(docs): the AWS
+  Load Balancer Controller isn't optional on Fargate").
+- Os nomes reais de input do `terraform-aws-modules/eks/aws` v21 são
+  `endpoint_public_access`/`endpoint_private_access`, não `cluster_endpoint_public_access` (o nome
+  de uma versão mais antiga do módulo) — capturado por um `terraform validate` real contra a versão
+  real do módulo durante a autoria, antes do brief da Task 3 ser fechado.
+- O provider `hashicorp/helm` 2.x exige sintaxe de bloco aninhado para o `exec {}` dentro de
+  `provider "helm" { kubernetes { ... } }` e para as entradas `set {}` de `helm_release` — não a
+  sintaxe de objeto/lista como atributo (`kubernetes = {...}`, `set = [...]`) que a documentação de
+  uma versão major mais nova do provider mostra. Capturado por `terraform validate` reais durante a
+  autoria; a implementação da Task 3 (este mesmo plano, já executado) confirmou as duas escolhas de
+  sintaxe corretas na primeira tentativa.
+- `tflint` capturou uma variável Terraform não usada (`core_server_image_tag`) durante validação de
+  rascunho na autoria — removida antes do plano ser escrito, já que esse valor pertence ao
+  Deployment do Kubernetes (Task 7), não ao módulo Terraform.
+- Capturado por referência cruzada com o schema zod real deste repositório
+  (`packages/env/src/packages/cache.environment.ts`) durante a autoria: um rascunho inicial do
+  ConfigMap tinha `CACHE_DRIVER = "redis"` (valor que o schema rejeita explicitamente — só aceita
+  `valkey`/`memory`/`noop`) e um nome de variável errado, `CACHE_URL` (o real é
+  `CACHE_MASTER_URL`) — corrigido antes do plano ser escrito. A implementação e revisão da Task 5
+  (este mesmo plano, já executado) confirmaram que os valores corrigidos (`CACHE_DRIVER =
+  "valkey"`, `CACHE_MASTER_URL` com URL no esquema `redis://` — o nome do esquema é só o protocolo
+  de fiação, não relacionado ao valor do driver) estão presentes em `infrastructure/terraform/
+  configmap.tf` e corretos.
+- `kubectl apply --dry-run=client` foi tentado primeiro para validação dos manifests K8s durante a
+  autoria, mas essa versão do kubectl busca o schema OpenAPI do cluster ao vivo mesmo em dry run
+  client-side, e falha sem conexão com um cluster real — trocado por `kubeconform -strict`, um
+  validador de schema offline, que foi o que a Task 7 (já executada) de fato usou com sucesso.
+
+**O que continua genuinamente não verificável sem credenciais AWS reais:** se o `terraform apply`
+em si funciona de ponta a ponta; se as políticas IAM que o IRSA concede são suficientes em tempo de
+execução; se o Fargate de fato agenda os pods do jeito que os profiles assumem. Nenhum comando
+desta suíte — `fmt`/`init -backend=false`/`validate`/`tflint`/`kubeconform` — substitui um `apply`
+real contra uma conta AWS; a primeira aplicação de verdade é o único jeito de confirmar essas três
+coisas.
