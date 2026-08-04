@@ -12,9 +12,9 @@
     "start": "node dist/main.js",
     "start:dev": "nodemon --watch src --ext ts --exec \"pnpm run build && pnpm run start\"",
     "test": "vitest run --project unit",
-    "test:all": "vitest run",
-    "test:e2e": "vitest run --project e2e",
-    "test:integration": "vitest run --project integration",
+    "test:all": "dotenvx run -f .env.test -- vitest run",
+    "test:e2e": "dotenvx run -f .env.test -- vitest run --project e2e",
+    "test:integration": "dotenvx run -f .env.test -- vitest run --project integration",
     "update:deps": "ncu -u"
   },
   "dependencies": {
