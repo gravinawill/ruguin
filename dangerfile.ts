@@ -170,5 +170,13 @@ function endpointsSection(): string {
   ].join('\n')
 }
 
-const sections = [coverageSection(), featuresSection(), endpointsSection()].filter((section) => section !== '')
+function gifSection(): string {
+  const hasGif = (danger.github.pr.body || '').includes('.gif')
+  if (hasGif) return ''
+  return '⚠️ Essa PR não tem gif na descrição. Considere adicionar um.'
+}
+
+const sections = [coverageSection(), featuresSection(), endpointsSection(), gifSection()].filter(
+  (section) => section !== ''
+)
 if (sections.length > 0) markdown(sections.join('\n\n'))
