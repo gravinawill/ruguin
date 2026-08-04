@@ -199,10 +199,55 @@ function gifSection(): string {
   return body.includes('.gif') ? '' : '⚠️ Essa PR não tem gif na descrição. Considere adicionar um.'
 }
 
+function sourceWithoutTestWarning(): void {
+  const changedFiles = [...danger.git.modified_files, ...danger.git.created_files]
+  const sourceFiles = changedFiles.filter(
+    (file) => /\/(?:application|domain)\//.test(file) && !file.includes('/__tests__/')
+  )
+
+  const withoutTest = sourceFiles.filter((sourceFile) => {
+    const lastSlash = sourceFile.lastIndexOf('/')
+    const directory = sourceFile.slice(0, lastSlash)
+    const fileName = sourceFile.slice(lastSlash + 1)
+    const baseName = fileName.replace(/\.ts$/, '')
+    const testPrefix = `${directory}/__tests__/${baseName}.`
+    return changedFiles.every((file) => !file.startsWith(testPrefix) || !file.endsWith('.ts'))
+  })
+
+  if (withoutTest.length === 0) return
+  const fileList = withoutTest.map((file) => `- \`${file}\``).join('\n')
+  warn(
+    `Os arquivos abaixo mudaram em \`application/\`/\`domain/\` sem um teste correspondente no mesmo diff:\n${fileList}`
+  )
+}
+
+const LARGE_PR_LINE_THRESHOLD = 500
+
+function largePrWarning(): void {
+  /*
+   * Same runtime/type mismatch as gifSection() above: danger.github is undefined under `danger
+   * local` (no real PR context), so this guards against a synchronous throw here discarding the
+   * whole dangerfile report — the exact bug class the previous wave's final review found and
+   * fixed for gifSection().
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- danger.github can be undefined at runtime (danger local mode) despite being typed as non-null
+  const pr = danger.github?.pr
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, sonarjs/different-types-comparison -- pr's static type is always non-undefined because danger.github is (wrongly) typed non-null, but it's genuinely undefined at runtime under `danger local`
+  if (pr === undefined) return
+  const totalLines = pr.additions + pr.deletions
+  if (totalLines <= LARGE_PR_LINE_THRESHOLD) return
+  warn(
+    `Esta PR tem ${totalLines} linhas alteradas (limite sugerido: ${LARGE_PR_LINE_THRESHOLD}). Considere quebrar em PRs menores para facilitar a review.`
+  )
+}
+
 noTestShortcuts({
   testFilePredicate: (filePath) => /\.(?:unit|int|e2e)\.ts$/.test(filePath),
   skippedTests: 'fail'
 })
+
+sourceWithoutTestWarning()
+largePrWarning()
 
 /*
  * todos() is async — schedule() is danger's own hook for that, confirmed from the plugin's
