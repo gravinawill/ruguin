@@ -361,7 +361,11 @@ schedule(
     })
 )
 
-// applyAreaLabels() already catches its own errors internally (see above) — no .catch() needed here.
+/*
+ * Only the GitHub API call inside applyAreaLabels() is wrapped in try/catch; the synchronous
+ * prelude (spreading danger.git arrays, building the labels Set) cannot throw: those arrays
+ * are always populated in every Danger mode.
+ */
 // eslint-disable-next-line unicorn/prefer-top-level-await -- schedule() needs a promise handle, not real await: dangerfile.ts transpiles to CommonJS (see interop comment above), where top-level await isn't valid syntax
 schedule(applyAreaLabels())
 
