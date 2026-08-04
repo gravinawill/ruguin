@@ -97,6 +97,9 @@ importers:
       danger:
         specifier: ^13.0.10
         version: 13.0.10(supports-color@10.2.2)
+      danger-plugin-no-test-shortcuts:
+        specifier: ^2.0.0
+        version: 2.0.0
       eslint:
         specifier: ^10.8.0
         version: 10.8.0(jiti@2.7.0)(supports-color@10.2.2)
@@ -4697,6 +4700,9 @@ packages:
 
   damerau-levenshtein@1.0.8:
     resolution: {integrity: sha512-sdQSFB7+llfUcQHUQO3+B8ERRj0Oa4w9POWMI/puGtuf7gFywGmkaLCElnudfTiKZV+NvHqL0ifzdrI8Ro7ESA==}
+
+  danger-plugin-no-test-shortcuts@2.0.0:
+    resolution: {integrity: sha512-1StsBUwukkhH3EanvrGVS5O+mrz/xM8djJFA4j7Qs11i1tLHkmY4Nj4KFv19y7N2mYuBNTSb17LevfLDRGwjdg==}
 
   danger@13.0.10:
     resolution: {integrity: sha512-qMa/YdfVP/a1HhuvMUsocTO0otgLphuiV5z4G5P7C4+qHvNtCSlzvZm3UuwBut2iwQ/r5NGcwcmD4t+8LjIS0A==}
@@ -12844,6 +12850,10 @@ snapshots:
       d3-array: 3.2.4
 
   damerau-levenshtein@1.0.8: {}
+
+  danger-plugin-no-test-shortcuts@2.0.0:
+    dependencies:
+      lodash: 4.18.1
 
   danger@13.0.10(supports-color@10.2.2):
     dependencies:

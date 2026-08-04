@@ -1,10 +1,24 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 import { danger, markdown } from 'danger'
+import noTestShortcutsPkg from 'danger-plugin-no-test-shortcuts'
 
 type CoverageMetric = 'statements' | 'branches' | 'functions' | 'lines'
 type CoverageSummary = { total: Record<CoverageMetric, { pct: number }> }
 type Thresholds = Record<CoverageMetric, number>
+
+/*
+ * This package ships CJS-only with no ESM build. Node's native ESM interop makes the default
+ * import resolve to the whole `module.exports` object (not the function it wraps), because the
+ * package's own `exports.default = noTestShortcuts` assignment only unwraps under bundler-style
+ * interop (Babel/webpack), not Node's spec-compliant loader that `danger local` runs under.
+ */
+const noTestShortcuts = (noTestShortcutsPkg as unknown as { default: typeof noTestShortcutsPkg }).default
+
+noTestShortcuts({
+  testFilePredicate: (filePath) => /\.(?:unit|int|e2e)\.ts$/.test(filePath),
+  skippedTests: 'fail'
+})
 
 const PACKAGES: ReadonlyArray<{ name: string; dir: string }> = [
   { name: '@ruguin/cache', dir: 'packages/cache' },

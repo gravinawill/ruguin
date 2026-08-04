@@ -69,6 +69,7 @@
     "cspell": "^10.0.1",
     "czg": "^1.13.1",
     "danger": "^13.0.10",
+    "danger-plugin-no-test-shortcuts": "^2.0.0",
     "eslint": "^10.8.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.3.0",
