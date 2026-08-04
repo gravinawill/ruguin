@@ -241,6 +241,42 @@ function largePrWarning(): void {
   )
 }
 
+function parseCodeowners(text: string): ReadonlyArray<{ pattern: string; owners: string[] }> {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'))
+    .map((line) => {
+      const [pattern, ...owners] = line.split(/\s+/)
+      return { pattern: pattern ?? '', owners }
+    })
+}
+
+// eslint-disable-next-line unicorn/consistent-boolean-name -- semantic name aligns with CODEOWNERS pattern matching semantics
+function matchesCodeownersPattern(filePath: string, pattern: string): boolean {
+  if (pattern === '*') return true
+  const normalized = pattern.replace(/^\//, '').replace(/\/$/, '')
+  return filePath === normalized || filePath.startsWith(`${normalized}/`)
+}
+
+function suggestedReviewersSection(): string {
+  if (!existsSync('.github/CODEOWNERS')) return ''
+  const rules = parseCodeowners(readFileSync('.github/CODEOWNERS', 'utf8'))
+  const changedFiles = [...danger.git.modified_files, ...danger.git.created_files]
+
+  const owners = new Set<string>()
+  for (const file of changedFiles) {
+    for (const rule of rules) {
+      if (matchesCodeownersPattern(file, rule.pattern)) {
+        for (const owner of rule.owners) owners.add(owner)
+      }
+    }
+  }
+
+  if (owners.size === 0) return ''
+  return `## 👀 Donos sugeridos (CODEOWNERS)\n\n${[...owners].join(', ')}`
+}
+
 noTestShortcuts({
   testFilePredicate: (filePath) => /\.(?:unit|int|e2e)\.ts$/.test(filePath),
   skippedTests: 'fail'
@@ -289,7 +325,11 @@ schedule(
     })
 )
 
-const sections = [coverageSection(), featuresSection(), endpointsSection(), gifSection()].filter(
-  (section) => section !== ''
-)
+const sections = [
+  coverageSection(),
+  featuresSection(),
+  endpointsSection(),
+  gifSection(),
+  suggestedReviewersSection()
+].filter((section) => section !== '')
 if (sections.length > 0) markdown(sections.join('\n\n'))
