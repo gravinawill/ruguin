@@ -174,4 +174,33 @@ Adiciona `'!infrastructure/terraform/**/.terraform.lock.hcl'`, mesmo padrão já
 
 ## Resultado
 
-_(preenchido depois da implementação)_
+Todos os 7 itens implementados via subagent-driven-development (5 tasks + 1 correção
+cross-task + 1 leva de correções da revisão final), com verificação real em cada etapa —
+`danger pr`/`danger local` de verdade, não assumida a partir da documentação dos plugins.
+
+**Achados reais durante a implementação, não previstos na spec:**
+
+- `danger-plugin-no-test-shortcuts` e `danger-plugin-todos` são CJS-only sem build ESM; como este
+  repo usa `"type": "module"`, precisou de um `.default` explícito. `danger-plugin-lint-report`
+  não precisou (exporta `scan` nomeado, sem `default`).
+- `danger-plugin-todos` só reporta um TODO se o diff do arquivo tiver adição E remoção — um
+  arquivo novo nunca dispara. Documentado no código e nos Riscos abaixo.
+- O `fileMask` do lint-report precisou ser mais específico que o `'**/...'` original: o glob
+  amplo casava o mesmo relatório 7x através dos symlinks do pnpm em `node_modules/@ruguin/*`,
+  gerando anotações duplicadas.
+- Um bug cross-task real: `gifSection()` (Task 2) lançava exceção sob `danger local` (sem
+  contexto de PR real), o que impedia o runner do Danger de chamar `runAllScheduledTasks()` —
+  quebrando silenciosamente qualquer verificação baseada em `schedule()` das Tasks 4 e 5.
+  Corrigido antes da Task 4 começar.
+- A revisão final encontrou mais dois problemas reais da mesma classe (posição das chamadas dos
+  plugins antes do `markdown()` final, arriscando perder o relatório inteiro em qualquer exceção)
+  e um risco de propagação de falha (`danger-plugin-todos` relança erro de rede no GitHub) — todos
+  corrigidos numa leva final, revisados de forma independente.
+
+**Verificação final:** `tsc --noEmit`, `eslint dangerfile.ts`, e `danger local` com diff real
+staged, todos limpos. `.coderabbit.yaml` validado como YAML válido.
+
+**Não implementado (fora do escopo desta wave, pedido pelo usuário como próxima wave):** um check
+novo no Danger para avisar quando `use-case`/`service`/`controller`/`listener` mudou mas o teste
+correspondente não mudou, mais análises de reviewers/tags — vai virar um brainstorm e plano
+próprios.
