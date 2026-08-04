@@ -122,10 +122,14 @@ reviews:
         core-server's create-tracing-sdk.ts passes it straight through as OTLPTraceExporter's
         `url`, which is used as-is (no auto-suffixing) — only unset `url` triggers the SDK's own
         auto-append behavior. Kubernetes resources belong in the core-server namespace, not
-        default. Secrets intentionally live in Terraform state via kubernetes_secret, not an
-        External Secrets Operator — a documented tradeoff (see
-        docs/superpowers/specs/2026-08-03-production-eks-observability-design.md Decision 10),
-        not an oversight to re-flag every PR.
+        default. Secrets no longer live in Terraform state (see
+        docs/superpowers/specs/2026-08-04-external-secrets-operator-design.md): database_password
+        is RDS-managed natively via manage_master_user_password, and docs_password/
+        honeycomb_api_key/ghcr_token sync from AWS Secrets Manager through an ExternalSecret. One
+        known, documented gap remains: RDS rotates its managed password every 7 days, but
+        core-server's pods read it via envFrom (no hot-reload), so already-running pods need a
+        manual restart after each rotation until a longer-term fix is chosen — not an oversight to
+        re-flag every PR.
 
     - path: 'infrastructure/k8s/**'
       instructions: >-
