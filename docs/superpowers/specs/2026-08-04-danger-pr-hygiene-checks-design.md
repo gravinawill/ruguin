@@ -194,4 +194,52 @@ final. `suggestedReviewersSection()` entra no array `sections` (mesmo padrão de
 
 ## Resultado
 
-_(preenchido depois da implementação)_
+Todas as 4 checagens implementadas via subagent-driven-development (3 tasks + 1 leva de
+correção da revisão final), com verificação real em cada etapa — `danger local`/`danger pr`
+de verdade, não assumida a partir da documentação.
+
+**Achados reais durante a implementação, não previstos na spec:**
+
+- O código de `largePrWarning()` na própria spec tinha o mesmo bug de classe que a wave
+  anterior encontrou e corrigiu em `gifSection()`: lia `danger.github.pr` sem guard, o que
+  travaria a avaliação do módulo inteiro sob `danger local`. Corrigido no plano antes da
+  implementação começar (guard `danger.github?.pr` + checagem `=== undefined`, mesmo padrão
+  de `gifSection()`), não na revisão.
+- Task 1 precisou de 3 ajustes de lint não previstos no código verbatim da spec (grupo
+  não-capturante na regex, predicado com De Morgan em vez de `!array.some(...)`, template
+  literal extraído para uma variável) — todos semanticamente equivalentes, forçados pela
+  config de eslint deste projeto, confirmados pelo revisor da task.
+- Task 3 (labels automáticas) parou no Step 5 do plano — a verificação local real contra a
+  PR #8 (`danger pr` com `gh auth token`, aplicando labels de verdade) foi bloqueada pelo
+  classificador de permissão do modo automático do Claude Code, por ser uma escrita real
+  num sistema externo disparada por um agente em background. Decisão: não contornar o
+  bloqueio; o código foi commitado como está (lint limpo, `danger local` sem crash
+  verificado) e a verificação real ficou para o próprio `danger ci` do `ci.yml`, que já roda
+  com `pull-requests: write` em toda PR — de fato mais autoritativa que a verificação local
+  teria sido, já que valida a permissão do token de CI de verdade (exatamente o risco que a
+  seção Riscos acima já apontava como só confirmável num run real de CI).
+- A revisão final (Opus) rodou o predicado de `sourceWithoutTestWarning()` contra a árvore
+  real do repositório: de 81 arquivos em `application/`/`domain/`, 71 não têm teste irmão —
+  maioria dominada por barrels (`index.ts`), interfaces (`*.port.ts`/`*.contract.ts`/
+  `*.provider.ts`), enums e classes de erro, que estruturalmente nunca teriam teste. Achado
+  classificado como Important, mas rotulado plan-mandated: o código implementa a Decisão 1
+  literalmente como escrita, e o escopo mais amplo (sem filtrar por sufixo de nome de
+  arquivo) foi a escolha explícita do usuário durante o brainstorming, justamente para
+  tolerar falsos positivos via `warn()` em vez de `fail()`. Não alterado nesta wave — fica
+  registrado no ledger como decisão a revisitar pelo usuário, não uma correção automática.
+- A revisão final também encontrou um comentário impreciso sobre o alcance real do
+  try/catch em `applyAreaLabels()` (dizia "já trata todos os erros" quando só a chamada à
+  API está dentro do try) — corrigido numa leva de fix isolada, sem mudança de
+  comportamento, re-revisada e confirmada.
+
+**Verificação final:** `pnpm exec eslint dangerfile.ts` (0 problemas), `pnpm exec tsc
+--noEmit` (só os 5 erros pré-existentes e não relacionados em
+`infrastructure/local/k6/core-server-health.ts`), e `danger local`/`danger pr` reais em
+cada task, incluindo um run real contra a PR #8 (9145 linhas alteradas) que disparou de
+fato o aviso de PR grande.
+
+**Não verificado nesta wave (adiado para o CI real, ver acima):** a aplicação de labels de
+verdade via `danger.github.api.issues.addLabels` contra uma PR real — o `try/catch` da
+função garante que uma falha de permissão vira só um `warn()`, nunca quebra o resto do
+relatório, então o pior cenário do caminho não verificado é uma linha de aviso a mais, não
+um relatório quebrado.
