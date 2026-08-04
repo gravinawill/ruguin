@@ -1,3 +1,19 @@
+# Operator runbook, ExternalSecret migration — two-step apply sequencing: if secrets.tf's old
+# Kubernetes Secret resources (core_server_secrets, ghcr_pull) were ever actually applied to a real
+# cluster before this migration lands, apply it in two separate `terraform apply` invocations —
+# never one. First apply with only the secrets.tf deletion, and confirm via `kubectl get secret`
+# that the old core-server-secrets/ghcr-pull-secret Kubernetes Secrets are gone; only then apply
+# the new resources below (ClusterSecretStore + ExternalSecrets). Applying both in the same run
+# races the old resource's destroy against the new ExternalSecret's create of a Secret with the
+# identical name/namespace.
+#
+# Operator runbook, populating the Secrets Manager containers: Terraform only creates the three
+# `aws_secretsmanager_secret` containers below — it never writes their values. Before each
+# corresponding ExternalSecret can sync, an operator runs this once per secret:
+#   aws secretsmanager put-secret-value --secret-id <name> --secret-string "<value>"
+# The three names: ruguin/production/docs-password, ruguin/production/honeycomb-api-key,
+# ruguin/production/ghcr-token (also available via `terraform output` once applied). Until this
+# runs, the corresponding ExternalSecret stays in SecretSyncedError — expected behavior, not a bug.
 resource "kubernetes_namespace" "external_secrets" {
   metadata {
     name = "external-secrets"
@@ -16,6 +32,11 @@ resource "helm_release" "external_secrets" {
   set {
     name  = "installCRDs"
     value = "true"
+  }
+
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = module.external_secrets_irsa.arn
   }
 
   depends_on = [kubernetes_namespace.external_secrets]
@@ -95,6 +116,12 @@ resource "kubectl_manifest" "cluster_secret_store" {
   depends_on = [helm_release.external_secrets]
 }
 
+# Known gap, deliberately deferred: AWS rotates the RDS-managed master password
+# (manage_master_user_password, data.tf) every 7 days by default, but core-server's pods consume
+# DATABASE_URL via envFrom.secretRef — an env var set once at pod start, never hot-reloaded — so a
+# running pod keeps using the stale password after each rotation until it's manually restarted.
+# Closing this needs a conscious choice (a reloader controller, reading the secret at runtime
+# instead of envFrom, or disabling auto-rotation); tracked as a known risk, not a silent gap.
 resource "kubectl_manifest" "core_server_secrets" {
   yaml_body = yamlencode({
     apiVersion = "external-secrets.io/v1"

@@ -38,15 +38,6 @@ terraform {
   # (bucket and dynamodb_table) with those exact values before ever running `terraform init`
   # against this main module for real. `-backend=false` (used throughout this repo's validation)
   # never reads this block, so a stale placeholder here doesn't fail CI — only a real init would.
-  #
-  # Operator runbook, ExternalSecret migration: if secrets.tf's old Kubernetes Secret resources
-  # (core_server_secrets, ghcr_pull) were ever actually applied to a real cluster before the
-  # ExternalSecret migration lands, apply it in two separate `terraform apply` invocations —
-  # never one. First apply with only the secrets.tf deletion, and confirm via `kubectl get secret`
-  # that the old core-server-secrets/ghcr-pull-secret Kubernetes Secrets are gone; only then apply
-  # the new external-secrets.tf resources (ClusterSecretStore + ExternalSecrets). Applying both in
-  # the same run races the old resource's destroy against the new ExternalSecret's create of a
-  # Secret with the identical name/namespace.
   backend "s3" {
     bucket         = "REPLACE_WITH_BOOTSTRAP_STATE_BUCKET_NAME_OUTPUT"
     key            = "production/terraform.tfstate"
