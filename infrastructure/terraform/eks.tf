@@ -15,9 +15,9 @@ module "eks" {
   endpoint_public_access  = true
   endpoint_private_access = true
 
-  # No node group: every workload runs on Fargate. kube-system needs its own profile so CoreDNS
-  # (which the cluster creates automatically) has somewhere to schedule — without it, DNS
-  # resolution inside the cluster never comes up.
+  # No node group: every workload runs on Fargate, so every namespace that runs pods needs a profile
+  # listed here. For kube-system the profile is necessary but not sufficient — see `addons` below for
+  # what actually makes CoreDNS schedulable.
   fargate_profiles = {
     kube_system = {
       name = "kube-system"
@@ -32,6 +32,24 @@ module "eks" {
         { namespace = "default" }
       ]
       subnet_ids = module.vpc.private_subnets
+    }
+    argocd = {
+      name = "argocd"
+      selectors = [
+        { namespace = "argocd" }
+      ]
+      subnet_ids = module.vpc.private_subnets
+    }
+  }
+
+  # EKS creates the CoreDNS Deployment annotated `eks.amazonaws.com/compute-type: ec2`, pinning it to
+  # EC2 nodes this cluster doesn't have — the kube-system Fargate profile alone leaves it Pending
+  # forever and nothing in the cluster resolves DNS. Managing the addon here is what overrides that.
+  addons = {
+    coredns = {
+      configuration_values = jsonencode({
+        computeType = "Fargate"
+      })
     }
   }
 

@@ -65,10 +65,11 @@ mantido ativamente, usado pela própria documentação da AWS em exemplos. Reesc
 "Observabilidade em produção" pressupõe o serviço rodando de verdade, o que pressupõe banco e cache
 reais — sem isso, o cluster sobe mas o `core-server` nunca fica saudável. `db.t4g.micro` (RDS) e
 `cache.t4g.micro` (ElastiCache) — menor tamanho viável, adequado para um serviço sem tráfego de
-produção real ainda. PostgreSQL 16 e o engine `valkey` nativo do ElastiCache espelham exatamente as
-versões já usadas em `infrastructure/local/docker-compose.yml` (`postgres:16-alpine`,
-`valkey/valkey:9-alpine`) — mesma superfície de compatibilidade, sem surpresa de versão entre
-ambientes.
+produção real ainda. Os engines acompanham o que `infrastructure/local/docker-compose.yml` já usa
+(`postgres:16-alpine`, `valkey/valkey:9-alpine`): Postgres em versão idêntica (16); Valkey na versão
+mais próxima disponível no ElastiCache (8.0), já que a 9 — a usada localmente — ainda não existe como
+engine gerenciada. A diferença de major do Valkey é a única assimetria entre os dois ambientes e vale
+ter em mente ao depurar comportamento de cache que só aparece em produção.
 
 Multi-AZ desligado (custo dobra) e backup automático com retenção mínima (1 dia) — ajustável quando
 houver tráfego real para justificar o custo de alta disponibilidade.
@@ -159,6 +160,18 @@ cluster de um serviço só — YAGNI, não descuido: a lacuna fica registrada no
   guards (Basic Auth em `/docs`, por exemplo), mas nada impede tráfego direto de chegar até a
   aplicação. Aceitável para um serviço ainda sem usuários reais; registrar como próximo passo antes
   de tráfego de produção de verdade.
+- **Providers `kubernetes`/`helm`/`kubectl` configurados a partir dos outputs do próprio
+  `module.eks`, no mesmo apply que os recursos Kubernetes/Helm que os consomem**: é exatamente o
+  anti-padrão que a documentação do provider `kubernetes` da HashiCorp desaconselha ("stacking with
+  managed Kubernetes cluster resources"). Na prática: um primeiro `apply` a partir de estado vazio
+  pode exigir `-target=module.eks` antes de o resto aplicar limpo, e o `terraform destroy` pode
+  quebrar. Não tem correção sem separar em dois applies/state files distintos — fora do escopo deste
+  plano, mas é a próxima refatoração estrutural quando a stack ganhar mais um consumidor.
+- **ElastiCache sem criptografia em trânsito nem AUTH token**: só a criptografia em repouso está
+  ligada (`at_rest_encryption_enabled`, chave gerenciada pela AWS). Ligar o resto exige trocar o
+  esquema de `CACHE_MASTER_URL` para `rediss://` e confirmar que o cliente de cache da aplicação
+  suporta TLS + AUTH — o que não foi verificado nesta sessão, e por isso ficou adiado em vez de
+  chutado. Recomendado como tarefa de hardening seguinte, antes de dado real trafegar pelo cache.
 
 ## Resultado
 

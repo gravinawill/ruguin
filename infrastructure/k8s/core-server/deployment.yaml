@@ -31,22 +31,26 @@ spec:
                 name: core-server-config
             - secretRef:
                 name: core-server-secrets
+          # Fargate sizes the pod's microVM from the sum of requests, so a limit above the request is
+          # unreachable — matching them keeps what's declared and what's provisioned the same number.
           resources:
             requests:
               cpu: 250m
               memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 250m
+              memory: 256Mi
           readinessProbe:
             httpGet:
               path: /health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+          # Deliberately not /health: that endpoint checks RDS and Valkey, so an outage in either
+          # would restart every replica in a loop without fixing anything. Withdrawing from the
+          # Service is the right response to a sick dependency, and that's readiness' job above.
           livenessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20

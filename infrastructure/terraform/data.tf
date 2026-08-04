@@ -49,6 +49,11 @@ resource "aws_db_instance" "core_server" {
   backup_retention_period = 1
   skip_final_snapshot     = true
 
+  # With no final snapshot, anything that deletes this instance — a stray destroy, a
+  # replacement-forcing attribute change — takes the data with it and leaves nothing to restore
+  # from. Deleting it for real means clearing this flag first, on purpose.
+  deletion_protection = true
+
   tags = local.tags
 }
 
@@ -92,6 +97,11 @@ resource "aws_elasticache_replication_group" "core_server" {
   security_group_ids = [aws_security_group.elasticache.id]
 
   automatic_failover_enabled = false
+
+  # AWS-managed KMS key, no application-side change. Transit encryption and an AUTH token are the
+  # missing half — both need `CACHE_MASTER_URL` moved to `rediss://` and the cache client verified
+  # against TLS + AUTH first, so they're deferred (see the design doc's Riscos).
+  at_rest_encryption_enabled = true
 
   tags = local.tags
 }
