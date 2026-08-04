@@ -277,6 +277,42 @@ function suggestedReviewersSection(): string {
   return `## 👀 Donos sugeridos (CODEOWNERS)\n\n${[...owners].join(', ')}`
 }
 
+const AREA_LABELS: ReadonlyArray<{ prefix: string; label: string }> = [
+  { prefix: 'infrastructure/terraform/', label: 'terraform' },
+  { prefix: 'infrastructure/k8s/', label: 'kubernetes' },
+  { prefix: 'apps/core-server/', label: 'core-server' },
+  { prefix: 'apps/dispatch-worker/', label: 'dispatch-worker' },
+  { prefix: '.github/workflows/', label: 'github_actions' },
+  { prefix: 'docs/', label: 'documentation' }
+]
+
+async function applyAreaLabels(): Promise<void> {
+  const changedFiles = [...danger.git.modified_files, ...danger.git.created_files, ...danger.git.deleted_files]
+  const labels = new Set<string>()
+  for (const file of changedFiles) {
+    for (const area of AREA_LABELS) {
+      if (file.startsWith(area.prefix)) labels.add(area.label)
+    }
+  }
+  if (labels.size === 0) return
+
+  try {
+    await danger.github.api.issues.addLabels({
+      owner: danger.github.thisPR.owner,
+      repo: danger.github.thisPR.repo,
+      /*
+       * `number` on GitHubAPIPR is deprecated in favor of `pull_number`, confirmed reading
+       * danger's own GitHubDSL.d.ts — the Octokit `addLabels` param is `issue_number`, but a
+       * PR's number and its underlying issue number are the same value on GitHub.
+       */
+      issue_number: danger.github.thisPR.pull_number,
+      labels: [...labels]
+    })
+  } catch (error: unknown) {
+    warn(`Não consegui aplicar labels automáticas: ${String(error)}`)
+  }
+}
+
 noTestShortcuts({
   testFilePredicate: (filePath) => /\.(?:unit|int|e2e)\.ts$/.test(filePath),
   skippedTests: 'fail'
@@ -324,6 +360,10 @@ schedule(
       warn(`danger-plugin-lint-report falhou: ${String(error)}`)
     })
 )
+
+// applyAreaLabels() already catches its own errors internally (see above) — no .catch() needed here.
+// eslint-disable-next-line unicorn/prefer-top-level-await -- schedule() needs a promise handle, not real await: dangerfile.ts transpiles to CommonJS (see interop comment above), where top-level await isn't valid syntax
+schedule(applyAreaLabels())
 
 const sections = [
   coverageSection(),
