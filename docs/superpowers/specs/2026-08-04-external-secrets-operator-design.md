@@ -361,4 +361,54 @@ está — `aws_db_instance` já mora lá.
 
 ## Resultado
 
-_(preenchido depois da implementação)_
+Implementado via subagent-driven-development (3 tasks + 1 leva de correção da revisão
+final), com verificação real (`terraform fmt`/`validate`/`tflint`) em cada etapa — sem
+`plan`/`apply` real, já que este ambiente não tem credenciais AWS nem o backend S3 do
+bootstrap foi de fato aplicado ainda.
+
+**Achado real durante o planejamento, não previsto originalmente:** o `aws_db_instance`
+do RDS não aceita o mesmo padrão "Terraform cria o container vazio, operador popula
+depois" dos outros três secrets — a criação do recurso exige uma senha no momento do
+`apply`. Corrigido antes da implementação começar, trocando para o recurso nativo
+`manage_master_user_password = true` (AWS cria e gira o secret sozinha, sem que o
+Terraform ou um operador jamais vejam o valor) — resolve o problema original melhor
+que a ideia inicial, não só contorna a limitação do RDS.
+
+**Achados reais da revisão final, não previstos no plano:**
+
+- **Dois bugs que travariam o primeiro `apply` de verdade**, invisíveis a qualquer
+  review por task porque exigiam olhar `eks.tf` (de uma wave anterior) junto com o
+  `external-secrets.tf` novo: (1) o namespace `external-secrets` não tinha entrada em
+  `fargate_profiles` — este cluster roda 100% em Fargate, sem node group, então os pods
+  do Helm release do ESO ficariam `Pending` para sempre e o `helm_release` estouraria
+  timeout; (2) a ServiceAccount do ESO nunca recebia a anotação
+  `eks.amazonaws.com/role-arn` — a role IRSA existia mas nunca era assumida, então todo
+  `ExternalSecret` falharia a autenticação. Ambos corrigidos numa leva de fix isolada,
+  seguindo o padrão exato já usado em `eks-addons.tf` para o AWS Load Balancer
+  Controller (o único outro `helm_release` deste repo que consome IRSA).
+- **A rotação automática de 7 dias do RDS gerenciado cria um gap real**: os pods do
+  `core-server` consomem `DATABASE_URL` via `envFrom.secretRef`, que não recarrega a
+  quente — depois de cada rotação, pods já em execução ficam com a senha antiga até
+  serem reiniciados manualmente. Decisão: documentar como limitação aceita por ora
+  (comentário direto acima do `ExternalSecret` de `core-server-secrets`), não resolver
+  nesta wave — resolver de verdade precisa de uma decisão de arquitetura (reloader,
+  leitura em runtime, ou desligar a rotação) fora do escopo deste plano.
+- **O passo de operador da Decisão 8 (popular os três secrets manualmente) nunca tinha
+  sido documentado no repositório** — só o risco de sequenciamento de apply em duas
+  etapas tinha ganhado uma nota. Corrigido, e as duas notas de runbook desta wave foram
+  consolidadas em `external-secrets.tf` (onde o código delas mora), tiradas de dentro do
+  bloco `terraform { }` de `versions.tf`, onde interrompiam um assunto não relacionado.
+- Outputs novos (`docs_password_secret_name`, `honeycomb_api_key_secret_name`,
+  `ghcr_token_secret_name`, `external_secrets_irsa_role_arn`) tornam o passo manual de
+  popular os secrets auto-descobrível via `terraform output`, em vez de exigir caçar os
+  nomes exatos nos arquivos `.tf`.
+
+**Verificação final:** `terraform fmt -check`, `terraform validate`, `tflint`, e grep de
+regressão (nenhuma referência morta às quatro variáveis removidas, nenhum recurso
+`kubernetes_secret` restante) — todos limpos.
+
+**Não verificado nesta wave (riscos residuais, já documentados como tais):** a versão
+exata do chart `external-secrets` (2.5.0, real mas não a mais recente) e a sintaxe do
+template Go embutido no `.dockerconfigjson` do GHCR só podem ser confirmadas de verdade
+contra um controller ESO real rodando — nenhum dos dois é verificável via
+`terraform validate`.
