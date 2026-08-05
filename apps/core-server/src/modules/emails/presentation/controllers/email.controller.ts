@@ -22,11 +22,20 @@ export class EmailController {
     const parsed = SendEmailBodySchema.safeParse(rawBody)
     if (!parsed.success) throw new InvalidSendEmailRequestError({ issues: parsed.error.issues })
 
+    /*
+     * `Idempotency-Key:` with no value arrives as '' (never undefined), and '' is not a key: it
+     * would flow through the use case's `?? null` untouched, past Email.create (which does not
+     * validate it), and only die at the outbox payload's z.string().min(1) as a 500. Absent is
+     * what a blank header means, so it is normalized to absent here, at the boundary that owns
+     * header semantics.
+     */
+    const hasIdempotencyKey = idempotencyKey !== undefined && idempotencyKey.trim() !== ''
+
     const result = await this.sendEmailService.execute({
       ...parsed.data,
       projectId: tenant.projectId,
       organizationId: tenant.organizationId,
-      ...(idempotencyKey !== undefined && { idempotencyKey })
+      ...(hasIdempotencyKey && { idempotencyKey })
     })
 
     if (result.isFailure()) throw result.value

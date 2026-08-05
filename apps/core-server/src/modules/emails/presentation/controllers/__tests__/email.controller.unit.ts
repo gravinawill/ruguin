@@ -52,6 +52,42 @@ describe('EmailController#send', () => {
     expect(response).toEqual({ id: email.id.toString(), status: 'queued' })
   })
 
+  it.each([
+    ['an absent header', undefined],
+    ['an empty header', ''],
+    ['a whitespace-only header', ' '.repeat(3)]
+  ])('forwards no idempotencyKey at all for %s', async (_label, header) => {
+    /*
+     * '' is what an `Idempotency-Key:` with no value actually arrives as, and it is not a key: it
+     * would survive the use case's `?? null` and only die at the outbox payload's min(1) as a 500.
+     */
+    const email = buildEmail()
+    const service: SendEmailServiceLike = { execute: vi.fn().mockResolvedValue(success(email)) }
+    const controller = new EmailController(service as SendEmailService)
+
+    await controller.send(
+      { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' },
+      header,
+      { projectId: 'project-1', organizationId: 'org-1' }
+    )
+
+    expect(service.execute).toHaveBeenCalledWith(expect.not.objectContaining({ idempotencyKey: expect.anything() }))
+  })
+
+  it('forwards a non-blank Idempotency-Key header untouched', async () => {
+    const email = buildEmail()
+    const service: SendEmailServiceLike = { execute: vi.fn().mockResolvedValue(success(email)) }
+    const controller = new EmailController(service as SendEmailService)
+
+    await controller.send(
+      { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' },
+      'idem-1',
+      { projectId: 'project-1', organizationId: 'org-1' }
+    )
+
+    expect(service.execute).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: 'idem-1' }))
+  })
+
   it('throws InvalidSendEmailRequestError for a body matching neither shape', async () => {
     const service: SendEmailServiceLike = { execute: vi.fn() }
     const controller = new EmailController(service as SendEmailService)
