@@ -9,6 +9,6 @@ import { ApiKeyAuthGuard } from './infrastructure/http/api-key-auth.guard'
 @Module({
   imports: [ProjectsModule],
   providers: [ApiKeyRepository, { provide: API_KEY_REPOSITORY, useExisting: ApiKeyRepository }, ApiKeyAuthGuard],
-  exports: [ApiKeyAuthGuard]
+  exports: [ApiKeyAuthGuard, API_KEY_REPOSITORY, ProjectsModule]
 })
 export class ApiKeysModule {}
