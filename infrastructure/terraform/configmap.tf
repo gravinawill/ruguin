@@ -8,9 +8,8 @@ resource "kubernetes_config_map" "core_server_config" {
     ENVIRONMENT = "production"
     PORT        = "3333"
 
-    CACHE_PREFIX     = "ruguin:production"
-    CACHE_DRIVER     = "valkey"
-    CACHE_MASTER_URL = "redis://${aws_elasticache_replication_group.core_server.primary_endpoint_address}:6379"
+    CACHE_PREFIX = "ruguin:production"
+    CACHE_DRIVER = "valkey"
 
     DOCS_USERNAME = var.docs_username
 
@@ -20,5 +19,5 @@ resource "kubernetes_config_map" "core_server_config" {
     OTEL_EXPORTER_OTLP_ENDPOINT = "https://api.honeycomb.io/v1/traces"
   }
 
-  depends_on = [aws_elasticache_replication_group.core_server, kubernetes_namespace.core_server]
+  depends_on = [kubernetes_namespace.core_server]
 }

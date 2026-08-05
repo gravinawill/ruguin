@@ -156,6 +156,7 @@ resource "kubectl_manifest" "core_server_secrets" {
         template = {
           data = {
             DATABASE_URL               = "postgresql://${var.database_username}:{{ .databasePassword }}@${aws_db_instance.core_server.address}:5432/ruguin?schema=core_server"
+            CACHE_MASTER_URL           = "rediss://:{{ .valkeyAuthToken }}@${aws_elasticache_replication_group.core_server.primary_endpoint_address}:6379"
             DOCS_PASSWORD              = "{{ .docsPassword }}"
             OTEL_EXPORTER_OTLP_HEADERS = "x-honeycomb-team={{ .honeycombApiKey }}"
           }
@@ -170,12 +171,18 @@ resource "kubectl_manifest" "core_server_secrets" {
           }
         },
         { secretKey = "docsPassword", remoteRef = { key = aws_secretsmanager_secret.docs_password.name } },
-        { secretKey = "honeycombApiKey", remoteRef = { key = aws_secretsmanager_secret.honeycomb_api_key.name } }
+        { secretKey = "honeycombApiKey", remoteRef = { key = aws_secretsmanager_secret.honeycomb_api_key.name } },
+        { secretKey = "valkeyAuthToken", remoteRef = { key = aws_secretsmanager_secret.valkey_auth_token.name } }
       ]
     }
   })
 
-  depends_on = [kubectl_manifest.cluster_secret_store, aws_db_instance.core_server, kubernetes_namespace.core_server]
+  depends_on = [
+    kubectl_manifest.cluster_secret_store,
+    aws_db_instance.core_server,
+    aws_elasticache_replication_group.core_server,
+    kubernetes_namespace.core_server
+  ]
 }
 
 resource "kubectl_manifest" "ghcr_pull" {
