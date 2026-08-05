@@ -42,7 +42,27 @@ jobs:
         # native binary (Prisma/SWC/esbuild) is needed here at all.
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Record tags before release
+        run: git tag --list > /tmp/tags-before.txt
+
       - name: Release
-        run: pnpm exec semantic-release
+        run: pnpm exec multi-semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Aggregate changelog
+        run: |
+          node scripts/aggregate-changelog.mjs /tmp/tags-before.txt
+          git diff --quiet -- CHANGELOG.md && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "chore(changelog): aggregate this run's package releases"
+          for attempt in 1 2 3; do
+            echo "Push attempt $attempt/3..."
+            if git push; then
+              exit 0
+            fi
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
+          exit 1
