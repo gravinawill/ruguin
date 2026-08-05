@@ -57,6 +57,20 @@ resource "aws_secretsmanager_secret" "ghcr_token" {
   tags = local.tags
 }
 
+# Unlike the three secrets above, Terraform manages this value's version directly: it originates
+# in Terraform (random_password.valkey_auth_token), so there is no operator to defer population
+# to. Mirroring it into Secrets Manager keeps it flowing through the same ExternalSecret mechanism
+# as every other secret here, instead of reintroducing a direct kubernetes_secret for just this one.
+resource "aws_secretsmanager_secret" "valkey_auth_token" {
+  name = "ruguin/production/valkey-auth-token"
+  tags = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "valkey_auth_token" {
+  secret_id     = aws_secretsmanager_secret.valkey_auth_token.id
+  secret_string = random_password.valkey_auth_token.result
+}
+
 module "external_secrets_irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
   version = "~> 6.0"
@@ -71,7 +85,8 @@ module "external_secrets_irsa" {
         aws_db_instance.core_server.master_user_secret[0].secret_arn,
         aws_secretsmanager_secret.docs_password.arn,
         aws_secretsmanager_secret.honeycomb_api_key.arn,
-        aws_secretsmanager_secret.ghcr_token.arn
+        aws_secretsmanager_secret.ghcr_token.arn,
+        aws_secretsmanager_secret.valkey_auth_token.arn
       ]
     }
   }

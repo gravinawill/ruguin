@@ -98,6 +98,16 @@ resource "aws_security_group" "elasticache" {
   tags = local.tags
 }
 
+resource "random_password" "valkey_auth_token" {
+  length  = 32
+  special = true
+  # AWS allows !&#$^<>- as specials in ElastiCache auth tokens, but this is narrower on purpose:
+  # '#' is a URL fragment delimiter, '&'/'<'/'>' carry special meaning in some URL/HTML contexts —
+  # none of the four are needed to satisfy AWS's "at least one non-alphanumeric" rule, and avoiding
+  # them entirely means this value can never collide with URL syntax wherever it's embedded.
+  override_special = "!$^-"
+}
+
 resource "aws_elasticache_replication_group" "core_server" {
   replication_group_id = "${local.cluster_name}-core-server"
   description          = "Valkey cache for core-server"
@@ -112,10 +122,15 @@ resource "aws_elasticache_replication_group" "core_server" {
 
   automatic_failover_enabled = false
 
-  # AWS-managed KMS key, no application-side change. Transit encryption and an AUTH token are the
-  # missing half — both need `CACHE_MASTER_URL` moved to `rediss://` and the cache client verified
-  # against TLS + AUTH first, so they're deferred (see the design doc's Riscos).
+  # AWS-managed KMS key, no application-side change.
   at_rest_encryption_enabled = true
+
+  transit_encryption_enabled = true
+  auth_token                 = random_password.valkey_auth_token.result
+  # SET, not ROTATE: this is a first deploy with no live traffic yet on a passwordless replication
+  # group. ROTATE exists to add AUTH to an already-serving cluster without dropping connections —
+  # not this case. If this token is ever rotated after a real deploy, switch to ROTATE first.
+  auth_token_update_strategy = "SET"
 
   tags = local.tags
 }
