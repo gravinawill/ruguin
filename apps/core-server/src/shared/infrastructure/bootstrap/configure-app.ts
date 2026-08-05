@@ -10,6 +10,8 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import { docsENV } from '@ruguin/env'
 import { apiReference } from '@scalar/nestjs-api-reference'
 
+import { BaseErrorExceptionFilter } from '../http/base-error-exception.filter'
+
 /* Origin of the standalone bundle Scalar's rendered HTML loads via <script src>. */
 const SCALAR_CDN_ORIGIN = 'https://cdn.jsdelivr.net'
 
@@ -34,6 +36,7 @@ export async function configureApp(app: NestFastifyApplication): Promise<void> {
   await app.register(compress)
 
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' })
+  app.useGlobalFilters(new BaseErrorExceptionFilter())
 
   await app.register(basicAuth, {
     validate: async (username: string, password: string) => {
