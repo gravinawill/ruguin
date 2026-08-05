@@ -49,17 +49,20 @@ export class EmailRepository implements EmailRepositoryContract {
     const client = input.tx as unknown as Prisma.TransactionClient
     const savepoint = `create_email_${input.email.id.toString().replaceAll('-', '_')}`
 
-    /*
-     * Postgres marks the whole enclosing transaction as aborted the instant the unique-index
-     * insert fails — every statement after it, including the recovery findFirst below, would
-     * error with 25P02 ("current transaction is aborted") unless it first rolls back to a
-     * savepoint taken before the insert. The savepoint name is derived from the row's own id so
-     * concurrent createIfNotExists calls sharing this transaction (none today, but nothing stops
-     * a future orchestration use case) never collide on the savepoint stack.
-     */
-    await client.$executeRawUnsafe(`SAVEPOINT ${savepoint}`)
-
     try {
+      /*
+       * Postgres marks the whole enclosing transaction as aborted the instant the unique-index
+       * insert fails — every statement after it, including the recovery findFirst below, would
+       * error with 25P02 ("current transaction is aborted") unless it first rolls back to a
+       * savepoint taken before the insert. Issued inside this try: a network failure on the
+       * SAVEPOINT call itself is the same class of infra failure as the insert failing, and this
+       * method's contract (Either, never a thrown rejection) must hold for it too. The savepoint
+       * name is derived from the row's own id so concurrent createIfNotExists calls sharing this
+       * transaction (none today, but nothing stops a future orchestration use case) never
+       * collide on the savepoint stack.
+       */
+      await client.$executeRawUnsafe(`SAVEPOINT ${savepoint}`)
+
       const row = await client.email.create({
         data: {
           id: input.email.id.toString(),
@@ -80,7 +83,21 @@ export class EmailRepository implements EmailRepositoryContract {
     } catch (error: unknown) {
       if (!isUniqueConstraintViolation(error)) return failure(new CreateEmailError({ error }))
 
-      await client.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${savepoint}`)
+      try {
+        await client.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${savepoint}`)
+      } catch (rollbackError: unknown) {
+        return failure(new CreateEmailError({ error: rollbackError }))
+      }
+
+      /*
+       * A NULL idempotencyKey never matches the partial index's WHERE clause (it only covers
+       * idempotencyKey IS NOT NULL), so a P2002 here can only be a primary-key collision on `id`
+       * — astronomically unlikely with UUIDv7, but silently wrong if mishandled: falling through
+       * to the recovery query below with idempotencyKey: null would return an ARBITRARY earlier
+       * email in this project that also has no idempotency key, report a stranger's id as
+       * "already sent this request", and silently drop the real send.
+       */
+      if (input.email.idempotencyKey === null) return failure(new CreateEmailError({ error }))
 
       /*
        * Lost the race on (projectId, idempotencyKey): the winner's row is what the caller must
