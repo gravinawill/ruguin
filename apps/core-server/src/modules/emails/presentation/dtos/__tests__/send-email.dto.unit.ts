@@ -3,9 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { SendEmailBodySchema } from '../send-email.dto'
 
 describe('SendEmailBodySchema', () => {
-  it('accepts a template-based body', () => {
+  it('accepts a valid { to, templateId, variables } body', () => {
     const result = SendEmailBodySchema.safeParse({
-      from: 'sender@example.com',
       to: 'recipient@example.com',
       templateId: '0198f3b2-1234-7000-8000-000000000020',
       variables: { name: 'Ada' }
@@ -14,41 +13,36 @@ describe('SendEmailBodySchema', () => {
     expect(result.success).toBe(true)
   })
 
-  it('accepts a direct subject/html body', () => {
+  it('defaults variables to {} when omitted', () => {
     const result = SendEmailBodySchema.safeParse({
-      from: 'sender@example.com',
       to: 'recipient@example.com',
-      subject: 'Hi',
-      html: '<p>Hi</p>'
+      templateId: '0198f3b2-1234-7000-8000-000000000020'
     })
 
     expect(result.success).toBe(true)
+    if (result.success) expect(result.data.variables).toEqual({})
   })
 
-  it('rejects a body with neither templateId nor subject+html', () => {
-    const result = SendEmailBodySchema.safeParse({ from: 'sender@example.com', to: 'recipient@example.com' })
+  it('rejects a body missing templateId', () => {
+    const result = SendEmailBodySchema.safeParse({ to: 'recipient@example.com' })
 
     expect(result.success).toBe(false)
   })
 
-  it('rejects an invalid "from" address', () => {
+  it('rejects an invalid "to" address', () => {
     const result = SendEmailBodySchema.safeParse({
-      from: 'not-an-email',
-      to: 'recipient@example.com',
-      subject: 'Hi',
-      html: '<p>Hi</p>'
+      to: 'not-an-email',
+      templateId: '0198f3b2-1234-7000-8000-000000000020'
     })
 
     expect(result.success).toBe(false)
   })
 
-  it('rejects a body mixing templateId with subject/html', () => {
+  it('rejects a body carrying an unknown field like "from"', () => {
     const result = SendEmailBodySchema.safeParse({
-      from: 'sender@example.com',
       to: 'recipient@example.com',
       templateId: '0198f3b2-1234-7000-8000-000000000020',
-      subject: 'Hi',
-      html: '<p>Hi</p>'
+      from: 'sender@example.com'
     })
 
     expect(result.success).toBe(false)

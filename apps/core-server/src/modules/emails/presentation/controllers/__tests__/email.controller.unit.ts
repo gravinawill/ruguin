@@ -25,7 +25,8 @@ function buildEmail() {
   const result = Email.create({
     id: validId(),
     projectId: 'project-1',
-    templateId: null,
+    templateId: 'template-1',
+    senderIdentityId: 'sender-1',
     idempotencyKey: null,
     from: 'sender@example.com',
     to: 'recipient@example.com',
@@ -37,17 +38,15 @@ function buildEmail() {
   return result.value
 }
 
+const VALID_BODY = { to: 'recipient@example.com', templateId: '0198f3b2-1234-7000-8000-000000000020', variables: {} }
+
 describe('EmailController#send', () => {
   it('returns { id, status: "queued" } on success', async () => {
     const email = buildEmail()
     const service: SendEmailServiceLike = { execute: vi.fn().mockResolvedValue(success(email)) }
     const controller = new EmailController(service as SendEmailService)
 
-    const response = await controller.send(
-      { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' },
-      undefined,
-      { projectId: 'project-1', organizationId: 'org-1' }
-    )
+    const response = await controller.send(VALID_BODY, undefined, { projectId: 'project-1', organizationId: 'org-1' })
 
     expect(response).toEqual({ id: email.id.toString(), status: 'queued' })
   })
@@ -65,11 +64,7 @@ describe('EmailController#send', () => {
     const service: SendEmailServiceLike = { execute: vi.fn().mockResolvedValue(success(email)) }
     const controller = new EmailController(service as SendEmailService)
 
-    await controller.send(
-      { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' },
-      header,
-      { projectId: 'project-1', organizationId: 'org-1' }
-    )
+    await controller.send(VALID_BODY, header, { projectId: 'project-1', organizationId: 'org-1' })
 
     expect(service.execute).toHaveBeenCalledWith(expect.not.objectContaining({ idempotencyKey: expect.anything() }))
   })
@@ -79,24 +74,17 @@ describe('EmailController#send', () => {
     const service: SendEmailServiceLike = { execute: vi.fn().mockResolvedValue(success(email)) }
     const controller = new EmailController(service as SendEmailService)
 
-    await controller.send(
-      { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' },
-      'idem-1',
-      { projectId: 'project-1', organizationId: 'org-1' }
-    )
+    await controller.send(VALID_BODY, 'idem-1', { projectId: 'project-1', organizationId: 'org-1' })
 
     expect(service.execute).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: 'idem-1' }))
   })
 
-  it('throws InvalidSendEmailRequestError for a body matching neither shape', async () => {
+  it('throws InvalidSendEmailRequestError for a body missing templateId', async () => {
     const service: SendEmailServiceLike = { execute: vi.fn() }
     const controller = new EmailController(service as SendEmailService)
 
     await expect(
-      controller.send({ from: 'sender@example.com', to: 'recipient@example.com' }, undefined, {
-        projectId: 'project-1',
-        organizationId: 'org-1'
-      })
+      controller.send({ to: 'recipient@example.com' }, undefined, { projectId: 'project-1', organizationId: 'org-1' })
     ).rejects.toBeInstanceOf(InvalidSendEmailRequestError)
     expect(service.execute).not.toHaveBeenCalled()
   })
@@ -109,14 +97,7 @@ describe('EmailController#send', () => {
     const controller = new EmailController(service as SendEmailService)
 
     await expect(
-      controller.send(
-        { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' },
-        undefined,
-        {
-          projectId: 'project-1',
-          organizationId: 'org-1'
-        }
-      )
+      controller.send(VALID_BODY, undefined, { projectId: 'project-1', organizationId: 'org-1' })
     ).rejects.toBeInstanceOf(FakeError)
   })
 })

@@ -9,6 +9,11 @@ import {
   type TransactionManager
 } from '../../../../shared/domain/contracts/transaction-manager.contract'
 import {
+  SENDER_IDENTITY_CACHE_PROVIDER,
+  type SenderIdentityCacheProvider
+} from '../../../sender-identities/domain/contracts/sender-identity-cache.provider'
+import { SenderIdentityNotVerifiedError } from '../../../sender-identities/domain/errors/sender-identity-not-verified.error'
+import {
   TEMPLATE_LOOKUP_PROVIDER,
   type TemplateLookupProvider
 } from '../../../templates/domain/contracts/template-lookup.provider'
@@ -21,11 +26,11 @@ import { Email } from '../../domain/models/email.model'
 export type SendEmailUseCaseInput = Readonly<{
   projectId: string
   organizationId: string
-  from: string
   to: string
+  templateId: string
+  variables: Record<string, string>
   idempotencyKey?: string
-}> &
-  (Readonly<{ templateId: string; variables: Record<string, string> }> | Readonly<{ subject: string; html: string }>)
+}>
 
 @Injectable()
 export class SendEmailUseCase {
@@ -33,38 +38,36 @@ export class SendEmailUseCase {
     @Inject(TRANSACTION_MANAGER) private readonly transactionManager: TransactionManager,
     @Inject(EMAIL_REPOSITORY) private readonly emailRepository: EmailRepository,
     @Inject(TEMPLATE_LOOKUP_PROVIDER) private readonly templateLookup: TemplateLookupProvider,
+    @Inject(SENDER_IDENTITY_CACHE_PROVIDER) private readonly senderIdentityCache: SenderIdentityCacheProvider,
     @Inject(OUTBOX_PORT) private readonly outbox: OutboxPort
   ) {}
 
   public async execute(input: SendEmailUseCaseInput): Promise<Either<BaseError, Email>> {
-    let subject: string
-    let html: string
-    let templateId: string | null = null
-
-    if ('templateId' in input) {
-      const templateResult = await this.templateLookup.findByIdAndProjectId({
-        templateId: input.templateId,
-        projectId: input.projectId
-      })
-      if (templateResult.isFailure()) return failure(templateResult.value)
-      if (templateResult.value.template === null) {
-        return failure(new TemplateNotFoundError({ templateId: input.templateId }))
-      }
-
-      const rendered = renderTemplate({
-        subject: templateResult.value.template.subject,
-        html: templateResult.value.template.html,
-        variables: input.variables
-      })
-      if (rendered.isFailure()) return failure(rendered.value)
-
-      subject = rendered.value.subject
-      html = rendered.value.html
-      templateId = input.templateId
-    } else {
-      subject = input.subject
-      html = input.html
+    const templateResult = await this.templateLookup.findByIdAndProjectId({
+      templateId: input.templateId,
+      projectId: input.projectId
+    })
+    if (templateResult.isFailure()) return failure(templateResult.value)
+    if (templateResult.value.template === null) {
+      return failure(new TemplateNotFoundError({ templateId: input.templateId }))
     }
+    const { template } = templateResult.value
+
+    /*
+     * Resolved from the cache-backed contract, not the raw repository — the send path is the hot
+     * path this cache exists for (design spec decision 5). A miss (deleted row, cache/DB
+     * disagreement) is treated exactly like "not verified": there is no legitimate send without a
+     * resolvable, verified sender.
+     */
+    const senderIdentityResult = await this.senderIdentityCache.get({ senderIdentityId: template.senderIdentityId })
+    if (senderIdentityResult.isFailure()) return failure(senderIdentityResult.value)
+    const senderIdentity = senderIdentityResult.value
+    if (!senderIdentity?.isVerified()) {
+      return failure(new SenderIdentityNotVerifiedError({ senderIdentityId: template.senderIdentityId }))
+    }
+
+    const rendered = renderTemplate({ subject: template.subject, html: template.html, variables: input.variables })
+    if (rendered.isFailure()) return failure(rendered.value)
 
     const idGenerated = ID.generate({ modelName: 'Email' })
     if (idGenerated.isFailure()) {
@@ -78,24 +81,21 @@ export class SendEmailUseCase {
     const emailResult = Email.create({
       id: idGenerated.value.idGenerated,
       projectId: input.projectId,
-      templateId,
+      templateId: input.templateId,
+      senderIdentityId: senderIdentity.id.toString(),
       idempotencyKey: input.idempotencyKey ?? null,
-      from: input.from,
+      from: senderIdentity.email,
       to: input.to,
-      subject,
-      html,
+      subject: rendered.value.subject,
+      html: rendered.value.html,
       createdAt: new Date()
     })
     if (emailResult.isFailure()) return emailResult
 
     /*
      * Validated up front, from the not-yet-persisted email, so a malformed payload never opens a
-     * DB transaction. Email.create only checks from/to are non-empty (not real email format), so
-     * this schema's stricter z.email()/z.uuid() can still fail — Task 12's DTO validates real
-     * addresses before this use case ever runs, so this is a defensive backstop, not the primary
-     * validation layer. safeParse (never .parse()) keeps this an Either failure, matching the
-     * method's own contract, instead of a throw that would otherwise surface as a generic 500
-     * TransactionError once one existed.
+     * DB transaction. safeParse (never .parse()) keeps this an Either failure, matching the
+     * method's own contract, instead of a throw that would otherwise surface as a generic 500.
      */
     const payloadParsed = EmailSendRequestedPayloadSchema.safeParse({
       emailId: emailResult.value.id.toString(),
