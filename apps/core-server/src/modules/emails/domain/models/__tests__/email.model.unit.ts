@@ -57,4 +57,36 @@ describe('Email.create', () => {
 
     expect(result.isFailure()).toBe(true)
   })
+
+  it('rejects an empty subject', () => {
+    const result = Email.create({
+      id: validId(),
+      projectId: 'project-1',
+      templateId: null,
+      idempotencyKey: null,
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: '',
+      html: '<p>Hello</p>',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
+  })
+
+  it('rejects an empty html', () => {
+    const result = Email.create({
+      id: validId(),
+      projectId: 'project-1',
+      templateId: null,
+      idempotencyKey: null,
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Hello',
+      html: '',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
+  })
 })
