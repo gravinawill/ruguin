@@ -34,8 +34,8 @@
     "preinstall": "npx --yes only-allow pnpm",
     "postinstall": "pnpm run build",
     "prepare": "husky",
-    "test": "turbo run test:all",
-    "test:coverage": "turbo run test:cov",
+    "test": "turbo run test:all && vitest run --project scripts",
+    "test:coverage": "turbo run test:cov && vitest run --project scripts",
     "test:watch": "vitest",
     "update:deps": "turbo run update:deps && ncu -u && pnpm install",
     "with-env": "dotenvx run -f .env --"

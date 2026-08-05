@@ -45,7 +45,12 @@ const entries = newTags
     if (!match) return null
     const [, packageName, version] = match
     const directoryPath = PACKAGE_PATHS[packageName]
-    if (!directoryPath) return null
+    if (!directoryPath) {
+      console.warn(
+        `::warning::${tag} looks like a package tag but has no entry in PACKAGE_PATHS — skipped from the aggregated changelog.`
+      )
+      return null
+    }
     return { packageName, version, directoryPath }
   })
   .filter(Boolean)

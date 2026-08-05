@@ -1,3 +1,4 @@
 {
-  "ignorePrivate": false
+  "ignorePrivate": false,
+  "branches": ["master"]
 }
