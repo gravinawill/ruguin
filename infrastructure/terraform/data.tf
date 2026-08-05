@@ -102,10 +102,13 @@ resource "random_password" "valkey_auth_token" {
   length  = 32
   special = true
   # AWS allows !&#$^<>- as specials in ElastiCache auth tokens, but this is narrower on purpose:
-  # '#' is a URL fragment delimiter, '&'/'<'/'>' carry special meaning in some URL/HTML contexts —
-  # none of the four are needed to satisfy AWS's "at least one non-alphanumeric" rule, and avoiding
-  # them entirely means this value can never collide with URL syntax wherever it's embedded.
-  override_special = "!$^-"
+  # '#' is a URL fragment delimiter and '&'/'<'/'>' carry special meaning in some URL/HTML
+  # contexts, so restricting to !$- guarantees this value can never collide with URL syntax
+  # wherever it's embedded. '^' is deliberately excluded too: Node's `URL` parser percent-encodes
+  # it in the userinfo position, and it only survives as the original character because
+  # iovalkey's own parseURL() calls decodeURIComponent() on the extracted password — a property
+  # of that specific client, not of '^' being inherently URL-safe like the other three.
+  override_special = "!$-"
 }
 
 resource "aws_elasticache_replication_group" "core_server" {
@@ -129,7 +132,12 @@ resource "aws_elasticache_replication_group" "core_server" {
   auth_token                 = random_password.valkey_auth_token.result
   # SET, not ROTATE: this is a first deploy with no live traffic yet on a passwordless replication
   # group. ROTATE exists to add AUTH to an already-serving cluster without dropping connections —
-  # not this case. If this token is ever rotated after a real deploy, switch to ROTATE first.
+  # not this case. If this token is ever rotated after a real deploy, switch to ROTATE first: like
+  # DATABASE_URL (external-secrets.tf), core-server's pods consume the resulting connection string
+  # via envFrom.secretRef with no hot-reload, so a rotation also needs a `kubectl rollout restart`
+  # of the core-server Deployment after the ExternalSecret picks up the new value — ROTATE is what
+  # keeps the OLD token valid during that restart window so connections don't drop before pods
+  # pick up the new one.
   auth_token_update_strategy = "SET"
 
   tags = local.tags

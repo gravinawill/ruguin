@@ -7,13 +7,19 @@
 # races the old resource's destroy against the new ExternalSecret's create of a Secret with the
 # identical name/namespace.
 #
-# Operator runbook, populating the Secrets Manager containers: Terraform only creates the three
-# `aws_secretsmanager_secret` containers below — it never writes their values. Before each
+# Operator runbook, populating the Secrets Manager containers: Terraform only creates three of the
+# four `aws_secretsmanager_secret` containers below without writing their values. Before each
 # corresponding ExternalSecret can sync, an operator runs this once per secret:
 #   aws secretsmanager put-secret-value --secret-id <name> --secret-string "<value>"
 # The three names: ruguin/production/docs-password, ruguin/production/honeycomb-api-key,
 # ruguin/production/ghcr-token (also available via `terraform output` once applied). Until this
 # runs, the corresponding ExternalSecret stays in SecretSyncedError — expected behavior, not a bug.
+# The fourth container, ruguin/production/valkey-auth-token, is different: it is fully
+# Terraform-managed (its version is written by aws_secretsmanager_secret_version.valkey_auth_token,
+# sourced from random_password.valkey_auth_token.result below) and must NOT be populated
+# manually — doing so would desync the Secrets Manager value from the AUTH token actually
+# configured on the live ElastiCache replication group, causing every pod to receive WRONGPASS
+# after the next ESO refresh with no obvious cause.
 resource "kubernetes_namespace" "external_secrets" {
   metadata {
     name = "external-secrets"
@@ -181,6 +187,7 @@ resource "kubectl_manifest" "core_server_secrets" {
     kubectl_manifest.cluster_secret_store,
     aws_db_instance.core_server,
     aws_elasticache_replication_group.core_server,
+    aws_secretsmanager_secret_version.valkey_auth_token,
     kubernetes_namespace.core_server
   ]
 }
