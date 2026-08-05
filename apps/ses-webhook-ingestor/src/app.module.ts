@@ -1,28 +1,25 @@
 import { Module } from '@nestjs/common'
 import { CacheModule } from '@ruguin/cache'
-import { cacheENV, databaseENV } from '@ruguin/env'
+import { cacheENV, databaseENV, sesWebhookIngestorENV } from '@ruguin/env'
 import { MessageBrokerModule } from '@ruguin/message-broker'
 import { LoggerModule } from 'nestjs-pino'
 
 import { HealthModule } from './health/health.module.ts'
 import { SesNotificationModule } from './ses-notification/ses-notification.module.ts'
 import { DatabaseModule } from './shared/infrastructure/database/database.module.ts'
+import { withSchema } from './shared/infrastructure/database/database-schema.ts'
 import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-options.ts'
 import { createMessageBrokerModuleOptions } from './shared/infrastructure/message-broker/message-broker-module-options.ts'
 
 /*
- * Same Postgres instance/database as every other app (docs/superpowers/specs/2026-08-04-ses-webhook-ingestor-design.md
- * "Cada serviço possui seu próprio schema Postgres dentro da mesma instância") — isolation comes
- * from a distinct schema, not a distinct DATABASE_URL, since the whole monorepo shares one root
- * .env. PrismaService reads the schema back out of the connection string's `schema` query param
- * (see prisma.service.ts's resolveSchemaFrom).
+ * Touched here, not only inside SesWebhookAuthGuard, so a missing secret crashes AppModule's
+ * bootstrap immediately — the alternative (validated lazily, only on the first webhook request)
+ * means the app boots green, /health returns 200, and every webhook request 500s forever, which is
+ * exactly the status code that makes EventBridge retry indefinitely against a service that looks
+ * healthy.
  */
-const DATABASE_SCHEMA = 'ses_webhook_ingestor'
-
-export function withSchema(connectionString: string): string {
-  const separator = connectionString.includes('?') ? '&' : '?'
-  return `${connectionString}${separator}schema=${DATABASE_SCHEMA}`
-}
+// eslint-disable-next-line sonarjs/void-use -- intentional: forces the lazy env getter to run (and throw) now, not on first webhook request
+void sesWebhookIngestorENV.SES_WEBHOOK_INGESTOR_SHARED_SECRET
 
 @Module({
   imports: [
