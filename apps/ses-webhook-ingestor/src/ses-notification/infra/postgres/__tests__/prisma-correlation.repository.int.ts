@@ -48,11 +48,12 @@ describe('PrismaCorrelationRepository against a live Postgres', () => {
     const repository = new PrismaCorrelationRepository(prisma())
 
     await repository.upsert({ sesMessageId: 'int-test-2', emailId: 'email-2' })
-    const secondUpsert = await repository.upsert({ sesMessageId: 'int-test-2', emailId: 'email-2' })
+    const secondUpsert = await repository.upsert({ sesMessageId: 'int-test-2', emailId: 'email-2-retry' })
 
     expect(secondUpsert.isSuccess()).toBe(true)
 
-    const rows = await prisma().sesMessageCorrelation.findMany({ where: { sesMessageId: 'int-test-2' } })
-    expect(rows).toHaveLength(1)
+    const found = await repository.lookup({ sesMessageId: 'int-test-2' })
+    expect(found.isSuccess()).toBe(true)
+    if (found.isSuccess()) expect(found.value).toEqual({ emailId: 'email-2' })
   })
 })
