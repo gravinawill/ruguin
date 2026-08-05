@@ -63,8 +63,18 @@ export class EmailStatusUpdatedSentConsumer implements OnModuleInit {
      * delivered/bounced/complained, which this app itself publishes — has nothing to correlate, so
      * it's skipped, not an error.
      */
-    if (parsed.data.status !== EmailStatusUpdatedStatus.SENT || parsed.data.sesMessageId === undefined) {
+    if (parsed.data.status !== EmailStatusUpdatedStatus.SENT) {
       return success(undefined)
+    }
+
+    /*
+     * The schema allows a sent event without a sesMessageId, but dispatch-worker should never
+     * publish one that way — this is a producer contract violation, not a benign skip, so it goes
+     * to the DLQ for investigation instead of vanishing silently.
+     */
+    if (parsed.data.sesMessageId === undefined) {
+      this.logger.warn(`Missing sesMessageId for sent eventId=${message.eventId}; routing to DLQ.`)
+      return this.publishToDlq(message)
     }
 
     const correlation = SentEmailCorrelation.create({

@@ -1,6 +1,7 @@
 import { EMAIL_STATUS_UPDATED_DLQ_TOPIC, EMAIL_STATUS_UPDATED_TOPIC } from '@ruguin/event-schemas'
 import { type MessageConsumerPort, type MessageProducerPort, type SubscribeInput } from '@ruguin/message-broker'
-import { failure, success } from '@ruguin/utils'
+import { type BaseError } from '@ruguin/shared-domain'
+import { type Either, failure, success } from '@ruguin/utils'
 import { describe, expect, it, vi } from 'vitest'
 
 import { type RecordSentCorrelationUseCase } from '../../application/use-cases/record-sent-correlation.use-case.ts'
@@ -15,7 +16,7 @@ describe('EmailStatusUpdatedSentConsumer', () => {
     let subscribeInput: SubscribeInput | undefined
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         subscribeInput = input
         return success(undefined)
       })
@@ -45,7 +46,7 @@ describe('EmailStatusUpdatedSentConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -80,7 +81,7 @@ describe('EmailStatusUpdatedSentConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -104,16 +105,16 @@ describe('EmailStatusUpdatedSentConsumer', () => {
     expect(result.isSuccess()).toBe(true)
   })
 
-  it('skips a schema-valid status=sent payload that has no sesMessageId', async () => {
+  it('routes a schema-valid status=sent payload with no sesMessageId to the DLQ', async () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
     }
-    const publish = vi.fn()
+    const publish = vi.fn().mockResolvedValue(success(undefined))
     const producer = { publish } as unknown as MessageProducerPort
     const execute = vi.fn()
     const recordSentCorrelation = { execute } as unknown as RecordSentCorrelationUseCase
@@ -124,19 +125,26 @@ describe('EmailStatusUpdatedSentConsumer', () => {
       eventId: 'evt-sent-no-ses-id',
       name: 'email.status.updated',
       payload: { emailId: VALID_EMAIL_ID, status: 'sent' },
-      headers: {}
+      headers: { 'x-trace': 'abc' }
     })
 
     expect(execute).not.toHaveBeenCalled()
-    expect(publish).not.toHaveBeenCalled()
     expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: EMAIL_STATUS_UPDATED_DLQ_TOPIC,
+        key: 'evt-sent-no-ses-id',
+        message: expect.objectContaining({ payload: { emailId: VALID_EMAIL_ID, status: 'sent' } }),
+        headers: { 'x-trace': 'abc' }
+      })
+    )
   })
 
   it('records the correlation for a status=sent payload carrying a sesMessageId', async () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -171,7 +179,7 @@ describe('EmailStatusUpdatedSentConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -208,7 +216,7 @@ describe('EmailStatusUpdatedSentConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
