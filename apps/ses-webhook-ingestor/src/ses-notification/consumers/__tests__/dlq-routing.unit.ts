@@ -39,7 +39,7 @@ describe('publishExhaustedCorrelationToDlq', () => {
         headers: { attempt: '6' },
         message: expect.objectContaining({
           name: 'ses.notification.correlation.pending',
-          payload: { sesMessageId: 'ses-msg-1', status: 'bounced', attempt: 6 }
+          payload: { sesMessageId: 'ses-msg-1', status: 'bounced' }
         })
       })
     )

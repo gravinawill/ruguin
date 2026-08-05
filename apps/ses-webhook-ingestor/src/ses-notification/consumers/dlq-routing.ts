@@ -35,10 +35,12 @@ export function publishExhaustedCorrelationToDlq(
   producer: MessageProducerPort,
   input: ExhaustedCorrelationInput
 ): Promise<Either<BaseError, void>> {
+  const { attempt, ...payload } = input
+
   return producer.publish({
     topic: SES_NOTIFICATION_CORRELATION_DLQ_TOPIC,
     key: input.sesMessageId,
-    message: { eventId: randomUUID(), name: 'ses.notification.correlation.pending', payload: input },
-    headers: { attempt: String(input.attempt) }
+    message: { eventId: randomUUID(), name: 'ses.notification.correlation.pending', payload },
+    headers: { attempt: String(attempt) }
   })
 }
