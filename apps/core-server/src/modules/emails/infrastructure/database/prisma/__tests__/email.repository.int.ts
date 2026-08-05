@@ -13,11 +13,18 @@ function validId(): ID {
   return generated.value.idGenerated
 }
 
+/*
+ * templateId/senderIdentityId are plain string columns, not enforced Prisma @relation()s — see
+ * apps/core-server/CLAUDE.md. A fixed literal that doesn't correspond to a real Template/
+ * SenderIdentity row is fine here: this suite exercises only EmailRepository's own concurrency and
+ * idempotency behavior, not any cross-table constraint.
+ */
 function buildEmail(input: { projectId: string; idempotencyKey: string | null }) {
   const result = Email.create({
     id: validId(),
     projectId: input.projectId,
-    templateId: null,
+    templateId: 'template-1',
+    senderIdentityId: 'sender-1',
     idempotencyKey: input.idempotencyKey,
     from: 'sender@example.com',
     to: 'recipient@example.com',

@@ -14,7 +14,8 @@ describe('Email.create', () => {
     const result = Email.create({
       id: validId(),
       projectId: 'project-1',
-      templateId: null,
+      templateId: 'template-1',
+      senderIdentityId: 'sender-1',
       idempotencyKey: null,
       from: 'sender@example.com',
       to: 'recipient@example.com',
@@ -26,11 +27,46 @@ describe('Email.create', () => {
     expect(result.isSuccess()).toBe(true)
   })
 
+  it('rejects an empty templateId', () => {
+    const result = Email.create({
+      id: validId(),
+      projectId: 'project-1',
+      templateId: '',
+      senderIdentityId: 'sender-1',
+      idempotencyKey: null,
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Hello',
+      html: '<p>Hello</p>',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
+  })
+
+  it('rejects an empty senderIdentityId', () => {
+    const result = Email.create({
+      id: validId(),
+      projectId: 'project-1',
+      templateId: 'template-1',
+      senderIdentityId: '',
+      idempotencyKey: null,
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Hello',
+      html: '<p>Hello</p>',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
+  })
+
   it('rejects an empty "from"', () => {
     const result = Email.create({
       id: validId(),
       projectId: 'project-1',
-      templateId: null,
+      templateId: 'template-1',
+      senderIdentityId: 'sender-1',
       idempotencyKey: null,
       from: '',
       to: 'recipient@example.com',
@@ -46,7 +82,8 @@ describe('Email.create', () => {
     const result = Email.create({
       id: validId(),
       projectId: 'project-1',
-      templateId: null,
+      templateId: 'template-1',
+      senderIdentityId: 'sender-1',
       idempotencyKey: null,
       from: 'sender@example.com',
       to: '',
@@ -62,7 +99,8 @@ describe('Email.create', () => {
     const result = Email.create({
       id: validId(),
       projectId: 'project-1',
-      templateId: null,
+      templateId: 'template-1',
+      senderIdentityId: 'sender-1',
       idempotencyKey: null,
       from: 'sender@example.com',
       to: 'recipient@example.com',
@@ -78,7 +116,8 @@ describe('Email.create', () => {
     const result = Email.create({
       id: validId(),
       projectId: 'project-1',
-      templateId: null,
+      templateId: 'template-1',
+      senderIdentityId: 'sender-1',
       idempotencyKey: null,
       from: 'sender@example.com',
       to: 'recipient@example.com',

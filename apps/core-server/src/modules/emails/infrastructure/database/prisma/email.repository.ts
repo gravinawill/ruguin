@@ -19,7 +19,8 @@ export class EmailRepository implements EmailRepositoryContract {
   private toDomain(row: {
     id: string
     projectId: string
-    templateId: string | null
+    templateId: string
+    senderIdentityId: string
     idempotencyKey: string | null
     from: string
     to: string
@@ -34,6 +35,7 @@ export class EmailRepository implements EmailRepositoryContract {
       id: idResult.value.idValidated,
       projectId: row.projectId,
       templateId: row.templateId,
+      senderIdentityId: row.senderIdentityId,
       idempotencyKey: row.idempotencyKey,
       from: row.from,
       to: row.to,
@@ -134,6 +136,7 @@ export class EmailRepository implements EmailRepositoryContract {
           id: input.email.id.toString(),
           projectId: input.email.projectId,
           templateId: input.email.templateId,
+          senderIdentityId: input.email.senderIdentityId,
           idempotencyKey: input.email.idempotencyKey,
           from: input.email.from,
           to: input.email.to,

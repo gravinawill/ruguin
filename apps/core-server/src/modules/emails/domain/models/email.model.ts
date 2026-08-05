@@ -7,7 +7,8 @@ export class Email {
   private constructor(
     readonly id: ID,
     readonly projectId: string,
-    readonly templateId: string | null,
+    readonly templateId: string,
+    readonly senderIdentityId: string,
     readonly idempotencyKey: string | null,
     readonly from: string,
     readonly to: string,
@@ -21,7 +22,8 @@ export class Email {
   public static create(input: {
     id: ID
     projectId: string
-    templateId: string | null
+    templateId: string
+    senderIdentityId: string
     idempotencyKey: string | null
     from: string
     to: string
@@ -30,6 +32,10 @@ export class Email {
     createdAt: Date
   }): Either<InvalidEmailError, Email> {
     if (input.projectId.trim().length === 0) return failure(new InvalidEmailError({ reason: 'projectId is empty' }))
+    if (input.templateId.trim().length === 0) return failure(new InvalidEmailError({ reason: 'templateId is empty' }))
+    if (input.senderIdentityId.trim().length === 0) {
+      return failure(new InvalidEmailError({ reason: 'senderIdentityId is empty' }))
+    }
     if (input.from.trim().length === 0) return failure(new InvalidEmailError({ reason: '"from" is empty' }))
     if (input.to.trim().length === 0) return failure(new InvalidEmailError({ reason: '"to" is empty' }))
     if (input.subject.trim().length === 0) return failure(new InvalidEmailError({ reason: 'subject is empty' }))
@@ -40,6 +46,7 @@ export class Email {
         input.id,
         input.projectId,
         input.templateId,
+        input.senderIdentityId,
         input.idempotencyKey,
         input.from,
         input.to,
