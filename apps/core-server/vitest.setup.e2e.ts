@@ -7,6 +7,18 @@ process.env.ENVIRONMENT ??= 'test'
  * flow) — matches apps/dispatch-worker's own docker-compose Kafka listener.
  */
 process.env.KAFKA_BOOTSTRAP_BROKERS ??= 'localhost:9092'
+/*
+ * CACHE_PREFIX has no default in cacheENV's schema (packages/env) — CACHE_DRIVER is left unset
+ * so it falls back to 'memory', keeping the e2e suite self-sufficient without a live Valkey.
+ */
+process.env.CACHE_PREFIX ??= 'ruguin-core-server-e2e'
+/*
+ * docsENV requires both with no default (packages/env/src/packages/docs.environment.ts). Test-only
+ * Basic Auth credentials for the /docs routes this suite never authenticates against — not a
+ * secret, just what coreServerENV needs present to resolve at all.
+ */
+process.env.DOCS_USERNAME ??= 'e2e-test'
+process.env.DOCS_PASSWORD ??= 'e2e-test'
 
 // eslint-disable-next-line sonarjs/no-os-command-from-path -- static command, no interpolated input; `pnpm exec` is the intended way to resolve workspace-local binaries via PATH.
 const seedOutput = execSync('pnpm exec tsx prisma/seed.ts', {
