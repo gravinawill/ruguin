@@ -17,6 +17,7 @@
     "start:dev": "nodemon --watch src --ext ts --ignore \"src/**/generated/**\" --exec \"pnpm run build && pnpm run start\"",
     "test": "vitest run --project unit",
     "test:all": "vitest run",
+    "test:cov": "vitest run --project unit --coverage",
     "test:e2e": "vitest run --project e2e",
     "test:integration": "vitest run --project integration",
     "update:deps": "ncu -u"
