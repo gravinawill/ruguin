@@ -15,6 +15,7 @@ import {
 import { TemplateNotFoundError } from '../../../templates/domain/errors/template-not-found.error'
 import { renderTemplate } from '../../../templates/domain/render-template'
 import { EMAIL_REPOSITORY, type EmailRepository } from '../../domain/contracts/repositories/email.repository'
+import { InvalidEmailPayloadError } from '../../domain/errors/models/invalid-email-payload.error'
 import { Email } from '../../domain/models/email.model'
 
 export type SendEmailUseCaseInput = Readonly<{
@@ -87,6 +88,35 @@ export class SendEmailUseCase {
     })
     if (emailResult.isFailure()) return emailResult
 
+    /*
+     * Validated up front, from the not-yet-persisted email, so a malformed payload never opens a
+     * DB transaction. Email.create only checks from/to are non-empty (not real email format), so
+     * this schema's stricter z.email()/z.uuid() can still fail — Task 12's DTO validates real
+     * addresses before this use case ever runs, so this is a defensive backstop, not the primary
+     * validation layer. safeParse (never .parse()) keeps this an Either failure, matching the
+     * method's own contract, instead of a throw that would otherwise surface as a generic 500
+     * TransactionError once one existed.
+     */
+    const payloadParsed = EmailSendRequestedPayloadSchema.safeParse({
+      emailId: emailResult.value.id.toString(),
+      organizationId: input.organizationId,
+      projectId: emailResult.value.projectId,
+      from: emailResult.value.from,
+      to: emailResult.value.to,
+      subject: emailResult.value.subject,
+      html: emailResult.value.html,
+      ...(emailResult.value.idempotencyKey !== null && { idempotencyKey: emailResult.value.idempotencyKey })
+    })
+    if (!payloadParsed.success) return failure(new InvalidEmailPayloadError({ error: payloadParsed.error }))
+
+    /*
+     * z.infer makes `idempotencyKey` `string | undefined` (Zod's `.optional()` convention), which
+     * JsonValue's index signature rejects even though Zod never emits the key holding `undefined`
+     * — it's simply absent when not supplied. The cast bridges that TypeScript-only mismatch;
+     * safeParse above already did the real runtime validation.
+     */
+    const payload = payloadParsed.data as JsonValue
+
     return this.transactionManager.execute(async (tx) => {
       const persistResult = await this.emailRepository.createIfNotExists({ email: emailResult.value, tx })
       if (persistResult.isFailure()) return failure(persistResult.value)
@@ -94,23 +124,7 @@ export class SendEmailUseCase {
       const { email: persisted, created } = persistResult.value
 
       if (created) {
-        const payload = EmailSendRequestedPayloadSchema.parse({
-          emailId: persisted.id.toString(),
-          organizationId: input.organizationId,
-          projectId: persisted.projectId,
-          from: persisted.from,
-          to: persisted.to,
-          subject: persisted.subject,
-          html: persisted.html,
-          ...(persisted.idempotencyKey !== null && { idempotencyKey: persisted.idempotencyKey })
-        })
-        /*
-         * z.infer makes `idempotencyKey` `string | undefined` (Zod's `.optional()` convention),
-         * which JsonValue's index signature rejects even though Zod never emits the key holding
-         * `undefined` — it's simply absent when not supplied. The cast bridges that TypeScript-only
-         * mismatch; `.parse()` above already did the real runtime validation.
-         */
-        const event = Event.create(EMAIL_SEND_REQUESTED_TOPIC, payload as JsonValue)
+        const event = Event.create(EMAIL_SEND_REQUESTED_TOPIC, payload)
         const enqueued = await this.outbox.enqueue(
           event,
           { topic: EMAIL_SEND_REQUESTED_TOPIC, key: persisted.projectId },

@@ -64,17 +64,30 @@ describe('SendEmailUseCase', () => {
     const enqueue = vi.fn().mockResolvedValue(success(undefined))
     const outbox: OutboxPort = { enqueue }
     const useCase = new SendEmailUseCase(createTransactionManagerStub(), emailRepository, templateLookup, outbox)
+    const requestedTemplateId = buildTemplate().id.toString()
 
     const result = await useCase.execute({
       projectId: '01900000-0000-7000-8000-000000000001',
       organizationId: '01900000-0000-7000-8000-000000000002',
       from: 'sender@example.com',
       to: 'recipient@example.com',
-      templateId: buildTemplate().id.toString(),
+      templateId: requestedTemplateId,
       variables: { name: 'Ada' }
     })
 
     expect(result.isSuccess()).toBe(true)
+    // Proves the *rendered* output — not the raw template, and not some other field — is what got persisted.
+    expect(createIfNotExists).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: expect.objectContaining({
+          templateId: requestedTemplateId,
+          from: 'sender@example.com',
+          to: 'recipient@example.com',
+          subject: 'Hi Ada',
+          html: '<p>Hi Ada</p>'
+        })
+      })
+    )
     expect(enqueue).toHaveBeenCalledTimes(1)
     const [event, options] = enqueue.mock.calls[0] as [
       { name: string; payload: unknown },
@@ -112,6 +125,35 @@ describe('SendEmailUseCase', () => {
 
     expect(result.isSuccess()).toBe(true)
     expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('includes idempotencyKey in the enqueued payload when the row is new and one was supplied', async () => {
+    const email = buildEmail({ idempotencyKey: 'idem-1' })
+    const createIfNotExists = vi.fn().mockResolvedValue(success({ email, created: true }))
+    const emailRepository: EmailRepository = { createIfNotExists }
+    const enqueue = vi.fn().mockResolvedValue(success(undefined))
+    const outbox: OutboxPort = { enqueue }
+    const useCase = new SendEmailUseCase(
+      createTransactionManagerStub(),
+      emailRepository,
+      { findByIdAndProjectId: vi.fn() },
+      outbox
+    )
+
+    const result = await useCase.execute({
+      projectId: '01900000-0000-7000-8000-000000000001',
+      organizationId: '01900000-0000-7000-8000-000000000002',
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Hi',
+      html: '<p>Hi</p>',
+      idempotencyKey: 'idem-1'
+    })
+
+    expect(result.isSuccess()).toBe(true)
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    const [event] = enqueue.mock.calls[0] as [{ payload: unknown }]
+    expect(event.payload).toMatchObject({ idempotencyKey: 'idem-1' })
   })
 
   it('fails with TemplateNotFoundError when the templateId does not resolve for this project', async () => {
