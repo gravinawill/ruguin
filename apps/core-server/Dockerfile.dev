@@ -25,8 +25,17 @@ COPY . .
 # No --ignore-scripts here, unlike the production Dockerfile: dev needs Prisma's schema-engine
 # and the other native builds (@swc/core, esbuild) that `pnpm-workspace.yaml`'s
 # onlyBuiltDependencies list allows, since `pnpm dev` runs the real build on every file change.
-RUN pnpm install --frozen-lockfile
+# chown after install, same as the production Dockerfile's final COPY --chown: `pnpm run dev`
+# below runs as the unprivileged "node" user, and it rewrites the Prisma client and other
+# generated output on every watched change — without this, those writes would hit files this
+# RUN step (still root at this point) already created, and fail with EACCES.
+RUN pnpm install --frozen-lockfile && chown -R node:node /repo
 
 WORKDIR /repo/apps/core-server
 EXPOSE 3333
+# node:26-alpine ships a built-in "node" user (uid/gid 1000). On Linux hosts where the calling
+# user's uid differs from 1000, the bind mount above may need `docker run --user "$(id -u):$(id -g)"`
+# to keep write access — harmless to add unconditionally since it only overrides the container's
+# default, already-unprivileged user.
+USER node
 CMD ["pnpm", "run", "dev"]
