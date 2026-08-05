@@ -20,7 +20,7 @@ const SES_RATE_LIMIT_KEY = 'ses-account'
 
 /*
  * A plain configured number, not a port — SES_SEND_RATE_LIMIT_PER_SECOND (packages/env's
- * awsENV) is read once in EmailModule and handed in as a value, the same way every other
+ * sesENV) is read once in EmailModule and handed in as a value, the same way every other
  * environment-derived setting in this app stays out of application-layer classes so their unit
  * tests never need real env vars.
  */
