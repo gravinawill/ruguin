@@ -7,7 +7,7 @@ export default defineConfig({
      * pnpm-workspace.yaml). `passWithNoTests` keeps `vitest run` green while
      * packages are still being scaffolded and have no tests yet.
      */
-    projects: ['apps/*', 'packages/*', 'configs/*'],
+    projects: ['apps/*', 'packages/*', 'configs/*', 'scripts'],
     passWithNoTests: true
     /*
      * No `coverage` block here on purpose. A member project's own `test.coverage` is overwritten
