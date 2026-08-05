@@ -37,12 +37,10 @@ lerna-debug.log*
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# dotenv environment variable files
+# dotenv environment variable files — every variant, since SES_WEBHOOK_INGESTOR_SHARED_SECRET is a
+# required secret this app reads from its environment
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+.env.*
 
 # temp directory
 .temp
