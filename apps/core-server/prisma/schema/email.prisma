@@ -1,0 +1,19 @@
+model Email {
+  id             String      @id @default(uuid(7))
+  projectId      String
+  templateId     String?
+  idempotencyKey String?
+  from           String
+  to             String
+  subject        String
+  html           String
+  status         EmailStatus @default(QUEUED)
+  createdAt      DateTime    @default(now())
+
+  @@index([projectId])
+  @@map("emails")
+}
+
+enum EmailStatus {
+  QUEUED
+}

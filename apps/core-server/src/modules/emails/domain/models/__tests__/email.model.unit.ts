@@ -1,0 +1,60 @@
+import { ID } from '@ruguin/shared-domain'
+import { describe, expect, it } from 'vitest'
+
+import { Email } from '../email.model'
+
+function validId(): ID {
+  const generated = ID.generate({ modelName: 'Email' })
+  if (generated.isFailure()) throw new Error('unreachable')
+  return generated.value.idGenerated
+}
+
+describe('Email.create', () => {
+  it('builds an Email from valid input', () => {
+    const result = Email.create({
+      id: validId(),
+      projectId: 'project-1',
+      templateId: null,
+      idempotencyKey: null,
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Hello',
+      html: '<p>Hello</p>',
+      createdAt: new Date('2026-08-04T00:00:00Z')
+    })
+
+    expect(result.isSuccess()).toBe(true)
+  })
+
+  it('rejects an empty "from"', () => {
+    const result = Email.create({
+      id: validId(),
+      projectId: 'project-1',
+      templateId: null,
+      idempotencyKey: null,
+      from: '',
+      to: 'recipient@example.com',
+      subject: 'Hello',
+      html: '<p>Hello</p>',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
+  })
+
+  it('rejects an empty "to"', () => {
+    const result = Email.create({
+      id: validId(),
+      projectId: 'project-1',
+      templateId: null,
+      idempotencyKey: null,
+      from: 'sender@example.com',
+      to: '',
+      subject: 'Hello',
+      html: '<p>Hello</p>',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
+  })
+})
