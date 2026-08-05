@@ -1,0 +1,32 @@
+import { failure, success } from '@ruguin/utils'
+import { describe, expect, it, vi } from 'vitest'
+
+import { type CorrelationPort } from '../../providers/correlation.port.ts'
+import { RecordSentCorrelationUseCase } from '../record-sent-correlation.use-case.ts'
+
+function fakeCorrelation(overrides: Partial<CorrelationPort>): CorrelationPort {
+  return overrides as unknown as CorrelationPort
+}
+
+describe('RecordSentCorrelationUseCase', () => {
+  it('upserts the correlation with the given sesMessageId and emailId', async () => {
+    const upsert = vi.fn().mockResolvedValue(success(undefined))
+    const useCase = new RecordSentCorrelationUseCase(fakeCorrelation({ upsert }))
+
+    const result = await useCase.execute({ sesMessageId: 'ses-msg-1', emailId: 'email-1' })
+
+    expect(result.isSuccess()).toBe(true)
+    expect(upsert).toHaveBeenCalledWith({ sesMessageId: 'ses-msg-1', emailId: 'email-1' })
+  })
+
+  it('propagates a failure from the correlation port', async () => {
+    const correlationError = { name: 'CorrelationUpsertError', message: 'db down' }
+    const upsert = vi.fn().mockResolvedValue(failure(correlationError))
+    const useCase = new RecordSentCorrelationUseCase(fakeCorrelation({ upsert }))
+
+    const result = await useCase.execute({ sesMessageId: 'ses-msg-1', emailId: 'email-1' })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBe(correlationError)
+  })
+})

@@ -2,7 +2,13 @@ import { Injectable } from '@nestjs/common'
 import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
-import { type PrismaService } from '../../../shared/infrastructure/database/prisma/prisma.service.ts'
+/*
+ * Value import, not `type` — PrismaService is a constructor parameter that Nest's DI resolves
+ * by reflected design:paramtypes metadata. A type-only import erases the class reference at
+ * compile time, so Nest sees an unresolvable `Object` token here (this repository's own unit
+ * test never caught it because it constructs the class manually with `new`, bypassing DI).
+ */
+import { PrismaService } from '../../../shared/infrastructure/database/prisma/prisma.service.ts'
 import {
   type CorrelationPort,
   type LookupCorrelationInput,

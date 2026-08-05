@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common'
 import { CacheModule } from '@ruguin/cache'
 import { cacheENV, databaseENV } from '@ruguin/env'
+import { MessageBrokerModule } from '@ruguin/message-broker'
 import { LoggerModule } from 'nestjs-pino'
 
 import { HealthModule } from './health/health.module.ts'
+import { SesNotificationModule } from './ses-notification/ses-notification.module.ts'
 import { DatabaseModule } from './shared/infrastructure/database/database.module.ts'
 import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-options.ts'
+import { createMessageBrokerModuleOptions } from './shared/infrastructure/message-broker/message-broker-module-options.ts'
 
 /*
  * Same Postgres instance/database as every other app (docs/superpowers/specs/2026-08-04-ses-webhook-ingestor-design.md
@@ -50,10 +53,13 @@ export function withSchema(connectionString: string): string {
       ...(cacheENV.CACHE_REPLICA_URLS.length > 0 && { replicaUrls: cacheENV.CACHE_REPLICA_URLS })
     }),
 
+    MessageBrokerModule.forRoot({ isGlobal: true, ...createMessageBrokerModuleOptions() }),
+
     DatabaseModule.forRoot({
       connectionString: withSchema(databaseENV.DATABASE_URL)
     }),
 
+    SesNotificationModule,
     HealthModule
   ],
   controllers: [],
