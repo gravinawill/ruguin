@@ -237,6 +237,38 @@ incluído (`@ruguin/core-server@1.0.0`); propagação de bump entre workspaces d
 `workspace:*` funciona; `workspace:*` nunca causou erro de parsing em nenhuma das duas rodadas;
 contagem real de workspaces corrigida de 12 pra 11 (`packages/ddd-kernel` não existe mais).
 
-**Fase 2 (implementação real — configs por pacote, módulo compartilhado, script de agregação,
-mudança em `release-image.yml`) ainda não iniciada** — o plano de implementação é escrito
-separadamente, agora que a Fase 1 removeu toda a incerteza que a bloqueava.
+**Fase 2 (implementação real) concluída** — commits `bf30b16`..`771e410`, 3 tasks + uma rodada de
+fix da revisão final. As 3 tasks passaram limpas de primeira; a revisão final de branch inteiro
+(modelo mais capaz) encontrou 2 problemas **Critical** reais que nenhuma revisão de tarefa pegou —
+corrigidos numa única rodada, confirmados pela re-revisão:
+
+- **Critical:** o passo de agregação do changelog raiz nunca comitava nada, em nenhuma execução —
+  `git diff --quiet -- CHANGELOG.md` não enxerga o arquivo na primeira vez que ele existe (é criado
+  untracked pelo script), então o `&& exit 0` disparava sempre antes de qualquer `git add`. A
+  Decisão 5 inteira era um no-op permanente do jeito que a Task 3 implementou. Corrigido
+  estagiando antes de checar (`git add` seguido de `git diff --cached --quiet`).
+- **Critical:** na primeira release de cada pacote (sem tag anterior), o `@semantic-release/github`
+  tratava os ~437 commits do histórico inteiro como "desta release" e comentava + rotulava todos os
+  PRs referenciados, 11 vezes — ~190 comentários de bot e ~190 labels de uma vez só no primeiro
+  merge real, sem remoção em lote fácil. Corrigido com `successComment: false, failComment: false`
+  nos 11 `.releaserc.mjs`.
+- **Important:** o teste novo do script de agregação nunca rodava em CI nem no pre-push local,
+  porque `scripts/` não é membro do pnpm workspace — `turbo run test:all`/`test:cov` nunca o
+  alcançavam. Corrigido acrescentando `&& vitest run --project scripts` aos scripts `test`/
+  `test:coverage` da raiz.
+- **Minor:** o mecanismo real de herança de `branches` era diferente do que o plano documentou (sem
+  "fallback de cosmiconfig" de verdade — o MSR carrega a config raiz uma vez como opções globais) e
+  dependia inteiramente do `.releaserc.json` raiz, que ficou vestigial. Corrigido declarando
+  `branches: ["master"]` explicitamente em `.multi-releaserc.json`.
+- **Minor:** uma tag `@ruguin/*` sem entrada em `PACKAGE_PATHS` (ex: workspace novo esquecido no
+  mapa) sumia do índice silenciosamente. Corrigido com um aviso `::warning::`.
+
+A revisão final também confirmou, lendo o código-fonte real das ferramentas (não presumindo): o
+preset `conventionalcommits` funciona nos dois eixos (changelog e bump) exatamente como desenhado;
+`.multi-releaserc.json` não colide com `.releaserc.json` raiz; `ignorePrivate: false` é necessário
+e suficiente; `.releaserc.mjs` resolve corretamente nos 11 pacotes; `--ignore-scripts` no install
+do CI continua suficiente (nenhuma dependência nova precisa de build nativo).
+
+Nenhuma aplicação real testada (sem execução de release de verdade neste ambiente, como sempre
+neste tipo de wave) — `actionlint`, `prettier`, um dry-run real contra a config permanente (11/11
+pacotes, Task 1) e os testes reais do script de agregação (3/3, Task 2) foram os checks possíveis.
