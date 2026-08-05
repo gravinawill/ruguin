@@ -98,8 +98,10 @@ jobs:
           name: coverage-reports
           path: |
             apps/core-server/coverage
+            apps/ses-webhook-ingestor/coverage
             packages/cache/coverage
             packages/env/coverage
+            packages/event-schemas/coverage
             packages/shared-domain/coverage
             packages/utils/coverage
           retention-days: 1
