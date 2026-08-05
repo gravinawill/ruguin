@@ -2359,7 +2359,7 @@ describe('publishExhaustedCorrelationToDlq', () => {
         headers: { attempt: '6' },
         message: expect.objectContaining({
           name: 'ses.notification.correlation.pending',
-          payload: { sesMessageId: 'ses-msg-1', status: 'bounced', attempt: 6 }
+          payload: { sesMessageId: 'ses-msg-1', status: 'bounced' }
         })
       })
     )
@@ -2414,11 +2414,15 @@ export function publishExhaustedCorrelationToDlq(
   producer: MessageProducerPort,
   input: ExhaustedCorrelationInput
 ): Promise<Either<BaseError, void>> {
+  /* attempt lives only in headers (matching EMAIL_SEND_REQUESTED_RETRY_TOPIC's convention) — the
+   * payload stays within SesNotificationCorrelationPendingPayloadSchema's shape (Task 2). */
+  const { attempt, ...payload } = input
+
   return producer.publish({
     topic: SES_NOTIFICATION_CORRELATION_DLQ_TOPIC,
     key: input.sesMessageId,
-    message: { eventId: randomUUID(), name: 'ses.notification.correlation.pending', payload: input },
-    headers: { attempt: String(input.attempt) }
+    message: { eventId: randomUUID(), name: 'ses.notification.correlation.pending', payload },
+    headers: { attempt: String(attempt) }
   })
 }
 ```
