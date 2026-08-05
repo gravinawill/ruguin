@@ -37,7 +37,7 @@ Seis serviços, cada um separado por uma característica operacional distinta (n
 |---|---|---|---|
 | **API Service** | Autenticação via API key, endpoint de envio (`POST /emails`), CRUD de templates/domínios/projetos/orgs, endpoints de leitura para o dashboard (BFF) | — | `email.send.requested` |
 | **Dispatch Worker** | Resolve template, aplica rate limiting (Redis), chama `SendEmail` da AWS SES, trata retry/backoff | `email.send.requested` | `email.status.updated` |
-| **SES Webhook Ingestor** | Recebe notificações SNS da AWS (delivery/bounce/complaint) via HTTP, normaliza o payload | HTTP (SNS) | `email.status.updated` |
+| **SES Webhook Ingestor** | Recebe notificações da SES via EventBridge (delivery/bounce/complaint), normaliza o payload | HTTP (EventBridge) + `email.status.updated` (correlação) | `email.status.updated` |
 | **Tracking Service** | Endpoints públicos de pixel de abertura e redirecionamento de clique — precisa responder em milissegundos | HTTP público | `email.engagement` |
 | **Webhook Notifier** | Entrega webhooks assinados (HMAC-SHA256) para os endpoints configurados pelos clientes, com retry/backoff | `email.status.updated`, `email.engagement` | HTTP de saída (webhooks do cliente) |
 | **Read-Model Updater** | Consome todos os tópicos e mantém as tabelas de leitura no Postgres que alimentam o dashboard | todos os tópicos | escreve no Postgres |
@@ -65,7 +65,7 @@ Seis serviços, cada um separado por uma característica operacional distinta (n
    - Sucesso → publica `email.status.updated` com `status=sent` e o `sesMessageId`.
    - Falha transitória → retry com backoff exponencial.
    - Falha permanente → publica `status=failed`.
-3. **AWS SES** processa a entrega e notifica de forma assíncrona via SNS (delivered/bounce/complaint) → o **SES Webhook Ingestor** recebe via HTTP, normaliza, e publica em `email.status.updated`.
+3. **AWS SES** processa a entrega e notifica de forma assíncrona via Amazon EventBridge (delivered/bounce/complaint) → o **SES Webhook Ingestor** recebe via HTTP (API Destination), correlaciona ao `emailId` interno via uma tabela própria alimentada por `email.status.updated` (`status=sent`), normaliza, e publica em `email.status.updated`. Detalhes: `docs/superpowers/specs/2026-08-04-ses-webhook-ingestor-design.md`.
 4. Quando o destinatário abre o email ou clica em um link, a requisição passa pelo **Tracking Service** (pixel de 1x1 / redirecionamento de link), que publica em `email.engagement` antes de servir a imagem ou redirecionar.
 5. O **Read-Model Updater** consome todos os tópicos acima e atualiza as tabelas de leitura no Postgres.
 6. O **Webhook Notifier** consome `email.status.updated` e `email.engagement`, busca a URL de webhook configurada para o projeto do cliente, e entrega um POST assinado (HMAC) com o payload do evento.
