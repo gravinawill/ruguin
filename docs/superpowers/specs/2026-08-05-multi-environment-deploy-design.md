@@ -307,4 +307,41 @@ produção.
 
 ## Resultado
 
-_(preenchido depois da implementação)_
+Implementado em 3 tasks (commits `a296aac`..`ad6fd7f`), todas revisadas limpas de primeira. A
+revisão final de branch inteiro (modelo mais capaz) encontrou 1 problema **Critical** real e mais
+3 Important + 2 Minor — todos corrigidos numa única rodada (commit `4008576`), confirmados pela
+re-revisão:
+
+- **Critical:** `configmap.tf`'s ConfigMap de development escrevia `ENVIRONMENT = "development"` —
+  valor que não existe no enum real da aplicação (`packages/env`'s `EnvironmentEnum` é
+  `test|local|develop|staging|production`). Todo pod de `core-server-dev` teria travado em
+  `CrashLoopBackOff` na validação `zod` do boot — o objetivo inteiro desta spec (um ambiente de
+  development que roda) não seria atingido em nenhuma circunstância. Corrigido pra `"develop"`.
+- **Important:** o digest placeholder (64 zeros) nos dois overlays não tinha nenhum comentário
+  explicando que era intencional — regressão em relação ao `deployment.yaml` antigo, que tinha o
+  aviso colado na linha da imagem. Adicionado um comentário em cada overlay.
+- **Important:** faltava documentar que esta branch está bem à frente de `origin/master`/
+  `origin/develop` (nenhum tem `infrastructure/` ainda) — aplicar o Terraform antes da estrutura
+  chegar no branch alvo via merge dá `ComparisonError` no ArgoCD, não um no-op limpo. Adicionado
+  um comentário de pré-requisito de ordem de apply nas duas `Application`s.
+- **Important:** os Riscos só cobriam disponibilidade do RDS/ElastiCache compartilhados, nunca
+  blast radius de credencial — `DATABASE_URL` de development usa o mesmo usuário master do RDS
+  (acesso irrestrito a qualquer schema) e `CACHE_MASTER_URL` é idêntico byte a byte ao de produção.
+  Adicionados dois riscos novos: o de blast radius de credencial e o de `develop` passar a receber
+  commits de bot.
+- **Minor:** o `sed` que atualiza o digest não é ancorado ao nome da imagem — correto hoje (uma
+  entrada por overlay), silenciosamente errado se uma segunda for adicionada. Documentado via
+  comentário em vez de complicar o padrão pra um cenário que não existe ainda.
+
+A revisão final também confirmou, de forma independente e traçando o fluxo real do git-flow deste
+repositório (`release`/`hotfix` por merge, `develop.autoupdate`), que a premissa central desta
+spec se sustenta: `develop` e `master` nunca escrevem o mesmo arquivo de overlay, então
+`git flow release finish` nunca colide — inclusive no cenário de pushes em `develop` durante a
+janela de estabilização de uma release, que a revisão testou explicitamente.
+
+Nenhuma aplicação real testada (sem cluster/ArgoCD/RDS de verdade neste ambiente, como já
+esperado) — `kustomize build` (contra os dois overlays), `terraform fmt`/`validate` e
+`actionlint` foram os únicos checks possíveis. O bug Critical do `ENVIRONMENT` só foi pego porque
+a revisão final leu o código real de `packages/env` e testou o enum com `zod` de verdade — nenhum
+desses checks estruturais (kustomize/terraform/actionlint) teria pego um valor de enum inválido,
+achado registrado como risco (CI não valida isso automaticamente hoje) para uma wave futura.
