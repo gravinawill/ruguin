@@ -168,4 +168,28 @@ raciocínio de URL/TLS se aplica a elas.
 
 ## Resultado
 
-_(preenchido depois da implementação)_
+Implementado em 2 tasks (commits `8ce8fa0`..`b10f514`), ambas revisadas limpas de primeira. A
+revisão final de branch inteiro encontrou 5 problemas, todos corrigidos numa única rodada
+(commit `be704bc`), confirmados pela re-revisão sem nenhuma quebra nova Critical/Important:
+
+- **Important:** faltava `depends_on` de `kubectl_manifest.core_server_secrets` para
+  `aws_secretsmanager_secret_version.valkey_auth_token` — o `ExternalSecret` referenciava só o
+  container (`aws_secretsmanager_secret...name`), não o recurso que escreve o valor de verdade.
+- **Important:** o comentário de runbook em `external-secrets.tf` ainda dizia "os três containers"
+  quando já existia um quarto (`valkey_auth_token`), risco real de um operador rodar
+  `put-secret-value` nele por engano e causar `WRONGPASS` em toda a frota após o próximo refresh
+  do ESO.
+- **Minor:** um comentário alegava uma regra da AWS ("mínimo de um caractere não-alfanumérico")
+  que não existe — removida.
+- **Minor:** `override_special` incluía `^`, que só sobrevive como caractere literal em
+  `CACHE_MASTER_URL` por `iovalkey`'s `parseURL()` chamar `decodeURIComponent()` — uma dependência
+  de implementação de um client específico, não uma garantia inerente de segurança de URL.
+  Removido do conjunto (`"!$^-"` → `"!$-"`).
+- **Minor:** o comentário de rotação do AUTH token não mencionava a falta de hot-reload de
+  `envFrom.secretRef` — complementado para espelhar o comentário equivalente do `DATABASE_URL`.
+
+Depois da re-revisão confirmar os 5 endereçados, uma observação Minor adicional (um parágrafo do
+fix duplicava um comentário pré-existente no mesmo arquivo) foi corrigida diretamente
+(commit `b69c6ce`), consolidando o aviso num único lugar.
+
+Nenhum valor de AUTH token foi impresso, logado ou exposto durante a implementação ou as revisões.
