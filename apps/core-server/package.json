@@ -10,6 +10,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "dev": "nodemon --watch src --ext ts --ignore \"src/**/generated/**\" --exec \"pnpm run build && pnpm run start\"",
     "fix:lint": "eslint --fix .",
