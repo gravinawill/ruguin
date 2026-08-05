@@ -36,14 +36,10 @@ export function renderTemplate(input: {
   variables: Record<string, string>
 }): Either<MissingTemplateVariableError, { subject: string; html: string }> {
   const subjectResult = substitute(input.subject, input.variables)
-  if (subjectResult.isFailure()) {
-    return subjectResult as unknown as Either<MissingTemplateVariableError, { subject: string; html: string }>
-  }
+  if (subjectResult.isFailure()) return failure(subjectResult.value)
 
   const htmlResult = substitute(input.html, input.variables)
-  if (htmlResult.isFailure()) {
-    return htmlResult as unknown as Either<MissingTemplateVariableError, { subject: string; html: string }>
-  }
+  if (htmlResult.isFailure()) return failure(htmlResult.value)
 
   return success({ subject: subjectResult.value, html: htmlResult.value })
 }
