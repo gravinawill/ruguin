@@ -4,7 +4,7 @@
 model SesMessageCorrelation {
   sesMessageId String   @id
   emailId      String
-  createdAt    DateTime @default(now())
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
 
   @@map("ses_message_correlations")
 }
