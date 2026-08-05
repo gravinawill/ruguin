@@ -41,6 +41,12 @@ export class SesNotificationCorrelationRetryConsumer implements OnModuleInit {
       onMessage: (message): Promise<Either<BaseError, void>> => this.onMessage(message)
     })
 
+    /*
+     * A failed subscription means every notification that lands on the retry topic is stranded —
+     * the correlation would never be resolved and the event never republished. Crashing bootstrap
+     * here, instead of running "healthy" with a silently dead consumer, lets the process manager
+     * restart it instead of masking the outage.
+     */
     if (subscribed.isFailure()) {
       throw new Error(`Failed to subscribe to ${SES_NOTIFICATION_CORRELATION_RETRY_TOPIC}: ${subscribed.value.message}`)
     }
@@ -62,9 +68,12 @@ export class SesNotificationCorrelationRetryConsumer implements OnModuleInit {
     const nextAttemptAt = nextAttemptAtHeader === undefined ? new Date(NaN) : new Date(nextAttemptAtHeader)
 
     /*
-     * Absent headers are rejected outright, not defaulted — and attempt must be a positive integer:
-     * Number.isSafeInteger alone accepts 0 and negative values, which could reschedule far past the
-     * retry ceiling (hasExhaustedCorrelationRetries never trips for a non-positive nextAttempt).
+     * Absent headers are rejected outright, not defaulted — and attempt must be a positive integer,
+     * which Number.isSafeInteger alone does not guarantee. The retry budget still terminates for a
+     * bogus attempt (it climbs until it passes CORRELATION_RETRY_MAX_ATTEMPTS), so the hazard is
+     * not an infinite loop but a corrupted schedule: computeNextCorrelationRetryAt raises 2 to the
+     * attempt, so a negative attempt collapses the delay to near-zero and republishes in a tight
+     * loop, while attempt=0 silently hands the message a larger budget than the producer intended.
      */
     if (!Number.isSafeInteger(attempt) || attempt < 1 || Number.isNaN(nextAttemptAt.getTime())) {
       this.logger.warn(

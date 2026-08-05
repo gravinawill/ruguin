@@ -68,6 +68,30 @@ describe('POST /webhooks/ses', () => {
     expect(JSON.parse(response.payload)).toEqual({ status: 'ok' })
   })
 
+  /*
+   * The envelope schema accepts a whitespace-only messageId (z.string().min(1)); only the domain
+   * model rejects it. That rejection has to come back as a handled 200 like any other malformed
+   * body — a 500 here would make EventBridge retry a notification that can never succeed.
+   */
+  it('returns 200 for an envelope the domain model rejects', async () => {
+    const response = await (app as unknown as NestFastifyApplication)
+      .getHttpAdapter()
+      .getInstance()
+      .inject({
+        method: 'POST',
+        url: '/webhooks/ses',
+        headers: { [SES_INGESTOR_SECRET_HEADER]: SHARED_SECRET },
+        payload: {
+          id: 'evt-e2e-blank-message-id',
+          source: 'aws.ses',
+          detail: { eventType: 'Delivery', mail: { messageId: ' '.repeat(3) } }
+        }
+      })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.payload)).toEqual({ status: 'ok' })
+  })
+
   it('returns 200 for a well-formed notification with no correlation yet', async () => {
     const response = await (app as unknown as NestFastifyApplication)
       .getHttpAdapter()

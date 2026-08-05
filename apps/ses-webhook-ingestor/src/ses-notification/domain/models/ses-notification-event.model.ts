@@ -26,8 +26,11 @@ export class SesNotificationEvent {
 
   /*
    * `| undefined` on the optional field, not just `?`: under exactOptionalPropertyTypes create()
-   * cannot narrow `bounceType` out of the Bounce branch (the guard above is a conjunction, which
-   * TypeScript does not decompose), so it hands the value over still typed as possibly undefined.
+   * cannot narrow `bounceType` out of its Bounce branch, because the guard that rules out the
+   * missing case (`eventType === 'Bounce' && bounceType === undefined`) is a conjunction, and
+   * TypeScript does not decompose a conjunction's false branch. So create() hands the value over
+   * still typed as possibly undefined. Only this private input is loosened — the public
+   * `bounceType` field stays strictly optional.
    */
   private constructor(input: {
     sesMessageId: string

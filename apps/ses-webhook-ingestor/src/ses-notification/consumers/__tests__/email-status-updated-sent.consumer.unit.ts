@@ -7,6 +7,8 @@ import { type RecordSentCorrelationUseCase } from '../../application/use-cases/r
 import { CORRELATION_CONSUMER_GROUP_ID, EmailStatusUpdatedSentConsumer } from '../email-status-updated-sent.consumer.ts'
 
 const VALID_EMAIL_ID = '018f9a9e-6f0a-7c3e-9b0a-000000000001'
+/* Passes EmailStatusUpdatedPayloadSchema's z.string().min(1); rejected only by the domain model. */
+const BLANK_SES_MESSAGE_ID = ' '.repeat(3)
 
 describe('EmailStatusUpdatedSentConsumer', () => {
   it('subscribes to the email.status.updated topic under its own consumer group', async () => {
@@ -158,6 +160,48 @@ describe('EmailStatusUpdatedSentConsumer', () => {
       expect.objectContaining({ sesMessageId: 'ses-msg-1', emailId: VALID_EMAIL_ID })
     )
     expect(result.isSuccess()).toBe(true)
+  })
+
+  /*
+   * EmailStatusUpdatedPayloadSchema types sesMessageId as z.string().min(1), which a
+   * whitespace-only string satisfies — only SentEmailCorrelation.create()'s trim() rejects it. So
+   * this is a real path a producer bug can reach, not a theoretical one.
+   */
+  it('routes a payload the domain model rejects to the DLQ without recording a correlation', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn()
+    const recordSentCorrelation = { execute } as unknown as RecordSentCorrelationUseCase
+
+    await new EmailStatusUpdatedSentConsumer(fakeConsumer, producer, recordSentCorrelation).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-blank-ses-msg-id',
+      name: 'email.status.updated',
+      payload: { emailId: VALID_EMAIL_ID, status: 'sent', sesMessageId: BLANK_SES_MESSAGE_ID },
+      headers: { 'x-trace': 'abc' }
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: EMAIL_STATUS_UPDATED_DLQ_TOPIC,
+        key: 'evt-blank-ses-msg-id',
+        message: expect.objectContaining({
+          payload: { emailId: VALID_EMAIL_ID, status: 'sent', sesMessageId: BLANK_SES_MESSAGE_ID }
+        }),
+        headers: { 'x-trace': 'abc' }
+      })
+    )
   })
 
   it('returns a failure when recording the correlation fails, so KafkaMessageConsumer does not commit the offset', async () => {

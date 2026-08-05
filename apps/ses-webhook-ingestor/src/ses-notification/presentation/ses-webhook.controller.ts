@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, InternalServerErrorException, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, HttpCode, InternalServerErrorException, Logger, Post, UseGuards } from '@nestjs/common'
 
 import {
   type IngestSesNotificationInput,
@@ -11,6 +11,8 @@ import { SesWebhookAuthGuard } from './ses-webhook-auth.guard.ts'
 
 @Controller('webhooks')
 export class SesWebhookController {
+  private readonly logger = new Logger(SesWebhookController.name)
+
   constructor(private readonly ingestSesNotification: IngestSesNotificationUseCase) {}
 
   @UseGuards(SesWebhookAuthGuard)
@@ -34,10 +36,15 @@ export class SesWebhookController {
    * Parsing the EventBridge envelope is a transport/presentation concern — it belongs at this
    * boundary, not inside the use case. Whatever comes out (a validated domain event, or an explicit
    * "malformed" signal) is the only shape IngestSesNotificationUseCase ever sees.
+   *
+   * Both rejections are logged here, matching every other malformed-payload path in this module:
+   * the reason reaches the DLQ payload either way, but the warning is what an alert rule watches.
+   * The route is behind SesWebhookAuthGuard, so this is not an open-internet log-volume risk.
    */
   private toUseCaseInput(body: unknown): IngestSesNotificationInput {
     const parsed = EventBridgeSesNotificationSchema.safeParse(body)
     if (!parsed.success) {
+      this.logger.warn(`Malformed EventBridge SES notification: ${parsed.error.message}; routing to DLQ.`)
       return { kind: 'malformed', rawBody: body, reason: parsed.error.message }
     }
 
@@ -47,6 +54,9 @@ export class SesWebhookController {
       ...(parsed.data.detail.eventType === 'Bounce' && { bounceType: parsed.data.detail.bounce.bounceType })
     })
     if (event.isFailure()) {
+      this.logger.warn(
+        `Invalid SES notification in EventBridge event ${parsed.data.id}: ${event.value.message}; routing to DLQ.`
+      )
       return { kind: 'malformed', rawBody: body, reason: event.value.message }
     }
 

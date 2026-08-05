@@ -7,8 +7,9 @@ const SesBounceDetailSchema = z.object({ bounceType: z.enum(SesBounceType) })
 /*
  * A discriminated union, not one object with an optional `bounce` — SES only ever includes the
  * bounce object when eventType=Bounce, and making that structural (rather than "optional and
- * hope it's there") means mapSesEventToStatus never has to guard against a Bounce notification
- * with no bounce detail; the type system already rules that combination out.
+ * hope it's there") means the caller can hand SesNotificationEvent.create() a bounceType without
+ * first guarding against a Bounce notification that carries no bounce detail; the type system
+ * already rules that combination out.
  */
 const SesEventDetailSchema = z.discriminatedUnion('eventType', [
   z.object({ eventType: z.literal('Bounce'), mail: SesMailSchema, bounce: SesBounceDetailSchema }),
@@ -23,4 +24,3 @@ export const EventBridgeSesNotificationSchema = z.object({
 })
 
 export type EventBridgeSesNotification = z.infer<typeof EventBridgeSesNotificationSchema>
-export type SesEventDetail = EventBridgeSesNotification['detail']
