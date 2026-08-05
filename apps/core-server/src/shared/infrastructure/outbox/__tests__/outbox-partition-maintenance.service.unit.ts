@@ -3,7 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { type PrismaService } from '../../database/prisma/prisma.service'
 import { OutboxPartitionMaintenanceService } from '../outbox-partition-maintenance.service'
 
-function createPrismaStub(input: { stalePartitions?: string[]; nonTerminalCounts?: Record<string, number> } = {}): {
+function createPrismaStub(
+  input: {
+    stalePartitions?: string[]
+    nonTerminalCounts?: Record<string, number>
+    countRejectionFor?: Record<string, unknown>
+    executeRawUnsafeRejection?: unknown
+  } = {}
+): {
   prisma: PrismaService
   executed: string[]
   queryRawValues: unknown[][]
@@ -12,12 +19,16 @@ function createPrismaStub(input: { stalePartitions?: string[]; nonTerminalCounts
   const queryRawValues: unknown[][] = []
   const stalePartitions = input.stalePartitions ?? []
   const nonTerminalCounts = input.nonTerminalCounts ?? {}
+  const countRejectionFor = input.countRejectionFor ?? {}
 
   const prisma = {
-    // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async $executeRawUnsafe contract; stub has nothing to await
-    $executeRawUnsafe: async (sql: string) => {
+    $executeRawUnsafe: (sql: string) => {
+      if (Object.hasOwn(input, 'executeRawUnsafeRejection')) {
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- exercising a rejection reason that may not be an Error, on purpose
+        return Promise.reject(input.executeRawUnsafeRejection)
+      }
       executed.push(sql)
-      return 0
+      return Promise.resolve(0)
     },
     /*
      * Captures the tagged template's interpolated values (schema, cutoffName), not just the
@@ -28,11 +39,14 @@ function createPrismaStub(input: { stalePartitions?: string[]; nonTerminalCounts
       queryRawValues.push(values)
       return stalePartitions.map((partitionName) => ({ partitionName }))
     },
-    // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async $queryRawUnsafe contract; stub has nothing to await
-    $queryRawUnsafe: async (sql: string) => {
+    $queryRawUnsafe: (sql: string) => {
       const match = /FROM "[^"]+"\."([^"]+)"/.exec(sql)
       const partitionName = match?.[1] ?? ''
-      return [{ count: BigInt(nonTerminalCounts[partitionName] ?? 0) }]
+      if (Object.hasOwn(countRejectionFor, partitionName)) {
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- exercising a rejection reason that may not be an Error, on purpose
+        return Promise.reject(countRejectionFor[partitionName])
+      }
+      return Promise.resolve([{ count: BigInt(nonTerminalCounts[partitionName] ?? 0) }])
     },
     schema: 'core_server'
   } as unknown as PrismaService
@@ -101,5 +115,56 @@ describe('OutboxPartitionMaintenanceService#runMaintenance', () => {
      * cutoffName] bind values are what dropStalePartitions actually computed, not fixture data.
      */
     expect(queryRawValues[0]).toEqual(['core_server', 'outbox_messages_2025_10'])
+  })
+
+  it('keeps sweeping the remaining stale partitions when dropping one of them fails', async () => {
+    const { prisma, executed } = createPrismaStub({
+      countRejectionFor: { outbox_messages_2026_01: new Error('relation does not exist') },
+      nonTerminalCounts: { outbox_messages_2026_02: 0 },
+      stalePartitions: ['outbox_messages_2026_01', 'outbox_messages_2026_02']
+    })
+    const service = new OutboxPartitionMaintenanceService(prisma)
+
+    await expect(service.runMaintenance()).resolves.toBeUndefined()
+
+    expect(executed).toContain('DROP TABLE IF EXISTS "core_server"."outbox_messages_2026_02"')
+  })
+
+  it('keeps sweeping when the failure checking a partition is not an Error instance', async () => {
+    const { prisma, executed } = createPrismaStub({
+      countRejectionFor: { outbox_messages_2026_01: 'connection terminated' },
+      nonTerminalCounts: { outbox_messages_2026_02: 0 },
+      stalePartitions: ['outbox_messages_2026_01', 'outbox_messages_2026_02']
+    })
+    const service = new OutboxPartitionMaintenanceService(prisma)
+
+    await expect(service.runMaintenance()).resolves.toBeUndefined()
+
+    expect(executed).toContain('DROP TABLE IF EXISTS "core_server"."outbox_messages_2026_02"')
+  })
+})
+
+describe('OutboxPartitionMaintenanceService#onApplicationBootstrap', () => {
+  it('runs the same maintenance sweep as the daily cron', async () => {
+    const { prisma, executed } = createPrismaStub()
+    const service = new OutboxPartitionMaintenanceService(prisma)
+
+    await service.onApplicationBootstrap()
+
+    expect(executed.filter((sql) => sql.includes('CREATE TABLE IF NOT EXISTS'))).toHaveLength(3)
+  })
+
+  it('logs and resolves instead of rejecting when maintenance fails, so one bad sweep cannot abort startup', async () => {
+    const { prisma } = createPrismaStub({ executeRawUnsafeRejection: new Error('relation does not exist') })
+    const service = new OutboxPartitionMaintenanceService(prisma)
+
+    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined()
+  })
+
+  it('resolves even when the bootstrap failure is not an Error instance', async () => {
+    const { prisma } = createPrismaStub({ executeRawUnsafeRejection: 'connection terminated' })
+    const service = new OutboxPartitionMaintenanceService(prisma)
+
+    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined()
   })
 })

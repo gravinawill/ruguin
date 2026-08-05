@@ -29,8 +29,54 @@ export default defineConfig({
     environment: 'node',
     clearMocks: true,
     restoreMocks: true,
-    reporters: ['verbose'],
+    reporters: ['verbose', 'vitest-sonar-reporter'],
+    outputFile: { 'vitest-sonar-reporter': './coverage/sonar-report.xml' },
     passWithNoTests: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov', 'json-summary'],
+      /*
+       * `include` matters as much as `exclude`: Vitest 4 dropped `coverage.all`, so without it
+       * only files a test actually imports are measured — a file nobody imports yet would be
+       * invisible to the threshold instead of dragging it down.
+       */
+      include: ['src/**/*.ts'],
+      /*
+       * The target is 100% of business code. What's excluded here isn't debt: it's code whose
+       * coverage would assert that the language works, not that the rule is right.
+       * tracing.ts, bootstrap/ and health.controller.ts join main.ts and *.module.ts in this list
+       * for the same reason: process/app bootstrap wiring that only a live listener can exercise
+       * meaningfully — each already has its own *.e2e.ts covering it.
+       */
+      exclude: [
+        '**/generated/**',
+        'src/main.ts',
+        'src/tracing.ts',
+        'src/**/*.module.ts',
+        'src/shared/infrastructure/bootstrap/**',
+        'src/modules/health/health.controller.ts',
+        'src/**/__tests__/**',
+        '**/*.config.ts',
+        'scripts/**',
+        'dist/**'
+      ],
+      /*
+       * 2026-08-03: initial floor, measured on the unit project after the excludes above.
+       * Missing: prisma.service.ts (the PrismaService class itself — constructor and
+       * onModuleDestroy need a real connection, so only resolveSchemaFrom is unit-tested),
+       * database-health.indicator.ts (the empty-message-after-trim branch),
+       * pino-http-options.ts (the no-error, non-4xx/5xx branch of customLogLevel) and
+       * transaction-manager.contract.ts (its TRANSACTION_MANAGER DI token is only value-imported
+       * by the excluded database module, never by a unit test).
+       * This number only goes up — lowering it to make CI pass means the change is incomplete.
+       */
+      thresholds: {
+        statements: 91,
+        branches: 93,
+        functions: 87,
+        lines: 92
+      }
+    },
     projects: [
       {
         extends: true,

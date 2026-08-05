@@ -1,32 +1,32 @@
 import { type CacheModuleFactoryOptions } from '@ruguin/cache'
 import { cacheENV } from '@ruguin/env'
 
-export function createCacheModuleOptions(): CacheModuleFactoryOptions {
+export function createCacheModuleOptions(environment: typeof cacheENV = cacheENV): CacheModuleFactoryOptions {
   return {
     breaker: {
-      resetTimeoutInMs: cacheENV.CACHE_BREAKER_RESET_TIMEOUT_MS,
-      failureThreshold: cacheENV.CACHE_BREAKER_FAILURE_THRESHOLD
+      resetTimeoutInMs: environment.CACHE_BREAKER_RESET_TIMEOUT_MS,
+      failureThreshold: environment.CACHE_BREAKER_FAILURE_THRESHOLD
     },
 
-    driver: cacheENV.CACHE_DRIVER,
-    jitterRatio: cacheENV.CACHE_JITTER_RATIO,
-    defaultTtlInMs: cacheENV.CACHE_DEFAULT_TTL_MS,
-    defaultConsistency: cacheENV.CACHE_DEFAULT_CONSISTENCY,
-    invalidationBroadcast: cacheENV.CACHE_INVALIDATION_BROADCAST,
+    driver: environment.CACHE_DRIVER,
+    jitterRatio: environment.CACHE_JITTER_RATIO,
+    defaultTtlInMs: environment.CACHE_DEFAULT_TTL_MS,
+    defaultConsistency: environment.CACHE_DEFAULT_CONSISTENCY,
+    invalidationBroadcast: environment.CACHE_INVALIDATION_BROADCAST,
 
-    prefix: cacheENV.CACHE_PREFIX,
-    negativeTtlInMs: cacheENV.CACHE_NEGATIVE_TTL_MS,
-    lockTtlInMs: cacheENV.CACHE_OPERATION_TIMEOUT_MS * 10,
-    operationTimeoutInMs: cacheENV.CACHE_OPERATION_TIMEOUT_MS,
-    namespaceVersionLocalTtlInMs: cacheENV.CACHE_NS_VERSION_LOCAL_TTL_MS,
-    replicationLagThresholdInBytes: cacheENV.CACHE_REPLICATION_LAG_THRESHOLD_BYTES,
+    prefix: environment.CACHE_PREFIX,
+    negativeTtlInMs: environment.CACHE_NEGATIVE_TTL_MS,
+    lockTtlInMs: environment.CACHE_OPERATION_TIMEOUT_MS * 10,
+    operationTimeoutInMs: environment.CACHE_OPERATION_TIMEOUT_MS,
+    namespaceVersionLocalTtlInMs: environment.CACHE_NS_VERSION_LOCAL_TTL_MS,
+    replicationLagThresholdInBytes: environment.CACHE_REPLICATION_LAG_THRESHOLD_BYTES,
 
-    ...(cacheENV.CACHE_MASTER_URL !== undefined && {
-      masterUrl: cacheENV.CACHE_MASTER_URL
+    ...(environment.CACHE_MASTER_URL !== undefined && {
+      masterUrl: environment.CACHE_MASTER_URL
     }),
 
-    ...(cacheENV.CACHE_REPLICA_URLS.length > 0 && {
-      replicaUrls: cacheENV.CACHE_REPLICA_URLS
+    ...(environment.CACHE_REPLICA_URLS.length > 0 && {
+      replicaUrls: environment.CACHE_REPLICA_URLS
     })
   }
 }

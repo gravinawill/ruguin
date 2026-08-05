@@ -43,6 +43,7 @@ reviews:
     - '!**/build/**'
     - '!**/coverage/**'
     - '!pnpm-lock.yaml'
+    - '!infrastructure/terraform/**/.terraform.lock.hcl'
     - '!**/*.min.js'
     - '!**/*.claude'
     - '!**/*.agents'
@@ -111,6 +112,32 @@ reviews:
         Actions must be pinned and permissions scoped to the minimum the job needs. Flag any
         secret interpolated into a run block where an env var would do, and any use of
         pull_request_target that checks out untrusted code.
+
+    - path: 'infrastructure/terraform/**'
+      instructions: >-
+        Module sources here are registry-sourced (terraform-aws-modules/*, version constraints),
+        not git-sourced — Checkov's CKV_TF_1 (commit-SHA pinning) only applies to git:: sources
+        per its own documented scope, so don't flag registry version constraints under that rule.
+        OTEL_EXPORTER_OTLP_ENDPOINT intentionally includes the full /v1/traces path:
+        core-server's create-tracing-sdk.ts passes it straight through as OTLPTraceExporter's
+        `url`, which is used as-is (no auto-suffixing) — only unset `url` triggers the SDK's own
+        auto-append behavior. Kubernetes resources belong in the core-server namespace, not
+        default. Secrets no longer live in Terraform state (see
+        docs/superpowers/specs/2026-08-04-external-secrets-operator-design.md): database_password
+        is RDS-managed natively via manage_master_user_password, and docs_password/
+        honeycomb_api_key/ghcr_token sync from AWS Secrets Manager through an ExternalSecret. One
+        known, documented gap remains: RDS rotates its managed password every 7 days, but
+        core-server's pods read it via envFrom (no hot-reload), so already-running pods need a
+        manual restart after each rotation until a longer-term fix is chosen — not an oversight to
+        re-flag every PR.
+
+    - path: 'infrastructure/k8s/**'
+      instructions: >-
+        Resources belong in the core-server namespace, not default. TLS termination on the
+        public NLB and immutable release tags on the Deployment's image are known, documented
+        gaps (need an ACM cert/domain and a release-promotion pipeline that don't exist yet) —
+        flag once per gap is enough, this doesn't need repeating on every PR that touches these
+        files.
 
   tools:
     eslint:

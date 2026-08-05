@@ -74,6 +74,16 @@ describe('ID#equals', () => {
       expect(a.value.idValidated.equals({ otherID: generated.value.idGenerated })).toBe(false)
     }
   })
+
+  it('is false when compared against a non-ID value, even one carrying the same value field', () => {
+    const a = ID.validate({ id: VALID_UUID_V7, modelName: 'Email' })
+    const notAnID = { value: VALID_UUID_V7 } as unknown as ID
+
+    expect(a.isSuccess()).toBe(true)
+    if (a.isSuccess()) {
+      expect(a.value.idValidated.equals({ otherID: notAnID })).toBe(false)
+    }
+  })
 })
 
 describe('ID#getPartition', () => {

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-server
+  labels:
+    app: core-server
+  annotations:
+    # Fargate pods have no EC2 instance for the legacy in-tree provider to target — these
+    # annotations are what route this Service through the AWS Load Balancer Controller instead
+    # (installed by Terraform, see infrastructure/terraform/eks-addons.tf), which supports
+    # Fargate via IP-mode NLB targeting.
+    service.beta.kubernetes.io/aws-load-balancer-type: 'external'
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: 'ip'
+    service.beta.kubernetes.io/aws-load-balancer-scheme: 'internet-facing'
+# Known gap, deliberately deferred: this NLB serves plain HTTP on :80, no TLS termination.
+# Terminating TLS here needs an ACM certificate (aws-load-balancer-ssl-cert annotation), which
+# needs a domain name — neither exists in this Terraform yet. Out of scope until a domain is
+# provisioned; tracked as a known risk, not a silent gap.
+spec:
+  type: LoadBalancer
+  selector:
+    app: core-server
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP

@@ -1,0 +1,177 @@
+name: Release image
+
+on:
+  push:
+    branches: [master, develop]
+    tags: ['@ruguin/core-server@*']
+    paths-ignore: ['infrastructure/k8s/**']
+  pull_request:
+    branches: [master, develop]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: release-image-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/core-server
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: hadolint
+        uses: hadolint/hadolint-action@2a66e89f53d0771bb131a7fa31f3136336094aa6 # v3.4.0
+        with:
+          dockerfile: apps/core-server/Dockerfile
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=sha,prefix=sha-,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: apps/core-server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # steps.build.outputs.digest is the OCI image *index*, covering both platforms.
+      # Neither trivy-action nor sbom-action iterates a multi-arch index on its own —
+      # both resolve an index reference to the host runner's platform (linux/amd64)
+      # unless pinned — so each tool runs once per platform via its underlying CLI's
+      # env-driven platform flag (TRIVY_PLATFORM / SYFT_PLATFORM; neither action
+      # exposes it as a formal `with:` input, but both forward step env to the CLI).
+      - name: Scan the image (linux/amd64)
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+        env:
+          TRIVY_PLATFORM: linux/amd64
+
+      - name: Scan the image (linux/arm64)
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+        env:
+          TRIVY_PLATFORM: linux/arm64
+
+      - name: Generate SBOM (linux/amd64)
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          artifact-name: core-server-sbom-linux-amd64.cdx.json
+        env:
+          SYFT_PLATFORM: linux/amd64
+
+      - name: Generate SBOM (linux/arm64)
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx-json
+          artifact-name: core-server-sbom-linux-arm64.cdx.json
+        env:
+          SYFT_PLATFORM: linux/arm64
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - name: Sign the image
+        if: github.event_name != 'pull_request'
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+  promote:
+    needs: image
+    if: |
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Update overlay image digest
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::refusing to promote invalid digest '$DIGEST'"; exit 1; }
+          # Assumes exactly one entry under images: per overlay — this sed isn't anchored to the
+          # image name, so a second entry would get the same digest written into both. True today
+          # (single-image deployment); revisit this pattern if that ever changes.
+          sed -i -E "s#digest: sha256:[0-9a-f]+#digest: ${DIGEST}#" \
+            "infrastructure/k8s/core-server/overlays/${OVERLAY}/kustomization.yaml"
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+          OVERLAY: ${{ github.ref_name == 'develop' && 'development' || 'production' }}
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet -- "infrastructure/k8s/core-server/overlays/${OVERLAY}" && exit 0
+          git add "infrastructure/k8s/core-server/overlays/${OVERLAY}"
+          git commit -m "chore(deploy): promote core-server (${OVERLAY}) to ${DIGEST}"
+          for attempt in 1 2 3; do
+            echo "Push attempt $attempt/3..."
+            if git push; then
+              exit 0
+            fi
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
+          exit 1
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+          OVERLAY: ${{ github.ref_name == 'develop' && 'development' || 'production' }}
