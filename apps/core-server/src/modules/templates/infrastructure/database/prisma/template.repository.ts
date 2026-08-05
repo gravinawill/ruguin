@@ -15,6 +15,7 @@ export class TemplateRepository implements TemplateLookupProvider {
   private toDomain(row: {
     id: string
     projectId: string
+    senderIdentityId: string
     name: string
     subject: string
     html: string
@@ -26,6 +27,7 @@ export class TemplateRepository implements TemplateLookupProvider {
     return Template.create({
       id: idResult.value.idValidated,
       projectId: row.projectId,
+      senderIdentityId: row.senderIdentityId,
       name: row.name,
       subject: row.subject,
       html: row.html,

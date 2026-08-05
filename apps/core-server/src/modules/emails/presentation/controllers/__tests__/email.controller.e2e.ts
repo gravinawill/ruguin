@@ -126,7 +126,13 @@ describe('POST /v1/emails (e2e)', () => {
       data: { organizationId: otherOrganization.id, name: 'Other Project' }
     })
     const otherTemplate = await prisma.template.create({
-      data: { projectId: otherProject.id, name: 'Other Template', subject: 'Hi', html: '<p>Hi</p>' }
+      data: {
+        projectId: otherProject.id,
+        senderIdentityId: 'other-sender-identity',
+        name: 'Other Template',
+        subject: 'Hi',
+        html: '<p>Hi</p>'
+      }
     })
 
     const response = await app.inject({

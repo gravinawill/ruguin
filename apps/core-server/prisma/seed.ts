@@ -25,8 +25,24 @@ async function main(): Promise<void> {
 
   const organization = await prisma.organization.create({ data: { name: 'Dev Organization' } })
   const project = await prisma.project.create({ data: { organizationId: organization.id, name: 'Dev Project' } })
+
+  /*
+   * Written directly, verifiedAt already set — bypasses the real SES CreateEmailIdentity call
+   * (design spec decision 9) so dev/test never depends on AWS/LocalStack actually confirming a
+   * mailbox that doesn't exist.
+   */
+  const senderIdentity = await prisma.senderIdentity.create({
+    data: { projectId: project.id, name: 'Dev Sender', email: 'dev-sender@ruguin.dev', verifiedAt: new Date() }
+  })
+
   const template = await prisma.template.create({
-    data: { projectId: project.id, name: 'Welcome', subject: 'Hi {{name}}', html: '<p>Hi {{name}}</p>' }
+    data: {
+      projectId: project.id,
+      senderIdentityId: senderIdentity.id,
+      name: 'Welcome',
+      subject: 'Hi {{name}}',
+      html: '<p>Hi {{name}}</p>'
+    }
   })
 
   /*
@@ -38,10 +54,11 @@ async function main(): Promise<void> {
   await prisma.apiKey.create({ data: { projectId: project.id, hashedKey } })
 
   console.log('Seeded development data:')
-  console.log(`  organizationId: ${organization.id}`)
-  console.log(`  projectId:      ${project.id}`)
-  console.log(`  templateId:     ${template.id}`)
-  console.log(`  API key:        ${rawApiKey}`)
+  console.log(`  organizationId:   ${organization.id}`)
+  console.log(`  projectId:        ${project.id}`)
+  console.log(`  senderIdentityId: ${senderIdentity.id}`)
+  console.log(`  templateId:       ${template.id}`)
+  console.log(`  API key:          ${rawApiKey}`)
   console.log('This key is shown once. It is not recoverable — re-run the seed to mint a new one.')
 
   await prisma.$disconnect()

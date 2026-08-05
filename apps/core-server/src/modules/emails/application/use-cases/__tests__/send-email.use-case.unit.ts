@@ -25,6 +25,7 @@ function buildTemplate() {
   const result = Template.create({
     id: validId('Template'),
     projectId: '01900000-0000-7000-8000-000000000001',
+    senderIdentityId: '01900000-0000-7000-8000-000000000099',
     name: 'Welcome',
     subject: 'Hi {{name}}',
     html: '<p>Hi {{name}}</p>',

@@ -14,22 +14,52 @@ describe('Template.create', () => {
     const result = Template.create({
       id: validId(),
       projectId: 'project-1',
+      senderIdentityId: 'sender-1',
       name: 'Welcome',
       subject: 'Hi {{name}}',
       html: '<p>Hi {{name}}</p>',
-      createdAt: new Date('2026-08-04T00:00:00Z')
+      createdAt: new Date('2026-08-05T00:00:00Z')
     })
 
     expect(result.isSuccess()).toBe(true)
+  })
+
+  it('rejects an empty senderIdentityId', () => {
+    const result = Template.create({
+      id: validId(),
+      projectId: 'project-1',
+      senderIdentityId: '',
+      name: 'Welcome',
+      subject: 'Hi {{name}}',
+      html: '<p>Hi {{name}}</p>',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
   })
 
   it('rejects an empty subject', () => {
     const result = Template.create({
       id: validId(),
       projectId: 'project-1',
+      senderIdentityId: 'sender-1',
       name: 'Welcome',
       subject: '',
-      html: '<p>hi</p>',
+      html: '<p>Hi {{name}}</p>',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
+  })
+
+  it('rejects an empty html', () => {
+    const result = Template.create({
+      id: validId(),
+      projectId: 'project-1',
+      senderIdentityId: 'sender-1',
+      name: 'Welcome',
+      subject: 'Hi {{name}}',
+      html: '',
       createdAt: new Date()
     })
 
