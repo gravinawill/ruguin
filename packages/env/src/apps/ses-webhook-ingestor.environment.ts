@@ -15,7 +15,7 @@ import { serverENV } from '../shared/server.environment.ts'
 export const sesWebhookIngestorENV = lazyEnvironment(() =>
   createEnv({
     server: {
-      SES_WEBHOOK_INGESTOR_SHARED_SECRET: z.string().min(1)
+      SES_WEBHOOK_INGESTOR_SHARED_SECRET: z.string().min(32)
     },
     extends: [serverENV, cacheENV, messageBrokerENV, databaseENV],
     runtimeEnv: process.env,

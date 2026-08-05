@@ -12,13 +12,13 @@ import { SES_INGESTOR_SECRET_HEADER } from '../ses-notification/presentation/ses
 import { createTestPrismaService } from '../shared/infrastructure/database/prisma/__tests__/database-test-context.ts'
 import { type PrismaService } from '../shared/infrastructure/database/prisma/prisma.service.ts'
 
-const SHARED_SECRET = 'pipeline-e2e-secret'
+const SHARED_SECRET = 'pipeline-e2e-secret-that-is-at-least-32-chars-long'
 
 vi.hoisted(() => {
   process.env.CACHE_PREFIX = 'ruguin:e2e-pipeline'
   process.env.CACHE_DRIVER = 'memory'
   process.env.DATABASE_URL ??= 'postgresql://ruguin:ruguin@localhost:5432/ruguin'
-  process.env.SES_WEBHOOK_INGESTOR_SHARED_SECRET = 'pipeline-e2e-secret'
+  process.env.SES_WEBHOOK_INGESTOR_SHARED_SECRET = 'pipeline-e2e-secret-that-is-at-least-32-chars-long'
 })
 
 function findBouncedPublish(calls: Array<[OutboundMessage]>): OutboundMessage | undefined {

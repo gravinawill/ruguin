@@ -6,13 +6,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { AppModule } from '../../../app.module.ts'
 import { SES_INGESTOR_SECRET_HEADER } from '../ses-webhook-auth.guard.ts'
 
-const SHARED_SECRET = 'e2e-shared-secret'
+const SHARED_SECRET = 'e2e-shared-secret-that-is-at-least-32-chars-long'
 
 vi.hoisted(() => {
   process.env.CACHE_PREFIX = 'ruguin:e2e-webhook'
   process.env.CACHE_DRIVER = 'memory'
   process.env.DATABASE_URL ??= 'postgresql://ruguin:ruguin@localhost:5432/ruguin'
-  process.env.SES_WEBHOOK_INGESTOR_SHARED_SECRET = 'e2e-shared-secret'
+  process.env.SES_WEBHOOK_INGESTOR_SHARED_SECRET = 'e2e-shared-secret-that-is-at-least-32-chars-long'
 })
 
 describe('POST /webhooks/ses', () => {

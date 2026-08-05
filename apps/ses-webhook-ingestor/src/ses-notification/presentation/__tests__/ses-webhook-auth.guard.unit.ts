@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { isValidSharedSecret, SES_INGESTOR_SECRET_HEADER, SesWebhookAuthGuard } from '../ses-webhook-auth.guard.ts'
 
 vi.hoisted(() => {
-  process.env.SES_WEBHOOK_INGESTOR_SHARED_SECRET = 'correct-secret'
+  process.env.SES_WEBHOOK_INGESTOR_SHARED_SECRET = 'correct-secret-that-is-at-least-32-chars-long'
   process.env.ENVIRONMENT = 'test'
   process.env.CACHE_PREFIX = 'ruguin:ses-webhook-ingestor-test'
   process.env.KAFKA_BOOTSTRAP_BROKERS = 'localhost:9092'
@@ -37,7 +37,9 @@ describe('SesWebhookAuthGuard', () => {
   it('allows a request carrying the correct secret header', () => {
     const guard = new SesWebhookAuthGuard()
 
-    expect(guard.canActivate(fakeContext({ [SES_INGESTOR_SECRET_HEADER]: 'correct-secret' }))).toBe(true)
+    expect(
+      guard.canActivate(fakeContext({ [SES_INGESTOR_SECRET_HEADER]: 'correct-secret-that-is-at-least-32-chars-long' }))
+    ).toBe(true)
   })
 
   it('rejects a request with a missing header', () => {

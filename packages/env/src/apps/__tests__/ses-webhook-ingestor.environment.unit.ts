@@ -9,7 +9,7 @@ const MINIMUM_REQUIRED_ENVIRONMENT = {
   CACHE_PREFIX: 'ruguin:ses-webhook-ingestor',
   KAFKA_BOOTSTRAP_BROKERS: 'localhost:9092',
   DATABASE_URL: 'postgresql://ruguin:ruguin@localhost:5432/ruguin',
-  SES_WEBHOOK_INGESTOR_SHARED_SECRET: 'a-shared-secret'
+  SES_WEBHOOK_INGESTOR_SHARED_SECRET: 'a-shared-secret-that-is-at-least-32-chars-long'
 }
 
 describe('sesWebhookIngestorENV', () => {
@@ -32,11 +32,21 @@ describe('sesWebhookIngestorENV', () => {
     // databaseENV
     expect(sesWebhookIngestorENV.DATABASE_URL).toBe('postgresql://ruguin:ruguin@localhost:5432/ruguin')
     // its own field
-    expect(sesWebhookIngestorENV.SES_WEBHOOK_INGESTOR_SHARED_SECRET).toBe('a-shared-secret')
+    expect(sesWebhookIngestorENV.SES_WEBHOOK_INGESTOR_SHARED_SECRET).toBe(
+      'a-shared-secret-that-is-at-least-32-chars-long'
+    )
   })
 
   it('throws when SES_WEBHOOK_INGESTOR_SHARED_SECRET is missing', async () => {
     setEnvironment({ ...MINIMUM_REQUIRED_ENVIRONMENT, SES_WEBHOOK_INGESTOR_SHARED_SECRET: '' })
+
+    const { sesWebhookIngestorENV } = await import('../ses-webhook-ingestor.environment.ts')
+
+    expect(() => ({ ...sesWebhookIngestorENV })).toThrow()
+  })
+
+  it('throws when SES_WEBHOOK_INGESTOR_SHARED_SECRET is shorter than 32 characters', async () => {
+    setEnvironment({ ...MINIMUM_REQUIRED_ENVIRONMENT, SES_WEBHOOK_INGESTOR_SHARED_SECRET: 'too-short-secret' })
 
     const { sesWebhookIngestorENV } = await import('../ses-webhook-ingestor.environment.ts')
 
