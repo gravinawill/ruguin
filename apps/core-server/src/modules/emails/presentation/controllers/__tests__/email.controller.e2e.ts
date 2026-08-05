@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { AppModule } from '../../../../../app.module'
 import { configureApp } from '../../../../../shared/infrastructure/bootstrap/configure-app'
+import { PrismaService } from '../../../../../shared/infrastructure/database/prisma/prisma.service'
 
 const SEEDED_TEMPLATE_ID = testSeedENV.TEST_SEEDED_TEMPLATE_ID
 const SEEDED_API_KEY = testSeedENV.TEST_SEEDED_API_KEY
@@ -72,7 +73,17 @@ describe('POST /v1/emails (e2e)', () => {
     })
 
     expect(response.statusCode).toBe(202)
-    expect(JSON.parse(response.body)).toMatchObject({ status: 'queued' })
+    const body = JSON.parse(response.body) as { id: string; status: string }
+    expect(body).toMatchObject({ status: 'queued' })
+
+    /*
+     * The seeded template (prisma/seed.ts) is subject 'Hi {{name}}' / html '<p>Hi {{name}}</p>' —
+     * asserting the persisted row, not just the 202, is what actually proves rendering happened.
+     */
+    const prisma = app.get(PrismaService)
+    const row = await prisma.email.findUnique({ where: { id: body.id } })
+    expect(row?.subject).toBe('Hi Ada')
+    expect(row?.html).toBe('<p>Hi Ada</p>')
   })
 
   it('returns 400 when the body has neither templateId nor subject+html', async () => {
