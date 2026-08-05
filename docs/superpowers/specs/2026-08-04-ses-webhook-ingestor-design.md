@@ -34,7 +34,7 @@ Alternativa descartada: marcar o `SendEmailCommand` da SES com uma tag `emailId`
 | Tabela de correlação (Postgres, schema próprio) | `(sesMessageId, emailId)`, populada de forma assíncrona |
 | Consumer `email.status.updated` (filtro `status=sent`) | Faz upsert idempotente na tabela de correlação |
 | Consumer do tópico de retry interno | Reprocessa notificações cujo lookup falhou na primeira tentativa |
-| Redis (`@ruguin/cache`) | Claim de dedup por `id` do evento EventBridge, TTL curto |
+| Redis (`@ruguin/cache`) | Claim de dedup por `id` do evento EventBridge, TTL de 24h (ver "Reentrega do EventBridge") |
 | Kafka producer | Publica `email.status.updated` (delivered/bounced/complained), tópico de retry e DLQ |
 
 ## Fluxo de dados
@@ -50,8 +50,8 @@ Alternativa descartada: marcar o `SendEmailCommand` da SES com uma tag `emailId`
 2. Header ausente/inválido → `401`, log de warning, nada publicado.
 3. Claim de dedup no Redis pela chave = `id` do evento EventBridge.
    - Já reivindicado → `200` imediato, sem reprocessar.
-4. Parseia o envelope (`source=aws.ses`, `detail-type` conhecido) e extrai `detail` (JSON de Event Publishing da SES: `mail.messageId`, `eventType`, sub-objeto `bounce`/`complaint`/`delivery`).
-5. Payload malformado (JSON inválido, `detail-type` desconhecido, campos obrigatórios faltando) → publica o corpo bruto + motivo em uma DLQ de ingestão (`ses.notification.malformed.dlq`), responde `200` (reentregar nunca vai corrigir um payload inválido).
+4. Parseia o envelope (`source=aws.ses`, `detail.eventType` conhecido — `Delivery`/`Bounce`/`Complaint`, via união discriminada Zod) e extrai `detail` (JSON de Event Publishing da SES: `mail.messageId`, `eventType`, sub-objeto `bounce`/`complaint`/`delivery`).
+5. Payload malformado (JSON inválido, `detail.eventType` desconhecido, campos obrigatórios faltando) → publica o corpo bruto + motivo em uma DLQ de ingestão (`ses.notification.malformed.dlq`), responde `200` (reentregar nunca vai corrigir um payload inválido).
 6. Busca `emailId` na tabela de correlação pelo `sesMessageId`:
    - **Achou** → mapeia `eventType` → status (`Delivery→delivered`, `Bounce→bounced` + `bounceType`, `Complaint→complained`), publica `email.status.updated`, responde `200`.
    - **Não achou** → publica no tópico de retry interno (`attempt=1`, `nextAttemptAt`), responde `200` mesmo assim — a notificação foi aceita, a resolução continua async.
@@ -68,7 +68,7 @@ Alternativa descartada: marcar o `SendEmailCommand` da SES com uma tag `emailId`
 
 - **Header de auth inválido**: `401`, sem retry a incentivar — não é um problema de timing, é rejeição de origem.
 - **Payload malformado**: DLQ de ingestão + `200`, nunca falha travando o endpoint nem gera retry infinito do EventBridge.
-- **Reentrega do EventBridge**: absorvida pelo claim de dedup no Redis.
+- **Reentrega do EventBridge**: absorvida pelo claim de dedup no Redis, TTL de 24h — a política de retry do target (Rule/API Destination) provisionada no lado AWS precisa manter `maximumEventAgeInSeconds` menor ou igual a esse valor (em segundos) para que a garantia de dedup contra reentregas se sustente; uma reentrega que sobreviva ao TTL do claim reivindica de novo e publica um `email.status.updated` duplicado.
 - **Lookup nunca resolve**: DLQ do tópico de retry, cobre perda/atraso anômalo do evento `sent` original.
 - **Falha ao publicar no Kafka**: mensagem não é dada como processada (claim liberado no caminho HTTP; offset não commitado nos consumers), reprocessamento seguro.
 - **Duas notificações para o mesmo email** (ex.: `Delivery` seguido de `Bounce` tardio): cada uma publica seu próprio `email.status.updated` independente; reconciliação de histórico fica a cargo do Read-Model Updater (futuro), não deste serviço.
