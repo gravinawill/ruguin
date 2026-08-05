@@ -14,12 +14,8 @@
 # The three names: ruguin/production/docs-password, ruguin/production/honeycomb-api-key,
 # ruguin/production/ghcr-token (also available via `terraform output` once applied). Until this
 # runs, the corresponding ExternalSecret stays in SecretSyncedError — expected behavior, not a bug.
-# The fourth container, ruguin/production/valkey-auth-token, is different: it is fully
-# Terraform-managed (its version is written by aws_secretsmanager_secret_version.valkey_auth_token,
-# sourced from random_password.valkey_auth_token.result below) and must NOT be populated
-# manually — doing so would desync the Secrets Manager value from the AUTH token actually
-# configured on the live ElastiCache replication group, causing every pod to receive WRONGPASS
-# after the next ESO refresh with no obvious cause.
+# The fourth container, ruguin/production/valkey-auth-token, is different — see the comment on its
+# resource below for why it must NOT be populated manually (WRONGPASS on every pod otherwise).
 resource "kubernetes_namespace" "external_secrets" {
   metadata {
     name = "external-secrets"
@@ -67,6 +63,9 @@ resource "aws_secretsmanager_secret" "ghcr_token" {
 # in Terraform (random_password.valkey_auth_token), so there is no operator to defer population
 # to. Mirroring it into Secrets Manager keeps it flowing through the same ExternalSecret mechanism
 # as every other secret here, instead of reintroducing a direct kubernetes_secret for just this one.
+# Must NOT be populated manually (e.g. via put-secret-value) — that would desync this container
+# from the AUTH token actually configured on the live ElastiCache replication group, causing every
+# pod to receive WRONGPASS after the next ESO refresh with no obvious cause.
 resource "aws_secretsmanager_secret" "valkey_auth_token" {
   name = "ruguin/production/valkey-auth-token"
   tags = local.tags
