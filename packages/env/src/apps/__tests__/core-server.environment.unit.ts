@@ -37,6 +37,8 @@ describe('coreServerENV', () => {
     // docsENV
     expect(coreServerENV.DOCS_USERNAME).toBe('admin')
     expect(coreServerENV.DOCS_PASSWORD).toBe('super-secret')
+    // awsENV
+    expect(coreServerENV.AWS_REGION).toBe('us-east-1')
   })
 
   it('throws when a required field from any extended package is missing', async () => {

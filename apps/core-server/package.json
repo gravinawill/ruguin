@@ -30,6 +30,7 @@
     "update:deps": "ncu -u"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.700.0",
     "@fastify/basic-auth": "6.2.0",
     "@fastify/compress": "9.1.0",
     "@fastify/helmet": "13.1.0",

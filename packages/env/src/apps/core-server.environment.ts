@@ -1,6 +1,7 @@
 import { createEnv } from '@t3-oss/env-core'
 import { z } from 'zod'
 
+import { awsENV } from '../packages/aws.environment.ts'
 import { cacheENV } from '../packages/cache.environment.ts'
 import { databaseENV } from '../packages/database.environment.ts'
 import { docsENV } from '../packages/docs.environment.ts'
@@ -24,7 +25,7 @@ export const coreServerENV = lazyEnvironment(() =>
        */
       API_KEY_CACHE_TTL_IN_SECONDS: z.coerce.number().int().positive().default(300)
     },
-    extends: [serverENV, databaseENV, cacheENV, messageBrokerENV, docsENV],
+    extends: [serverENV, databaseENV, cacheENV, messageBrokerENV, docsENV, awsENV],
     runtimeEnv: process.env,
     emptyStringAsUndefined: true
   })
