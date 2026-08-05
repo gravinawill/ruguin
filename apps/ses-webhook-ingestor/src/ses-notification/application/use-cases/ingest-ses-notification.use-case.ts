@@ -13,8 +13,14 @@ import { computeNextCorrelationRetryAt } from '../correlation-retry-backoff.ts'
 import { CORRELATION_PROVIDER, type CorrelationPort } from '../providers/correlation.port.ts'
 import { DEDUP_CLAIM_PROVIDER, type DedupClaimPort } from '../providers/dedup-claim.port.ts'
 
-/* 5 min — comfortably outlives a single EventBridge API Destination invocation's own retry window. */
-const DEDUP_CLAIM_TTL_MS = 300_000
+/*
+ * 24h — matches EventBridge's default `maximumEventAgeInSeconds` (86400s) for API Destination
+ * target retries. Whoever provisions the EventBridge Rule's target retry policy must keep
+ * `maximumEventAgeInSeconds` at or below this value (in seconds) for the dedup guarantee to hold —
+ * a redelivery that outlives this claim's TTL can still re-claim successfully and publish a
+ * duplicate `email.status.updated`.
+ */
+const DEDUP_CLAIM_TTL_MS = 86_400_000
 
 export type IngestSesNotificationInput = Readonly<{ body: unknown }>
 export type IngestSesNotificationOutcome = 'published' | 'malformed-dlq' | 'duplicate-skipped' | 'lookup-pending'
