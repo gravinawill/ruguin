@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common'
 
+import { ApiKeysModule } from '../api-keys/api-keys.module'
+
+import { SenderIdentityService } from './application/services/sender-identity.service'
 import { ListSenderIdentitiesUseCase } from './application/use-cases/list-sender-identities.use-case'
 import { RegisterSenderIdentityUseCase } from './application/use-cases/register-sender-identity.use-case'
 import { SyncSenderIdentityVerificationUseCase } from './application/use-cases/sync-sender-identity-verification.use-case'
@@ -11,8 +14,11 @@ import { sesV2ClientProvider } from './infrastructure/aws/ses-v2-client.provider
 import { SenderIdentityCacheProvider } from './infrastructure/cache/sender-identity-cache.provider'
 import { SenderIdentityRepository } from './infrastructure/database/prisma/sender-identity.repository'
 import { SenderIdentitySyncService } from './infrastructure/jobs/sender-identity-sync.service'
+import { SenderIdentityController } from './presentation/controllers/sender-identity.controller'
 
 @Module({
+  imports: [ApiKeysModule],
+  controllers: [SenderIdentityController],
   providers: [
     SenderIdentityRepository,
     { provide: SENDER_IDENTITY_REPOSITORY, useExisting: SenderIdentityRepository },
@@ -24,7 +30,8 @@ import { SenderIdentitySyncService } from './infrastructure/jobs/sender-identity
     RegisterSenderIdentityUseCase,
     ListSenderIdentitiesUseCase,
     SyncSenderIdentityVerificationUseCase,
-    SenderIdentitySyncService
+    SenderIdentitySyncService,
+    SenderIdentityService
   ],
   exports: [SENDER_IDENTITY_REPOSITORY, SES_IDENTITY_PROVIDER, SENDER_IDENTITY_CACHE_PROVIDER]
 })
