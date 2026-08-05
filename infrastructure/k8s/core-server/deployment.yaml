@@ -24,9 +24,9 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: core-server
-          # sha-<commit> tag from release-image.yml's tagging scheme (see .github/workflows/
-          # release-image.yml) — bump this line and let ArgoCD sync it for every new deploy;
-          # there's no automation wiring a tag bump to this file yet (see the design doc's Risks).
+          # Rewritten automatically by release-image.yml's "promote" job on every push to
+          # develop/master, to the exact digest that job just scanned (Trivy) and signed
+          # (cosign) — never edit this line by hand, the next promote run overwrites it anyway.
           image: ghcr.io/gravinawill/ruguin/core-server:latest
           securityContext:
             allowPrivilegeEscalation: false

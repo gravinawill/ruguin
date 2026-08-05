@@ -4,6 +4,7 @@ on:
   push:
     branches: [master, develop]
     tags: ['v*']
+    paths-ignore: ['infrastructure/k8s/**']
   pull_request:
     branches: [master, develop]
     types: [opened, synchronize, reopened]
@@ -25,6 +26,8 @@ jobs:
       contents: read
       packages: write
       id-token: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -130,3 +133,34 @@ jobs:
         env:
           IMAGE: ${{ env.IMAGE }}
           DIGEST: ${{ steps.build.outputs.digest }}
+
+  promote:
+    needs: image
+    if: |
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Update deployment image digest
+        run: |
+          sed -i -E "s#image: ${IMAGE}(:[^[:space:]]+|@sha256:[a-f0-9]+)#image: ${IMAGE}@${DIGEST}#" \
+            infrastructure/k8s/core-server/deployment.yaml
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git diff --quiet -- infrastructure/k8s/core-server/deployment.yaml && exit 0
+          git add infrastructure/k8s/core-server/deployment.yaml
+          git commit -m "chore(deploy): promote core-server to ${DIGEST}"
+          git push
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
