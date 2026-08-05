@@ -149,19 +149,18 @@ jobs:
       - name: Update deployment image digest
         run: |
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::refusing to promote invalid digest '$DIGEST'"; exit 1; }
-          sed -i -E "s#image: ${IMAGE}(:[^[:space:]]+|@sha256:[a-f0-9]+)#image: ${IMAGE}@${DIGEST}#" \
-            infrastructure/k8s/core-server/deployment.yaml
+          sed -i -E "s#digest: sha256:[0-9a-f]+#digest: ${DIGEST}#" \
+            infrastructure/k8s/core-server/overlays/production/kustomization.yaml
         env:
-          IMAGE: ${{ env.IMAGE }}
           DIGEST: ${{ needs.image.outputs.digest }}
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git diff --quiet -- infrastructure/k8s/core-server/deployment.yaml && exit 0
-          git add infrastructure/k8s/core-server/deployment.yaml
-          git commit -m "chore(deploy): promote core-server to ${DIGEST}"
+          git diff --quiet -- infrastructure/k8s/core-server/overlays/production && exit 0
+          git add infrastructure/k8s/core-server/overlays/production
+          git commit -m "chore(deploy): promote core-server (production) to ${DIGEST}"
           for attempt in 1 2 3; do
             echo "Push attempt $attempt/3..."
             if git push; then

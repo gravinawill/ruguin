@@ -47,7 +47,7 @@ resource "kubectl_manifest" "core_server_application" {
         # push to master, after a build is scanned and signed) — HEAD stays correct to track
         # here because this directory only changes via that deliberate commit, not implicitly.
         targetRevision = "HEAD"
-        path           = "infrastructure/k8s/core-server"
+        path           = "infrastructure/k8s/core-server/overlays/production"
       }
       destination = {
         server    = "https://kubernetes.default.svc"
