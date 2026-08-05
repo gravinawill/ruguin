@@ -222,3 +222,90 @@ resource "kubectl_manifest" "ghcr_pull" {
 
   depends_on = [kubectl_manifest.cluster_secret_store, kubernetes_namespace.core_server]
 }
+
+# Same 4 underlying secrets as core_server_secrets above — development shares production's RDS
+# and ElastiCache, so there is no separate database_password or valkey_auth_token to read. Only
+# DATABASE_URL/CACHE_MASTER_URL differ, via the schema/prefix embedded in the template below.
+resource "kubectl_manifest" "core_server_dev_secrets" {
+  yaml_body = yamlencode({
+    apiVersion = "external-secrets.io/v1"
+    kind       = "ExternalSecret"
+    metadata = {
+      name      = "core-server-secrets"
+      namespace = "core-server-dev"
+    }
+    spec = {
+      refreshInterval = "1h"
+      secretStoreRef = {
+        name = "aws-secrets-manager"
+        kind = "ClusterSecretStore"
+      }
+      target = {
+        name = "core-server-secrets"
+        template = {
+          data = {
+            DATABASE_URL               = "postgresql://${var.database_username}:{{ .databasePassword }}@${aws_db_instance.core_server.address}:5432/ruguin?schema=core_server_dev"
+            CACHE_MASTER_URL           = "rediss://:{{ .valkeyAuthToken }}@${aws_elasticache_replication_group.core_server.primary_endpoint_address}:6379"
+            DOCS_PASSWORD              = "{{ .docsPassword }}"
+            OTEL_EXPORTER_OTLP_HEADERS = "x-honeycomb-team={{ .honeycombApiKey }}"
+          }
+        }
+      }
+      data = [
+        {
+          secretKey = "databasePassword"
+          remoteRef = {
+            key      = aws_db_instance.core_server.master_user_secret[0].secret_arn
+            property = "password"
+          }
+        },
+        { secretKey = "docsPassword", remoteRef = { key = aws_secretsmanager_secret.docs_password.name } },
+        { secretKey = "honeycombApiKey", remoteRef = { key = aws_secretsmanager_secret.honeycomb_api_key.name } },
+        { secretKey = "valkeyAuthToken", remoteRef = { key = aws_secretsmanager_secret.valkey_auth_token.name } }
+      ]
+    }
+  })
+
+  depends_on = [
+    kubectl_manifest.cluster_secret_store,
+    aws_db_instance.core_server,
+    aws_elasticache_replication_group.core_server,
+    aws_secretsmanager_secret_version.valkey_auth_token,
+    kubernetes_namespace.core_server_dev
+  ]
+}
+
+# core-server-dev's Deployment references imagePullSecrets: ghcr-pull-secret (inherited from
+# base/deployment.yaml) — Kubernetes Secrets don't cross namespaces, so this ExternalSecret is
+# needed even though it reads the exact same ghcr_token as production's ghcr_pull above.
+resource "kubectl_manifest" "core_server_dev_ghcr_pull" {
+  yaml_body = yamlencode({
+    apiVersion = "external-secrets.io/v1"
+    kind       = "ExternalSecret"
+    metadata = {
+      name      = "ghcr-pull-secret"
+      namespace = "core-server-dev"
+    }
+    spec = {
+      refreshInterval = "1h"
+      secretStoreRef = {
+        name = "aws-secrets-manager"
+        kind = "ClusterSecretStore"
+      }
+      target = {
+        name = "ghcr-pull-secret"
+        template = {
+          type = "kubernetes.io/dockerconfigjson"
+          data = {
+            ".dockerconfigjson" = "{\"auths\":{\"ghcr.io\":{\"username\":\"${var.ghcr_username}\",\"password\":\"{{ .ghcrToken }}\",\"auth\":\"{{ printf \"${var.ghcr_username}:%s\" .ghcrToken | b64enc }}\"}}}"
+          }
+        }
+      }
+      data = [
+        { secretKey = "ghcrToken", remoteRef = { key = aws_secretsmanager_secret.ghcr_token.name } }
+      ]
+    }
+  })
+
+  depends_on = [kubectl_manifest.cluster_secret_store, kubernetes_namespace.core_server_dev]
+}

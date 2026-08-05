@@ -52,6 +52,13 @@ module "eks" {
       ]
       subnet_ids = module.vpc.private_subnets
     }
+    core_server_dev = {
+      name = "core-server-dev"
+      selectors = [
+        { namespace = "core-server-dev" }
+      ]
+      subnet_ids = module.vpc.private_subnets
+    }
   }
 
   # EKS creates the CoreDNS Deployment annotated `eks.amazonaws.com/compute-type: ec2`, pinning it to

@@ -21,3 +21,27 @@ resource "kubernetes_config_map" "core_server_config" {
 
   depends_on = [kubernetes_namespace.core_server]
 }
+
+resource "kubernetes_config_map" "core_server_dev_config" {
+  metadata {
+    name      = "core-server-config"
+    namespace = "core-server-dev"
+  }
+
+  data = {
+    ENVIRONMENT = "development"
+    PORT        = "3333"
+
+    # Same RDS/ElastiCache as production (see external-secrets.tf's core_server_dev_secrets for
+    # the schema/prefix that actually isolates development's data) — CACHE_PREFIX here only
+    # needs to differ from production's "ruguin:production" to avoid key collisions.
+    CACHE_PREFIX = "ruguin:development"
+    CACHE_DRIVER = "valkey"
+
+    DOCS_USERNAME = var.docs_username
+
+    OTEL_EXPORTER_OTLP_ENDPOINT = "https://api.honeycomb.io/v1/traces"
+  }
+
+  depends_on = [kubernetes_namespace.core_server_dev]
+}

@@ -67,3 +67,46 @@ resource "kubectl_manifest" "core_server_application" {
 
   depends_on = [helm_release.argocd, kubernetes_namespace.core_server]
 }
+
+resource "kubernetes_namespace" "core_server_dev" {
+  metadata {
+    name = "core-server-dev"
+  }
+
+  depends_on = [module.eks]
+}
+
+resource "kubectl_manifest" "core_server_dev_application" {
+  yaml_body = yamlencode({
+    apiVersion = "argoproj.io/v1alpha1"
+    kind       = "Application"
+    metadata = {
+      name      = "core-server-dev"
+      namespace = kubernetes_namespace.argocd.metadata[0].name
+    }
+    spec = {
+      project = "default"
+      source = {
+        repoURL = var.argocd_repo_url
+        # Unlike production's Application above, this tracks the literal "develop" branch, not
+        # HEAD (which resolves to the repo's default branch, master) — development follows
+        # develop specifically, independent of whatever master is doing.
+        targetRevision = "develop"
+        path           = "infrastructure/k8s/core-server/overlays/development"
+      }
+      destination = {
+        server    = "https://kubernetes.default.svc"
+        namespace = "core-server-dev"
+      }
+      syncPolicy = {
+        automated = {
+          prune    = true
+          selfHeal = true
+        }
+        syncOptions = ["CreateNamespace=false"]
+      }
+    }
+  })
+
+  depends_on = [helm_release.argocd, kubernetes_namespace.core_server_dev]
+}
