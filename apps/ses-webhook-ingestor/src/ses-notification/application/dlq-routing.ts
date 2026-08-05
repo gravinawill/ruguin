@@ -31,6 +31,11 @@ export type ExhaustedCorrelationInput = Readonly<{
   attempt: number
 }>
 
+/*
+ * Named `.exhausted`, not the `.pending` name an in-progress retry carries: this is the terminal
+ * state landing in a DLQ for manual inspection, and reusing the in-flight name makes the two
+ * indistinguishable to whoever reads that topic.
+ */
 export function publishExhaustedCorrelationToDlq(
   producer: MessageProducerPort,
   input: ExhaustedCorrelationInput
@@ -40,7 +45,7 @@ export function publishExhaustedCorrelationToDlq(
   return producer.publish({
     topic: SES_NOTIFICATION_CORRELATION_DLQ_TOPIC,
     key: input.sesMessageId,
-    message: { eventId: randomUUID(), name: 'ses.notification.correlation.pending', payload },
+    message: { eventId: randomUUID(), name: 'ses.notification.correlation.exhausted', payload },
     headers: { attempt: String(attempt) }
   })
 }

@@ -13,12 +13,18 @@ import {
 import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
+import { publishMalformedNotificationToDlq } from '../application/dlq-routing.ts'
 import { ResolvePendingCorrelationUseCase } from '../application/use-cases/resolve-pending-correlation.use-case.ts'
-
-import { publishMalformedNotificationToDlq } from './dlq-routing.ts'
 
 export const CORRELATION_RETRY_CONSUMER_GROUP_ID = 'ses-webhook-ingestor-retry'
 
+/*
+ * Blocks the handler — and with it this partition's consumption and graceful shutdown — for up to
+ * the last attempt's backoff ceiling (~64s). Deliberate, and the same tradeoff apps/dispatch-worker
+ * already accepts: making the sleep abortable means threading a cancellation signal through
+ * MessageConsumerPort.subscribe in @ruguin/message-broker, a contract change shared by both apps.
+ * Tracked as a follow-up rather than fixed here.
+ */
 function waitUntil(dueAt: Date): Promise<void> {
   const waitMs = Math.max(0, dueAt.getTime() - Date.now())
   return new Promise((resolve) => setTimeout(resolve, waitMs))

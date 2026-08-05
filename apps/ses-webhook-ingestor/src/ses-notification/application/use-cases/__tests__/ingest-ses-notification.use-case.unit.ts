@@ -35,6 +35,7 @@ function buildUseCase(overrides: {
 }): IngestSesNotificationUseCase {
   const dedupClaim = {
     claim: vi.fn().mockResolvedValue(success({ claimed: true })),
+    confirm: vi.fn().mockResolvedValue(success(undefined)),
     release: vi.fn().mockResolvedValue(success(undefined)),
     ...overrides.dedupClaim
   }
@@ -92,10 +93,11 @@ describe('IngestSesNotificationUseCase', () => {
     if (result.isFailure()) expect(result.value).toBe(publishError)
   })
 
-  it('skips a duplicate EventBridge delivery without looking up the correlation', async () => {
+  it('skips a duplicate EventBridge delivery without looking up the correlation or confirming', async () => {
     const lookup = vi.fn()
+    const confirm = vi.fn()
     const useCase = buildUseCase({
-      dedupClaim: { claim: vi.fn().mockResolvedValue(success({ claimed: false })) },
+      dedupClaim: { claim: vi.fn().mockResolvedValue(success({ claimed: false })), confirm },
       correlation: { lookup }
     })
 
@@ -104,6 +106,16 @@ describe('IngestSesNotificationUseCase', () => {
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) expect(result.value.outcome).toBe('duplicate-skipped')
     expect(lookup).not.toHaveBeenCalled()
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('claims with the short in-flight lease, not the full dedup TTL', async () => {
+    const claim = vi.fn().mockResolvedValue(success({ claimed: true }))
+    const useCase = buildUseCase({ dedupClaim: { claim } })
+
+    await useCase.execute(validInput())
+
+    expect(claim).toHaveBeenCalledWith({ key: 'evt-1', ttlInMs: 60_000 })
   })
 
   it('propagates a dedup claim failure', async () => {
@@ -131,6 +143,44 @@ describe('IngestSesNotificationUseCase', () => {
         message: expect.objectContaining({ payload: { emailId: 'email-1', status: 'delivered' } })
       })
     )
+  })
+
+  it('extends the claim to the full dedup TTL once the status update is published', async () => {
+    const confirm = vi.fn().mockResolvedValue(success(undefined))
+    const useCase = buildUseCase({ dedupClaim: { confirm } })
+
+    const result = await useCase.execute(validInput())
+
+    expect(result.isSuccess()).toBe(true)
+    expect(confirm).toHaveBeenCalledWith({ key: 'evt-1', ttlInMs: 86_400_000 })
+  })
+
+  it('extends the claim to the full dedup TTL once a correlation retry is scheduled', async () => {
+    const confirm = vi.fn().mockResolvedValue(success(undefined))
+    const useCase = buildUseCase({
+      dedupClaim: { confirm },
+      correlation: { lookup: vi.fn().mockResolvedValue(success(null)) }
+    })
+
+    const result = await useCase.execute(validInput())
+
+    expect(result.isSuccess()).toBe(true)
+    if (result.isSuccess()) expect(result.value.outcome).toBe('lookup-pending')
+    expect(confirm).toHaveBeenCalledWith({ key: 'evt-1', ttlInMs: 86_400_000 })
+  })
+
+  it('still reports success when confirming the claim fails — the outcome is already durable', async () => {
+    const confirmError = { name: 'CacheOperationError', message: 'redis down' }
+    const release = vi.fn()
+    const useCase = buildUseCase({
+      dedupClaim: { confirm: vi.fn().mockResolvedValue(failure(confirmError)), release }
+    })
+
+    const result = await useCase.execute(validInput())
+
+    expect(result.isSuccess()).toBe(true)
+    if (result.isSuccess()) expect(result.value.outcome).toBe('published')
+    expect(release).not.toHaveBeenCalled()
   })
 
   it('carries the bounceType through to email.status.updated for a bounce notification', async () => {

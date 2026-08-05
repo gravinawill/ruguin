@@ -1,18 +1,27 @@
 import { randomUUID } from 'node:crypto'
 
 import { Inject, Injectable } from '@nestjs/common'
-import { EMAIL_STATUS_UPDATED_TOPIC, SES_NOTIFICATION_CORRELATION_RETRY_TOPIC } from '@ruguin/event-schemas'
+import {
+  EMAIL_STATUS_UPDATED_TOPIC,
+  SES_NOTIFICATION_CORRELATION_RETRY_TOPIC,
+  type SesNotificationCorrelationPendingPayload
+} from '@ruguin/event-schemas'
 import { MESSAGE_PRODUCER_PORT, type MessageProducerPort } from '@ruguin/message-broker'
 import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
-import { publishExhaustedCorrelationToDlq } from '../../consumers/dlq-routing.ts'
 import { CORRELATION_PROVIDER, type CorrelationPort } from '../../domain/contracts/correlation.port.ts'
 import { computeNextCorrelationRetryAt, hasExhaustedCorrelationRetries } from '../correlation-retry-backoff.ts'
+import { publishExhaustedCorrelationToDlq } from '../dlq-routing.ts'
 
 export type ResolvePendingCorrelationInput = Readonly<{
   sesMessageId: string
-  status: string
+  /*
+   * The literal union the retry topic's payload schema already guarantees, not bare `string` — the
+   * only producers of this input are the retry consumer (which parses with
+   * SesNotificationCorrelationPendingPayloadSchema) and its tests.
+   */
+  status: SesNotificationCorrelationPendingPayload['status']
   /*
    * Zod-optional fields infer as `T | undefined`, not just optional — match that spelling for
    * exactOptionalPropertyTypes compatibility when the retry consumer spreads its parsed payload in

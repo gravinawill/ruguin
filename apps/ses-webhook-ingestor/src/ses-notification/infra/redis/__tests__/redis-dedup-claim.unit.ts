@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { RedisDedupClaim } from '../redis-dedup-claim.ts'
 
-function fakeCache(overrides: Partial<Pick<ICacheProvider, 'setIfNotExists' | 'delete'>>): ICacheProvider {
+function fakeCache(overrides: Partial<Pick<ICacheProvider, 'setIfNotExists' | 'set' | 'delete'>>): ICacheProvider {
   return overrides as unknown as ICacheProvider
 }
 
@@ -43,6 +43,32 @@ describe('RedisDedupClaim', () => {
     const claim = new RedisDedupClaim(fakeCache({ setIfNotExists }))
 
     const result = await claim.claim({ key: 'evt-1', ttlInMs: 300_000 })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBe(cacheError)
+  })
+
+  it('confirms a claim by overwriting it with the full dedup TTL', async () => {
+    const set = vi.fn().mockResolvedValue(success({ expiresAt: new Date() }))
+    const claim = new RedisDedupClaim(fakeCache({ set }))
+
+    const result = await claim.confirm({ key: 'evt-1', ttlInMs: 86_400_000 })
+
+    expect(result.isSuccess()).toBe(true)
+    expect(set).toHaveBeenCalledWith({
+      key: 'evt-1',
+      namespace: 'ses-webhook-ingestor-dedup',
+      value: true,
+      ttlInMs: 86_400_000
+    })
+  })
+
+  it('propagates a failure from the underlying cache when confirming', async () => {
+    const cacheError = { name: 'CacheOperationError', message: 'connection reset' }
+    const set = vi.fn().mockResolvedValue({ isFailure: () => true, isSuccess: () => false, value: cacheError })
+    const claim = new RedisDedupClaim(fakeCache({ set }))
+
+    const result = await claim.confirm({ key: 'evt-1', ttlInMs: 86_400_000 })
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) expect(result.value).toBe(cacheError)

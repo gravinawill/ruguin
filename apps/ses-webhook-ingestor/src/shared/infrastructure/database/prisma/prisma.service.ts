@@ -13,12 +13,9 @@ export function resolveSchemaFrom(connectionString: string): Record<string, neve
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleDestroy {
-  public readonly schema: string
-
   constructor(@Inject(DATABASE_CONNECTION_STRING) connectionString: string) {
     const resolvedSchema = resolveSchemaFrom(connectionString)
     super({ adapter: new PrismaPg({ connectionString, connectionTimeoutMillis: 5000 }, resolvedSchema) })
-    this.schema = 'schema' in resolvedSchema ? resolvedSchema.schema : 'public'
   }
 
   public async onModuleDestroy(): Promise<void> {
