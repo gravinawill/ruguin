@@ -40,7 +40,8 @@
       "dependsOn": ["^update:deps"]
     },
     "check:lint": {
-      "dependsOn": ["^check:lint"]
+      "dependsOn": ["^check:lint"],
+      "outputs": ["eslint-checkstyle-report.xml"]
     },
     "check:types": {
       "dependsOn": ["^check:types"]
@@ -50,6 +51,10 @@
     },
     "test:all": {
       "dependsOn": ["^test:all"]
+    },
+    "test:cov": {
+      "dependsOn": ["^test:cov"],
+      "outputs": ["coverage/**"]
     },
     "fix:format": {
       "dependsOn": ["^fix:format"]

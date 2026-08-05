@@ -1,0 +1,144 @@
+resource "aws_security_group" "rds" {
+  name_prefix = "${local.cluster_name}-rds-"
+  description = "Allows PostgreSQL access from pods running in the EKS cluster's VPC."
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    description     = "PostgreSQL from the cluster's pod security group"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [module.eks.cluster_security_group_id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = local.tags
+}
+
+# Suffixes the final snapshot identifier below so a second apply/destroy cycle (or a
+# replacement-forcing change) never collides with a snapshot name RDS already has on file.
+resource "random_id" "rds_final_snapshot" {
+  byte_length = 4
+}
+
+resource "aws_db_instance" "core_server" {
+  identifier     = "${local.cluster_name}-core-server"
+  engine         = "postgres"
+  engine_version = "16"
+  instance_class = "db.t4g.micro"
+
+  allocated_storage     = 20
+  max_allocated_storage = 100
+  storage_type          = "gp3"
+  storage_encrypted     = true
+
+  db_name  = "ruguin"
+  username = var.database_username
+  port     = 5432
+
+  # AWS manages this secret end to end (creation, storage, rotation) — Terraform never sees the
+  # value, so it never enters state. Mutually exclusive with a `password` argument.
+  manage_master_user_password = true
+
+  db_subnet_group_name   = module.vpc.database_subnet_group_name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+
+  multi_az = false
+
+  # AWS's own recommended floor for a real recovery window — 1 day only covers same-day mistakes.
+  backup_retention_period = 7
+
+  # A final snapshot is the recovery point for a *deliberate*, authorized deletion (someone
+  # cleared deletion_protection below on purpose) — deletion_protection is what stops the
+  # accidental kind. The random suffix keeps re-applies from colliding with a prior snapshot name.
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${local.cluster_name}-core-server-final-${random_id.rds_final_snapshot.hex}"
+
+  deletion_protection = true
+
+  enabled_cloudwatch_logs_exports = ["postgresql"]
+
+  tags = local.tags
+}
+
+resource "aws_security_group" "elasticache" {
+  name_prefix = "${local.cluster_name}-elasticache-"
+  description = "Allows Valkey access from pods running in the EKS cluster's VPC."
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    description     = "Valkey from the cluster's pod security group"
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
+    security_groups = [module.eks.cluster_security_group_id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = local.tags
+}
+
+resource "random_password" "valkey_auth_token" {
+  length  = 32
+  special = true
+  # AWS allows !&#$^<>- as specials in ElastiCache auth tokens, but this is narrower on purpose:
+  # '#' is a URL fragment delimiter and '&'/'<'/'>' carry special meaning in some URL/HTML
+  # contexts, so restricting to !$- guarantees this value can never collide with URL syntax
+  # wherever it's embedded. '^' is deliberately excluded too: Node's `URL` parser percent-encodes
+  # it in the userinfo position, and it only survives as the original character because
+  # iovalkey's own parseURL() calls decodeURIComponent() on the extracted password — a property
+  # of that specific client, not of '^' being inherently URL-safe like the other three.
+  override_special = "!$-"
+}
+
+resource "aws_elasticache_replication_group" "core_server" {
+  replication_group_id = "${local.cluster_name}-core-server"
+  description          = "Valkey cache for core-server"
+  engine               = "valkey"
+  engine_version       = "8.0"
+  node_type            = "cache.t4g.micro"
+  num_cache_clusters   = 1
+  port                 = 6379
+
+  subnet_group_name  = module.vpc.elasticache_subnet_group_name
+  security_group_ids = [aws_security_group.elasticache.id]
+
+  automatic_failover_enabled = false
+
+  # AWS-managed KMS key, no application-side change.
+  at_rest_encryption_enabled = true
+
+  transit_encryption_enabled = true
+  auth_token                 = random_password.valkey_auth_token.result
+  # SET, not ROTATE: this is a first deploy with no live traffic yet on a passwordless replication
+  # group. ROTATE exists to add AUTH to an already-serving cluster without dropping connections —
+  # not this case. If this token is ever rotated after a real deploy, switch to ROTATE first: like
+  # DATABASE_URL (external-secrets.tf), core-server's pods consume the resulting connection string
+  # via envFrom.secretRef with no hot-reload, so a rotation also needs a `kubectl rollout restart`
+  # of the core-server Deployment after the ExternalSecret picks up the new value — ROTATE is what
+  # keeps the OLD token valid during that restart window so connections don't drop before pods
+  # pick up the new one.
+  auth_token_update_strategy = "SET"
+
+  tags = local.tags
+}

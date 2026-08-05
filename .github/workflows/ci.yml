@@ -11,24 +11,33 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: '.nvmrc'
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        # --ignore-scripts: no dependency's lifecycle script runs unreviewed during install.
+        # Verified this doesn't break the build — the native binaries the build step below
+        # needs (@prisma/engines, @swc/core, esbuild) still resolve without it.
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build
         run: pnpm build
@@ -36,5 +45,147 @@ jobs:
       - name: Check (types, lint, format, spelling)
         run: pnpm check
 
+      - name: Generate ESLint checkstyle report (for Danger)
+        if: always() && github.event_name == 'pull_request'
+        run: pnpm exec turbo run check:lint -- --format checkstyle --output-file eslint-checkstyle-report.xml
+        continue-on-error: true
+
+      # @ruguin/cache's coverage gate is calibrated on unit + integration together (see its
+      # vitest.config.ts), and the integration suite needs a live master + replica. GitHub
+      # Actions `services:` can't override a container's command (no field for it), which the
+      # replica needs (`--replicaof`) — so both run via plain `docker run` instead.
+      - name: Start Valkey (master + replica)
+        run: |
+          docker network create valkey-ci
+          docker run -d --name valkey-master --network valkey-ci -p 6379:6379 valkey/valkey:9-alpine
+          docker run -d --name valkey-replica --network valkey-ci -p 6380:6379 valkey/valkey:9-alpine \
+            valkey-server --replicaof valkey-master 6379
+
+          # PING answers before the replica finishes its initial full resync (~5-6s on a fresh
+          # container), so readiness waits on the replication link itself, not just on PING.
+          ready=false
+          for _ in $(seq 1 30); do
+            if docker exec valkey-master valkey-cli ping 2>/dev/null | grep -q PONG \
+              && docker exec valkey-replica valkey-cli info replication 2>/dev/null | grep -q 'master_link_status:up'; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            echo "::error::Valkey master/replica did not become ready in time"
+            docker logs valkey-master
+            docker logs valkey-replica
+            exit 1
+          fi
+
       - name: Test
         run: pnpm test:coverage
+
+      - name: Danger
+        if: always() && github.event_name == 'pull_request'
+        # pnpm exec runs the pinned `danger` devDependency already resolved by Install
+        # dependencies — npx would instead fetch and run an unpinned version on demand.
+        run: pnpm exec danger ci
+        continue-on-error: true
+        env:
+          DANGER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload coverage for SonarCloud
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-reports
+          path: |
+            apps/core-server/coverage
+            packages/cache/coverage
+            packages/env/coverage
+            packages/shared-domain/coverage
+            packages/utils/coverage
+          retention-days: 1
+
+  sonarqube:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # SonarCloud attributes each finding to a commit/author via `git blame`, which needs
+          # full history — the shallow checkout the `ci` job uses isn't enough here.
+          fetch-depth: 0
+
+      - name: Download coverage
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage-reports
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: SonarCloud Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      # semgrep/semgrep:1.172.0, digest-pinned so a tag retag can't swap the scanner underneath
+      # this workflow — verified against the registry with `docker buildx imagetools inspect`.
+      image: semgrep/semgrep@sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Semgrep
+        run: semgrep ci --sarif --sarif-output=semgrep.sarif
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
+        with:
+          sarif_file: semgrep.sarif
+
+  trivy-fs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Scan dependencies
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          format: sarif
+          output: trivy-fs.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
+        with:
+          sarif_file: trivy-fs.sarif
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: actionlint
+        uses: reviewdog/action-actionlint@50842263c20a7c46bd0065b9e624d3c569db061e # v1.73.0

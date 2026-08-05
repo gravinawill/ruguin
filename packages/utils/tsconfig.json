@@ -5,6 +5,6 @@
     "rootDir": ".",
     "outDir": "./dist"
   },
-  "include": ["src/**/*.ts", "vitest.config.ts", "eslint.config.ts"],
+  "include": ["src/**/*.ts", "vitest.config.ts", "eslint.config.ts", "tsdown.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

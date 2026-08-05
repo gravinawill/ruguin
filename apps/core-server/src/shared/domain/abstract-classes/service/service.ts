@@ -1,10 +1,11 @@
 import { performance } from 'node:perf_hooks'
 
 import { type Either } from '@ruguin/utils'
-import { type Logger } from 'nestjs-pino'
+
+import { type LoggerPort } from '../../contracts/logger.contract'
 
 export abstract class Service<Parameters, ResultFailure, ResultSuccess> {
-  constructor(public readonly logger: Logger) {}
+  constructor(public readonly logger: LoggerPort) {}
 
   private extractErrorMessage(error: unknown): string {
     if (error instanceof Error) return error.message
