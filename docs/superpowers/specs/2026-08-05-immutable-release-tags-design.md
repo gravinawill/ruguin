@@ -58,7 +58,7 @@ jobs:
 
       - name: Update deployment image digest
         run: |
-          sed -i -E "s|image: ${IMAGE}(:[^[:space:]]+|@sha256:[a-f0-9]+)|image: ${IMAGE}@${DIGEST}|" \
+          sed -i -E "s#image: ${IMAGE}(:[^[:space:]]+|@sha256:[a-f0-9]+)#image: ${IMAGE}@${DIGEST}#" \
             infrastructure/k8s/core-server/deployment.yaml
         env:
           IMAGE: ${{ env.IMAGE }}
