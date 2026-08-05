@@ -129,6 +129,52 @@ describe('POST /v1/emails (e2e)', () => {
     expect(response.statusCode).toBe(422)
   })
 
+  it('accepts a request whose Idempotency-Key header is present but empty', async () => {
+    /*
+     * An empty header value is not a key. Forwarded as one it survives every layer's null check
+     * and only fails at the outbox payload's z.string().min(1), surfacing as a 500.
+     */
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/emails',
+      headers: { authorization: `Bearer ${SEEDED_API_KEY}`, 'idempotency-key': '' },
+      payload: { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' }
+    })
+
+    expect(response.statusCode).toBe(202)
+  })
+
+  it('returns 409 when an Idempotency-Key is reused with a different body', async () => {
+    /*
+     * Answering the second request with the first email's id would report 202 for a message that
+     * is never queued and never sent — silent, permanent loss disguised as success.
+     */
+    const idempotencyKey = `idem-${randomUUID()}`
+    const headers = { authorization: `Bearer ${SEEDED_API_KEY}`, 'idempotency-key': idempotencyKey }
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/emails',
+      headers,
+      payload: { from: 'sender@example.com', to: 'first@example.com', subject: 'First', html: '<p>First</p>' }
+    })
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/emails',
+      headers,
+      payload: { from: 'sender@example.com', to: 'second@example.com', subject: 'Second', html: '<p>Second</p>' }
+    })
+
+    expect(first.statusCode).toBe(202)
+    expect(second.statusCode).toBe(409)
+    expect(JSON.parse(second.body).error).toBe('EmailIdempotencyConflictError')
+
+    const prisma = app.get(PrismaService)
+    const rows = await prisma.email.findMany({ where: { idempotencyKey } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.to).toBe('first@example.com')
+  })
+
   it('returns the same id for two concurrent requests sharing an Idempotency-Key', async () => {
     const idempotencyKey = `idem-${randomUUID()}`
     const payload = { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' }

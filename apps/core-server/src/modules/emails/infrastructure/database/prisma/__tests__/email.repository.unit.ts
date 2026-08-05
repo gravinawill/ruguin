@@ -1,7 +1,8 @@
-import { ID } from '@ruguin/shared-domain'
+import { ID, StatusError } from '@ruguin/shared-domain'
 import { describe, expect, it, vi } from 'vitest'
 
 import { type TransactionContext } from '../../../../../../shared/domain/contracts/transaction-context.contract'
+import { EmailIdempotencyConflictError } from '../../../../domain/errors/models/email-idempotency-conflict.error'
 import { Email } from '../../../../domain/models/email.model'
 import { EmailRepository } from '../email.repository'
 
@@ -11,7 +12,7 @@ function validId(): ID {
   return generated.value.idGenerated
 }
 
-function buildEmail(idempotencyKey: string | null) {
+function buildEmail(idempotencyKey: string | null, overrides: Partial<{ to: string; subject: string }> = {}) {
   const result = Email.create({
     id: validId(),
     projectId: 'project-1',
@@ -21,7 +22,8 @@ function buildEmail(idempotencyKey: string | null) {
     to: 'recipient@example.com',
     subject: 'Hello',
     html: '<p>Hello</p>',
-    createdAt: new Date('2026-08-04T00:00:00Z')
+    createdAt: new Date('2026-08-04T00:00:00Z'),
+    ...overrides
   })
   if (result.isFailure()) throw new Error('unreachable')
   return result.value
@@ -101,7 +103,7 @@ describe('EmailRepository#createIfNotExists', () => {
       createdAt: new Date('2026-08-04T00:00:00Z')
     }
     const repository = new EmailRepository()
-    const { tx } = createTxStub({
+    const { findFirst, tx } = createTxStub({
       create: () => {
         throw new UniqueConstraintViolation()
       },
@@ -115,6 +117,76 @@ describe('EmailRepository#createIfNotExists', () => {
       expect(result.value.created).toBe(false)
       expect(result.value.email.id.toString()).toBe(existingRow.id)
     }
+    /*
+     * The recovery read has to be scoped by projectId in the query itself — looking the row up by
+     * idempotencyKey alone would hand one tenant another tenant's email as its own replay.
+     */
+    expect(findFirst).toHaveBeenCalledWith({ where: { projectId: 'project-1', idempotencyKey: 'idem-1' } })
+  })
+
+  it('returns EmailIdempotencyConflictError when the key was already used with a different body', async () => {
+    /*
+     * Same key, different content: returning the pre-existing row as a successful replay would
+     * report 202 for a message that is never queued and never sent — silent, permanent loss.
+     */
+    const email = buildEmail('idem-1', { to: 'someone-else@example.com', subject: 'Different subject' })
+    const existingRow = {
+      id: '0198f3b2-1234-7000-8000-000000000099',
+      projectId: 'project-1',
+      templateId: null,
+      idempotencyKey: 'idem-1',
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Hello',
+      html: '<p>Hello</p>',
+      createdAt: new Date('2026-08-04T00:00:00Z')
+    }
+    const repository = new EmailRepository()
+    const { tx } = createTxStub({
+      create: () => {
+        throw new UniqueConstraintViolation()
+      },
+      findFirst: () => Promise.resolve(existingRow)
+    })
+
+    const result = await repository.createIfNotExists({ email, tx })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) {
+      expect(result.value).toBeInstanceOf(EmailIdempotencyConflictError)
+      expect(result.value.status).toBe(StatusError.CONFLICT)
+    }
+  })
+
+  it('treats a replay whose only difference is the rendered html as a conflict', async () => {
+    /*
+     * html is compared post-render, because that is what was persisted and what a replay would
+     * re-send: two requests with the same templateId but different variables are different emails.
+     */
+    const email = buildEmail('idem-1')
+    const repository = new EmailRepository()
+    const { tx } = createTxStub({
+      create: () => {
+        throw new UniqueConstraintViolation()
+      },
+      findFirst: () =>
+        Promise.resolve({
+          id: '0198f3b2-1234-7000-8000-000000000099',
+          projectId: 'project-1',
+          templateId: '0198f3b2-1234-7000-8000-000000000020',
+          idempotencyKey: 'idem-1',
+          from: 'sender@example.com',
+          to: 'recipient@example.com',
+          subject: 'Hello',
+          html: '<p>Hello, Ada</p>',
+          createdAt: new Date('2026-08-04T00:00:00Z')
+        })
+    })
+
+    const result = await repository.createIfNotExists({ email, tx })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBeInstanceOf(EmailIdempotencyConflictError)
   })
 
   it('maps any other thrown error into CreateEmailError', async () => {

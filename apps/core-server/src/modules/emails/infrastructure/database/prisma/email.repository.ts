@@ -6,6 +6,7 @@ import { type TransactionContext } from '../../../../../shared/domain/contracts/
 import { type Prisma } from '../../../../../shared/infrastructure/database/prisma/generated/client'
 import { type EmailRepository as EmailRepositoryContract } from '../../../domain/contracts/repositories/email.repository'
 import { CreateEmailError } from '../../../domain/errors/models/create-email.error'
+import { EmailIdempotencyConflictError } from '../../../domain/errors/models/email-idempotency-conflict.error'
 import { InvalidEmailError } from '../../../domain/errors/models/invalid-email.error'
 import { Email } from '../../../domain/models/email.model'
 
@@ -45,7 +46,7 @@ export class EmailRepository implements EmailRepositoryContract {
   public async createIfNotExists(input: {
     email: Email
     tx: TransactionContext
-  }): Promise<Either<CreateEmailError, { email: Email; created: boolean }>> {
+  }): Promise<Either<CreateEmailError | EmailIdempotencyConflictError, { email: Email; created: boolean }>> {
     const client = input.tx as unknown as Prisma.TransactionClient
     const savepoint = `create_email_${input.email.id.toString().replaceAll('-', '_')}`
 
@@ -97,7 +98,8 @@ export class EmailRepository implements EmailRepositoryContract {
        * email in this project that also has no idempotency key, report a stranger's id as
        * "already sent this request", and silently drop the real send.
        */
-      if (input.email.idempotencyKey === null) return failure(new CreateEmailError({ error }))
+      const { idempotencyKey } = input.email
+      if (idempotencyKey === null) return failure(new CreateEmailError({ error }))
 
       /*
        * Lost the race on (projectId, idempotencyKey): the winner's row is what the caller must
@@ -105,12 +107,26 @@ export class EmailRepository implements EmailRepositoryContract {
        * partial index guarantees at most one row exists here, so findFirst is not itself racy.
        */
       const existingRow = await client.email.findFirst({
-        where: { projectId: input.email.projectId, idempotencyKey: input.email.idempotencyKey }
+        where: { projectId: input.email.projectId, idempotencyKey }
       })
       if (existingRow === null) return failure(new CreateEmailError({ error }))
 
       const mapped = this.toDomain(existingRow)
       if (mapped.isFailure()) return failure(new CreateEmailError({ error: mapped.value }))
+
+      /*
+       * Replay only means "same request sent twice"; the same key over a DIFFERENT body is a
+       * client bug, and answering it with the first email's id would report success for a message
+       * that is never queued and never sent — silent, permanent loss. Compared on the resolved
+       * from/to/subject/html because those are what was persisted and what a replay would re-send:
+       * templateId + variables have already been rendered into subject/html by the use case.
+       */
+      const isSameRequest =
+        mapped.value.from === input.email.from &&
+        mapped.value.to === input.email.to &&
+        mapped.value.subject === input.email.subject &&
+        mapped.value.html === input.email.html
+      if (!isSameRequest) return failure(new EmailIdempotencyConflictError({ idempotencyKey }))
 
       return success({ email: mapped.value, created: false })
     }
