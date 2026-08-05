@@ -17,16 +17,21 @@ export const SesBounceType = {
   UNDETERMINED: 'Undetermined'
 } as const
 
-export const EmailStatusUpdatedPayloadSchema = z.object({
-  emailId: z.uuid(),
-  status: z.enum(EmailStatusUpdatedStatus),
-  sesMessageId: z.string().min(1).optional(),
-  errorMessage: z.string().min(1).optional(),
-  /*
-   * Only ever set alongside status=bounced; SES's own bounce classification (see EMAIL_STATUS_UPDATED_TOPIC's
-   * producers: dispatch-worker never sets it, ses-webhook-ingestor sets it when eventType=Bounce).
-   */
-  bounceType: z.enum(SesBounceType).optional()
-})
+export const EmailStatusUpdatedPayloadSchema = z
+  .object({
+    emailId: z.uuid(),
+    status: z.enum(EmailStatusUpdatedStatus),
+    sesMessageId: z.string().min(1).optional(),
+    errorMessage: z.string().min(1).optional(),
+    /*
+     * Only ever set alongside status=bounced; SES's own bounce classification (see EMAIL_STATUS_UPDATED_TOPIC's
+     * producers: dispatch-worker never sets it, ses-webhook-ingestor sets it when eventType=Bounce).
+     */
+    bounceType: z.enum(SesBounceType).optional()
+  })
+  .refine((data) => data.status === EmailStatusUpdatedStatus.BOUNCED || data.bounceType === undefined, {
+    message: 'bounceType is only allowed when status is bounced',
+    path: ['bounceType']
+  })
 
 export type EmailStatusUpdatedPayload = z.infer<typeof EmailStatusUpdatedPayloadSchema>

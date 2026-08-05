@@ -50,4 +50,24 @@ describe('SesNotificationCorrelationPendingPayloadSchema', () => {
     expect(SES_NOTIFICATION_CORRELATION_DLQ_TOPIC).toBe('ses.notification.correlation.dlq')
     expect(SES_NOTIFICATION_MALFORMED_DLQ_TOPIC).toBe('ses.notification.malformed.dlq')
   })
+
+  it('rejects a "delivered" status with a bounceType', () => {
+    const result = SesNotificationCorrelationPendingPayloadSchema.safeParse({
+      sesMessageId: 'ses-msg-1',
+      status: 'delivered',
+      bounceType: 'Permanent'
+    })
+
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a "complained" status with a bounceType', () => {
+    const result = SesNotificationCorrelationPendingPayloadSchema.safeParse({
+      sesMessageId: 'ses-msg-1',
+      status: 'complained',
+      bounceType: 'Permanent'
+    })
+
+    expect(result.success).toBe(false)
+  })
 })

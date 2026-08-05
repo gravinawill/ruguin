@@ -16,10 +16,15 @@ export const SesNotificationCorrelationStatus = {
   COMPLAINED: EmailStatusUpdatedStatus.COMPLAINED
 } as const
 
-export const SesNotificationCorrelationPendingPayloadSchema = z.object({
-  sesMessageId: z.string().min(1),
-  status: z.enum(SesNotificationCorrelationStatus),
-  bounceType: z.enum(SesBounceType).optional()
-})
+export const SesNotificationCorrelationPendingPayloadSchema = z
+  .object({
+    sesMessageId: z.string().min(1),
+    status: z.enum(SesNotificationCorrelationStatus),
+    bounceType: z.enum(SesBounceType).optional()
+  })
+  .refine((data) => data.status === SesNotificationCorrelationStatus.BOUNCED || data.bounceType === undefined, {
+    message: 'bounceType is only allowed when status is bounced',
+    path: ['bounceType']
+  })
 
 export type SesNotificationCorrelationPendingPayload = z.infer<typeof SesNotificationCorrelationPendingPayloadSchema>

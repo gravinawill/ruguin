@@ -65,4 +65,24 @@ describe('EmailStatusUpdatedPayloadSchema', () => {
   it('exposes SesBounceType', () => {
     expect(SesBounceType).toEqual({ PERMANENT: 'Permanent', TRANSIENT: 'Transient', UNDETERMINED: 'Undetermined' })
   })
+
+  it('rejects a "delivered" status with a bounceType', () => {
+    const result = EmailStatusUpdatedPayloadSchema.safeParse({
+      emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001',
+      status: 'delivered',
+      bounceType: 'Permanent'
+    })
+
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a "complained" status with a bounceType', () => {
+    const result = EmailStatusUpdatedPayloadSchema.safeParse({
+      emailId: '018f9a9e-6f0a-7c3e-9b0a-000000000001',
+      status: 'complained',
+      bounceType: 'Permanent'
+    })
+
+    expect(result.success).toBe(false)
+  })
 })
