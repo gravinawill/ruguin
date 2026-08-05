@@ -7,8 +7,8 @@ import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import { publishExhaustedCorrelationToDlq } from '../../consumers/dlq-routing.ts'
+import { CORRELATION_PROVIDER, type CorrelationPort } from '../../domain/contracts/correlation.port.ts'
 import { computeNextCorrelationRetryAt, hasExhaustedCorrelationRetries } from '../correlation-retry-backoff.ts'
-import { CORRELATION_PROVIDER, type CorrelationPort } from '../providers/correlation.port.ts'
 
 export type ResolvePendingCorrelationInput = Readonly<{
   sesMessageId: string

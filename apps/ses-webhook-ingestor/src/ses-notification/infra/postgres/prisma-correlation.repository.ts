@@ -14,7 +14,7 @@ import {
   type LookupCorrelationInput,
   type LookupCorrelationOutput,
   type UpsertCorrelationInput
-} from '../../application/providers/correlation.port.ts'
+} from '../../domain/contracts/correlation.port.ts'
 import { CorrelationLookupError } from '../../domain/errors/correlation-lookup.error.ts'
 import { CorrelationUpsertError } from '../../domain/errors/correlation-upsert.error.ts'
 

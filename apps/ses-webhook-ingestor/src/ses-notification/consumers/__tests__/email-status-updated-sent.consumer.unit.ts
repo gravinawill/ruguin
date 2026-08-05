@@ -27,6 +27,18 @@ describe('EmailStatusUpdatedSentConsumer', () => {
     expect(subscribeInput?.groupId).toBe(CORRELATION_CONSUMER_GROUP_ID)
   })
 
+  it('fails bootstrap when the subscription itself fails, instead of running with a dead consumer', async () => {
+    const fakeConsumer: MessageConsumerPort = {
+      subscribe: vi.fn().mockResolvedValue(failure({ name: 'MessageConsumeError', message: 'broker unavailable' }))
+    }
+    const producer = { publish: vi.fn() } as unknown as MessageProducerPort
+    const recordSentCorrelation = { execute: vi.fn() } as unknown as RecordSentCorrelationUseCase
+
+    const consumer = new EmailStatusUpdatedSentConsumer(fakeConsumer, producer, recordSentCorrelation)
+
+    await expect(consumer.onModuleInit()).rejects.toThrow('broker unavailable')
+  })
+
   it('routes a schema-invalid payload to the DLQ instead of dropping it', async () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
@@ -142,7 +154,9 @@ describe('EmailStatusUpdatedSentConsumer', () => {
     })
 
     expect(publish).not.toHaveBeenCalled()
-    expect(execute).toHaveBeenCalledWith({ sesMessageId: 'ses-msg-1', emailId: VALID_EMAIL_ID })
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ sesMessageId: 'ses-msg-1', emailId: VALID_EMAIL_ID })
+    )
     expect(result.isSuccess()).toBe(true)
   })
 

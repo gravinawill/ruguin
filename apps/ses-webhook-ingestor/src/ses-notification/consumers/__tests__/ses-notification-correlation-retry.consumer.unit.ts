@@ -39,6 +39,18 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     expect(subscribeInput?.groupId).toBe(CORRELATION_RETRY_CONSUMER_GROUP_ID)
   })
 
+  it('fails bootstrap when the subscription itself fails, instead of running with a dead consumer', async () => {
+    const fakeConsumer: MessageConsumerPort = {
+      subscribe: vi.fn().mockResolvedValue(failure({ name: 'MessageConsumeError', message: 'broker unavailable' }))
+    }
+    const producer = { publish: vi.fn() } as unknown as MessageProducerPort
+    const resolvePendingCorrelation = { execute: vi.fn() } as unknown as ResolvePendingCorrelationUseCase
+
+    const consumer = new SesNotificationCorrelationRetryConsumer(fakeConsumer, producer, resolvePendingCorrelation)
+
+    await expect(consumer.onModuleInit()).rejects.toThrow('broker unavailable')
+  })
+
   it('waits until nextAttemptAt before calling the use case, then passes the parsed payload and header attempt through', async () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
@@ -124,6 +136,120 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
       name: 'ses.notification.correlation.pending',
       payload: { sesMessageId: 'ses-msg-1', status: 'delivered' },
       headers: { attempt: 'not-a-number', nextAttemptAt: '2026-08-02T12:00:10.000Z' }
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: SES_NOTIFICATION_MALFORMED_DLQ_TOPIC,
+        message: expect.objectContaining({
+          payload: {
+            rawBody: { sesMessageId: 'ses-msg-1', status: 'delivered' },
+            reason: 'invalid attempt/nextAttemptAt headers'
+          }
+        })
+      })
+    )
+  })
+
+  it('routes to the DLQ when the attempt header is absent altogether', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn()
+    const resolvePendingCorrelation = { execute } as unknown as ResolvePendingCorrelationUseCase
+
+    await new SesNotificationCorrelationRetryConsumer(fakeConsumer, producer, resolvePendingCorrelation).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-missing-attempt',
+      name: 'ses.notification.correlation.pending',
+      payload: { sesMessageId: 'ses-msg-1', status: 'delivered' },
+      headers: { nextAttemptAt: '2026-08-02T12:00:10.000Z' }
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: SES_NOTIFICATION_MALFORMED_DLQ_TOPIC,
+        message: expect.objectContaining({
+          payload: {
+            rawBody: { sesMessageId: 'ses-msg-1', status: 'delivered' },
+            reason: 'invalid attempt/nextAttemptAt headers'
+          }
+        })
+      })
+    )
+  })
+
+  it('routes to the DLQ when the attempt header is not a positive integer', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn()
+    const resolvePendingCorrelation = { execute } as unknown as ResolvePendingCorrelationUseCase
+
+    await new SesNotificationCorrelationRetryConsumer(fakeConsumer, producer, resolvePendingCorrelation).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-negative-attempt',
+      name: 'ses.notification.correlation.pending',
+      payload: { sesMessageId: 'ses-msg-1', status: 'delivered' },
+      headers: { attempt: '-1', nextAttemptAt: '2026-08-02T12:00:10.000Z' }
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: SES_NOTIFICATION_MALFORMED_DLQ_TOPIC,
+        message: expect.objectContaining({
+          payload: {
+            rawBody: { sesMessageId: 'ses-msg-1', status: 'delivered' },
+            reason: 'invalid attempt/nextAttemptAt headers'
+          }
+        })
+      })
+    )
+  })
+
+  it('routes to the DLQ when the nextAttemptAt header is absent altogether', async () => {
+    let onMessage!: SubscribeInput['onMessage']
+    const fakeConsumer: MessageConsumerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+        onMessage = input.onMessage
+        return success(undefined)
+      })
+    }
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const producer = { publish } as unknown as MessageProducerPort
+    const execute = vi.fn()
+    const resolvePendingCorrelation = { execute } as unknown as ResolvePendingCorrelationUseCase
+
+    await new SesNotificationCorrelationRetryConsumer(fakeConsumer, producer, resolvePendingCorrelation).onModuleInit()
+
+    const result = await onMessage({
+      eventId: 'evt-missing-next-attempt-at',
+      name: 'ses.notification.correlation.pending',
+      payload: { sesMessageId: 'ses-msg-1', status: 'delivered' },
+      headers: { attempt: '1' }
     })
 
     expect(execute).not.toHaveBeenCalled()

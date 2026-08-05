@@ -7,22 +7,24 @@ import { type BaseError } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import { publishMalformedNotificationToDlq } from '../../consumers/dlq-routing.ts'
-import { mapSesEventToStatus } from '../../domain/map-ses-event-to-status.ts'
-import { EventBridgeSesNotificationSchema } from '../../presentation/dto/eventbridge-ses-notification.schema.ts'
+import { CORRELATION_PROVIDER, type CorrelationPort } from '../../domain/contracts/correlation.port.ts'
+import { DEDUP_CLAIM_PROVIDER, type DedupClaimPort } from '../../domain/contracts/dedup-claim.port.ts'
+import { type SesNotificationEvent } from '../../domain/models/ses-notification-event.model.ts'
 import { computeNextCorrelationRetryAt } from '../correlation-retry-backoff.ts'
-import { CORRELATION_PROVIDER, type CorrelationPort } from '../providers/correlation.port.ts'
-import { DEDUP_CLAIM_PROVIDER, type DedupClaimPort } from '../providers/dedup-claim.port.ts'
 
 /*
- * 24h — matches EventBridge's default `maximumEventAgeInSeconds` (86400s) for API Destination
- * target retries. Whoever provisions the EventBridge Rule's target retry policy must keep
- * `maximumEventAgeInSeconds` at or below this value (in seconds) for the dedup guarantee to hold —
- * a redelivery that outlives this claim's TTL can still re-claim successfully and publish a
- * duplicate `email.status.updated`.
+ * 24h — matches EventBridge's default maximumEventAgeInSeconds (86400s) for API Destination target
+ * retries; the target's retry policy must keep maximumEventAgeInSeconds at or below this value (in
+ * seconds) for the dedup guarantee to hold.
  */
 const DEDUP_CLAIM_TTL_MS = 86_400_000
+const RELEASE_RETRY_ATTEMPTS = 3
+const RELEASE_RETRY_DELAY_MS = 200
 
-export type IngestSesNotificationInput = Readonly<{ body: unknown }>
+export type IngestSesNotificationInput =
+  | Readonly<{ kind: 'malformed'; rawBody: unknown; reason: string }>
+  | Readonly<{ kind: 'valid'; eventBridgeId: string; event: SesNotificationEvent }>
+
 export type IngestSesNotificationOutcome = 'published' | 'malformed-dlq' | 'duplicate-skipped' | 'lookup-pending'
 export type IngestSesNotificationOutput = Readonly<{ outcome: IngestSesNotificationOutcome }>
 
@@ -37,35 +39,31 @@ export class IngestSesNotificationUseCase {
   ) {}
 
   public async execute(input: IngestSesNotificationInput): Promise<Either<BaseError, IngestSesNotificationOutput>> {
-    const parsed = EventBridgeSesNotificationSchema.safeParse(input.body)
-    if (!parsed.success) {
-      this.logger.warn(`Malformed EventBridge SES notification: ${parsed.error.message}`)
+    if (input.kind === 'malformed') {
       const published = await publishMalformedNotificationToDlq(this.producer, {
-        rawBody: input.body,
-        reason: parsed.error.message
+        rawBody: input.rawBody,
+        reason: input.reason
       })
       if (published.isFailure()) return failure(published.value)
       return success({ outcome: 'malformed-dlq' })
     }
 
-    const dedupKey = parsed.data.id
-    const claimed = await this.dedupClaim.claim({ key: dedupKey, ttlInMs: DEDUP_CLAIM_TTL_MS })
+    const { eventBridgeId, event } = input
+
+    const claimed = await this.dedupClaim.claim({ key: eventBridgeId, ttlInMs: DEDUP_CLAIM_TTL_MS })
     if (claimed.isFailure()) return failure(claimed.value)
     if (!claimed.value.claimed) return success({ outcome: 'duplicate-skipped' })
 
-    const mapped = mapSesEventToStatus(parsed.data.detail)
-    const sesMessageId = parsed.data.detail.mail.messageId
-
-    const lookup = await this.correlation.lookup({ sesMessageId })
+    const lookup = await this.correlation.lookup({ sesMessageId: event.sesMessageId })
     if (lookup.isFailure()) {
-      await this.releaseClaimAfterFailure(dedupKey)
+      await this.releaseClaimAfterFailure(eventBridgeId)
       return failure(lookup.value)
     }
 
     if (lookup.value === null) {
-      const scheduled = await this.schedulePendingCorrelation({ sesMessageId, ...mapped })
+      const scheduled = await this.schedulePendingCorrelation(event)
       if (scheduled.isFailure()) {
-        await this.releaseClaimAfterFailure(dedupKey)
+        await this.releaseClaimAfterFailure(eventBridgeId)
         return failure(scheduled.value)
       }
       return success({ outcome: 'lookup-pending' })
@@ -77,39 +75,58 @@ export class IngestSesNotificationUseCase {
       message: {
         eventId: randomUUID(),
         name: 'email.status.updated',
-        payload: { emailId: lookup.value.emailId, ...mapped }
+        payload: {
+          emailId: lookup.value.emailId,
+          status: event.status,
+          ...(event.bounceType !== undefined && { bounceType: event.bounceType })
+        }
       }
     })
     if (published.isFailure()) {
-      await this.releaseClaimAfterFailure(dedupKey)
+      await this.releaseClaimAfterFailure(eventBridgeId)
       return failure(published.value)
     }
 
     return success({ outcome: 'published' })
   }
 
-  private schedulePendingCorrelation(
-    input: Readonly<{ sesMessageId: string; status: string; bounceType?: string }>
-  ): Promise<Either<BaseError, void>> {
+  private schedulePendingCorrelation(event: SesNotificationEvent): Promise<Either<BaseError, void>> {
     const nextAttemptAt = computeNextCorrelationRetryAt(1)
 
     return this.producer.publish({
       topic: SES_NOTIFICATION_CORRELATION_RETRY_TOPIC,
-      key: input.sesMessageId,
-      message: { eventId: randomUUID(), name: 'ses.notification.correlation.pending', payload: input },
+      key: event.sesMessageId,
+      message: {
+        eventId: randomUUID(),
+        name: 'ses.notification.correlation.pending',
+        payload: {
+          sesMessageId: event.sesMessageId,
+          status: event.status,
+          ...(event.bounceType !== undefined && { bounceType: event.bounceType })
+        }
+      },
       headers: { attempt: '1', nextAttemptAt: nextAttemptAt.toISOString() }
     })
   }
 
   /*
-   * Every failure this use case returns happens AFTER the dedup claim was taken — mirrors
-   * apps/dispatch-worker's SendEmailUseCase: without releasing it, a legitimate EventBridge retry
-   * of the same event id would be silently treated as a duplicate for the rest of the claim's TTL.
+   * Every failure this use case returns happens AFTER the dedup claim was taken. A failed release
+   * is retried a few times with a short delay before giving up — without any retry, a single
+   * transient Redis error would leave the claim held for the full 24h TTL, and a legitimate
+   * EventBridge redelivery in that window would be silently treated as duplicate-skipped instead of
+   * actually reprocessing. The TTL still bounds the damage if every retry fails.
    */
   private async releaseClaimAfterFailure(key: string): Promise<void> {
-    const released = await this.dedupClaim.release({ key })
-    if (released.isFailure()) {
-      this.logger.error(`Failed to release dedup claim ${key}: ${released.value.message}`)
+    for (let attempt = 1; attempt <= RELEASE_RETRY_ATTEMPTS; attempt += 1) {
+      const released = await this.dedupClaim.release({ key })
+      if (released.isSuccess()) return
+
+      this.logger.error(
+        `Failed to release dedup claim ${key} (attempt ${attempt}/${RELEASE_RETRY_ATTEMPTS}): ${released.value.message}`
+      )
+      if (attempt < RELEASE_RETRY_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, RELEASE_RETRY_DELAY_MS))
+      }
     }
   }
 }

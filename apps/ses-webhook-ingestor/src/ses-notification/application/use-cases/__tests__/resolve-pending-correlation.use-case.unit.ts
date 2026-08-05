@@ -3,8 +3,8 @@ import { type MessageProducerPort } from '@ruguin/message-broker'
 import { failure, success } from '@ruguin/utils'
 import { describe, expect, it, vi } from 'vitest'
 
+import { type CorrelationPort } from '../../../domain/contracts/correlation.port.ts'
 import { CORRELATION_RETRY_MAX_ATTEMPTS } from '../../correlation-retry-backoff.ts'
-import { type CorrelationPort } from '../../providers/correlation.port.ts'
 import { ResolvePendingCorrelationUseCase } from '../resolve-pending-correlation.use-case.ts'
 
 function buildUseCase(overrides: {

@@ -5,16 +5,27 @@ import {
 } from '@ruguin/event-schemas'
 import { type MessageProducerPort } from '@ruguin/message-broker'
 import { failure, success } from '@ruguin/utils'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { type CorrelationPort } from '../../providers/correlation.port.ts'
-import { type DedupClaimPort } from '../../providers/dedup-claim.port.ts'
-import { IngestSesNotificationUseCase } from '../ingest-ses-notification.use-case.ts'
+import { type CorrelationPort } from '../../../domain/contracts/correlation.port.ts'
+import { type DedupClaimPort } from '../../../domain/contracts/dedup-claim.port.ts'
+import {
+  type CreateSesNotificationEventInput,
+  SesNotificationEvent
+} from '../../../domain/models/ses-notification-event.model.ts'
+import { type IngestSesNotificationInput, IngestSesNotificationUseCase } from '../ingest-ses-notification.use-case.ts'
 
-const VALID_BODY = {
-  id: 'evt-1',
-  source: 'aws.ses',
-  detail: { eventType: 'Delivery', mail: { messageId: 'ses-msg-1' } }
+function buildEvent(input: CreateSesNotificationEventInput): SesNotificationEvent {
+  const created = SesNotificationEvent.create(input)
+  if (created.isFailure()) throw new Error(`test fixture is invalid: ${created.value.message}`)
+
+  return created.value
+}
+
+function validInput(
+  event: SesNotificationEvent = buildEvent({ sesMessageId: 'ses-msg-1', eventType: 'Delivery' })
+): IngestSesNotificationInput {
+  return { kind: 'valid', eventBridgeId: 'evt-1', event }
 }
 
 function buildUseCase(overrides: {
@@ -43,32 +54,52 @@ function buildUseCase(overrides: {
 }
 
 describe('IngestSesNotificationUseCase', () => {
-  it('routes an invalid body to the malformed DLQ without touching dedup or correlation', async () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('routes a malformed input to the malformed DLQ without touching dedup or correlation', async () => {
     const claim = vi.fn()
     const lookup = vi.fn()
     const dedupClaim = { claim } as unknown as DedupClaimPort
     const correlation = { lookup } as unknown as CorrelationPort
     const publish = vi.fn().mockResolvedValue(success(undefined))
-    const useCase = new IngestSesNotificationUseCase(dedupClaim, correlation, { publish })
+    const useCase = new IngestSesNotificationUseCase(dedupClaim, correlation, {
+      publish
+    })
 
-    const result = await useCase.execute({ body: { not: 'valid' } })
+    const result = await useCase.execute({ kind: 'malformed', rawBody: { not: 'valid' }, reason: 'bad envelope' })
 
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) expect(result.value.outcome).toBe('malformed-dlq')
-    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ topic: SES_NOTIFICATION_MALFORMED_DLQ_TOPIC }))
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: SES_NOTIFICATION_MALFORMED_DLQ_TOPIC,
+        message: expect.objectContaining({ payload: { rawBody: { not: 'valid' }, reason: 'bad envelope' } })
+      })
+    )
     expect(claim).not.toHaveBeenCalled()
     expect(lookup).not.toHaveBeenCalled()
   })
 
+  it('fails when publishing the malformed notification to the DLQ fails', async () => {
+    const publishError = { name: 'MessagePublishError', message: 'kafka down' }
+    const useCase = buildUseCase({ producer: { publish: vi.fn().mockResolvedValue(failure(publishError)) } })
+
+    const result = await useCase.execute({ kind: 'malformed', rawBody: { not: 'valid' }, reason: 'bad envelope' })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBe(publishError)
+  })
+
   it('skips a duplicate EventBridge delivery without looking up the correlation', async () => {
     const lookup = vi.fn()
-    const correlation = { lookup } as unknown as CorrelationPort
     const useCase = buildUseCase({
       dedupClaim: { claim: vi.fn().mockResolvedValue(success({ claimed: false })) },
-      correlation
+      correlation: { lookup }
     })
 
-    const result = await useCase.execute({ body: VALID_BODY })
+    const result = await useCase.execute(validInput())
 
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) expect(result.value.outcome).toBe('duplicate-skipped')
@@ -79,7 +110,7 @@ describe('IngestSesNotificationUseCase', () => {
     const claimError = { name: 'CacheOperationError', message: 'redis down' }
     const useCase = buildUseCase({ dedupClaim: { claim: vi.fn().mockResolvedValue(failure(claimError)) } })
 
-    const result = await useCase.execute({ body: VALID_BODY })
+    const result = await useCase.execute(validInput())
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) expect(result.value).toBe(claimError)
@@ -89,7 +120,7 @@ describe('IngestSesNotificationUseCase', () => {
     const publish = vi.fn().mockResolvedValue(success(undefined))
     const useCase = buildUseCase({ producer: { publish } })
 
-    const result = await useCase.execute({ body: VALID_BODY })
+    const result = await useCase.execute(validInput())
 
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) expect(result.value.outcome).toBe('published')
@@ -102,6 +133,24 @@ describe('IngestSesNotificationUseCase', () => {
     )
   })
 
+  it('carries the bounceType through to email.status.updated for a bounce notification', async () => {
+    const publish = vi.fn().mockResolvedValue(success(undefined))
+    const useCase = buildUseCase({ producer: { publish } })
+    const event = buildEvent({ sesMessageId: 'ses-msg-1', eventType: 'Bounce', bounceType: 'Permanent' })
+
+    const result = await useCase.execute(validInput(event))
+
+    expect(result.isSuccess()).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: EMAIL_STATUS_UPDATED_TOPIC,
+        message: expect.objectContaining({
+          payload: { emailId: 'email-1', status: 'bounced', bounceType: 'Permanent' }
+        })
+      })
+    )
+  })
+
   it('schedules a correlation retry when the correlation is not yet found', async () => {
     const publish = vi.fn().mockResolvedValue(success(undefined))
     const useCase = buildUseCase({
@@ -109,7 +158,7 @@ describe('IngestSesNotificationUseCase', () => {
       producer: { publish }
     })
 
-    const result = await useCase.execute({ body: VALID_BODY })
+    const result = await useCase.execute(validInput())
 
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) expect(result.value.outcome).toBe('lookup-pending')
@@ -131,7 +180,7 @@ describe('IngestSesNotificationUseCase', () => {
       correlation: { lookup: vi.fn().mockResolvedValue(failure(lookupError)) }
     })
 
-    const result = await useCase.execute({ body: VALID_BODY })
+    const result = await useCase.execute(validInput())
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) expect(result.value).toBe(lookupError)
@@ -146,7 +195,7 @@ describe('IngestSesNotificationUseCase', () => {
       producer: { publish: vi.fn().mockResolvedValue(failure(publishError)) }
     })
 
-    const result = await useCase.execute({ body: VALID_BODY })
+    const result = await useCase.execute(validInput())
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) expect(result.value).toBe(publishError)
@@ -162,10 +211,54 @@ describe('IngestSesNotificationUseCase', () => {
       producer: { publish: vi.fn().mockResolvedValue(failure(publishError)) }
     })
 
-    const result = await useCase.execute({ body: VALID_BODY })
+    const result = await useCase.execute(validInput())
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) expect(result.value).toBe(publishError)
     expect(release).toHaveBeenCalledWith({ key: 'evt-1' })
+  })
+
+  it('retries a failing dedup claim release instead of giving up on the first error', async () => {
+    vi.useFakeTimers()
+
+    const releaseError = { name: 'CacheOperationError', message: 'redis blip' }
+    const lookupError = { name: 'CorrelationLookupError', message: 'db down' }
+    const release = vi
+      .fn()
+      .mockResolvedValueOnce(failure(releaseError))
+      .mockResolvedValueOnce(failure(releaseError))
+      .mockResolvedValueOnce(success(undefined))
+    const useCase = buildUseCase({
+      dedupClaim: { release },
+      correlation: { lookup: vi.fn().mockResolvedValue(failure(lookupError)) }
+    })
+
+    const resultPromise = useCase.execute(validInput())
+    await vi.advanceTimersByTimeAsync(1000)
+    const result = await resultPromise
+
+    expect(release).toHaveBeenCalledTimes(3)
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBe(lookupError)
+  })
+
+  it('gives up releasing the dedup claim after the retry budget is spent', async () => {
+    vi.useFakeTimers()
+
+    const releaseError = { name: 'CacheOperationError', message: 'redis down' }
+    const lookupError = { name: 'CorrelationLookupError', message: 'db down' }
+    const release = vi.fn().mockResolvedValue(failure(releaseError))
+    const useCase = buildUseCase({
+      dedupClaim: { release },
+      correlation: { lookup: vi.fn().mockResolvedValue(failure(lookupError)) }
+    })
+
+    const resultPromise = useCase.execute(validInput())
+    await vi.advanceTimersByTimeAsync(1000)
+    const result = await resultPromise
+
+    expect(release).toHaveBeenCalledTimes(3)
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBe(lookupError)
   })
 })

@@ -8,7 +8,7 @@ import {
   type DedupClaimOutput,
   type DedupClaimPort,
   type ReleaseClaimInput
-} from '../../application/providers/dedup-claim.port.ts'
+} from '../../domain/contracts/dedup-claim.port.ts'
 
 /* KeyBuilder forbids ":" in namespace segments (packages/cache/src/infra/key-builder.ts). */
 const NAMESPACE = 'ses-webhook-ingestor-dedup'
