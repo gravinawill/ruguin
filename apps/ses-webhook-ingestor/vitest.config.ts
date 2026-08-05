@@ -55,13 +55,21 @@ export default defineConfig({
     fileParallelism: false,
     projects: [
       { extends: true, test: { name: 'unit', include: ['src/**/__tests__/**/*.unit.ts'], testTimeout: 5000 } },
-      { extends: true, test: { name: 'integration', include: ['src/**/__tests__/**/*.int.ts'], testTimeout: 20_000 } },
+      {
+        extends: true,
+        test: {
+          name: 'integration',
+          include: ['src/**/__tests__/**/*.int.ts'],
+          setupFiles: ['./vitest.setup.ts'],
+          testTimeout: 20_000
+        }
+      },
       {
         extends: true,
         test: {
           name: 'e2e',
           include: ['src/**/__tests__/**/*.e2e.ts'],
-          setupFiles: ['./vitest.setup.e2e.ts'],
+          setupFiles: ['./vitest.setup.ts'],
           testTimeout: 30_000
         }
       }
