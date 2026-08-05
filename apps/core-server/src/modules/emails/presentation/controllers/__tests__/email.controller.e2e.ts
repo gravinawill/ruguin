@@ -97,7 +97,7 @@ describe('POST /v1/emails (e2e)', () => {
     expect(response.statusCode).toBe(400)
   })
 
-  it('returns 404 for a templateId belonging to a different project', async () => {
+  it('returns 404 for a templateId that does not exist at all', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/emails',
@@ -106,6 +106,37 @@ describe('POST /v1/emails (e2e)', () => {
         from: 'sender@example.com',
         to: 'recipient@example.com',
         templateId: randomUUID(),
+        variables: {}
+      }
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('returns 404 for a templateId that exists but belongs to a different project', async () => {
+    /*
+     * A random UUID alone only proves "nonexistent template" → 404, not multi-tenant isolation.
+     * This seeds a second, genuinely different project + template so the assertion actually
+     * exercises the `WHERE projectId = ...` scoping in TemplateLookupProvider, not just a
+     * not-found path that would also fire for a typo.
+     */
+    const prisma = app.get(PrismaService)
+    const otherOrganization = await prisma.organization.create({ data: { name: 'Other Org' } })
+    const otherProject = await prisma.project.create({
+      data: { organizationId: otherOrganization.id, name: 'Other Project' }
+    })
+    const otherTemplate = await prisma.template.create({
+      data: { projectId: otherProject.id, name: 'Other Template', subject: 'Hi', html: '<p>Hi</p>' }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/emails',
+      headers: { authorization: `Bearer ${SEEDED_API_KEY}` },
+      payload: {
+        from: 'sender@example.com',
+        to: 'recipient@example.com',
+        templateId: otherTemplate.id,
         variables: {}
       }
     })

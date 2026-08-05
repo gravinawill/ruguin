@@ -41,4 +41,16 @@ describe('SendEmailBodySchema', () => {
 
     expect(result.success).toBe(false)
   })
+
+  it('rejects a body mixing templateId with subject/html', () => {
+    const result = SendEmailBodySchema.safeParse({
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      templateId: '0198f3b2-1234-7000-8000-000000000020',
+      subject: 'Hi',
+      html: '<p>Hi</p>'
+    })
+
+    expect(result.success).toBe(false)
+  })
 })

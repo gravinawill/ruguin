@@ -5,11 +5,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { type OutboxPort } from '../../../../../shared/domain/contracts/outbox.port'
 import { type TransactionContext } from '../../../../../shared/domain/contracts/transaction-context.contract'
 import { type TransactionManager } from '../../../../../shared/domain/contracts/transaction-manager.contract'
+import { EnqueueOutboxMessageError } from '../../../../../shared/domain/errors/enqueue-outbox-message.error'
 import { type TemplateLookupProvider } from '../../../../templates/domain/contracts/template-lookup.provider'
 import { TemplateNotFoundError } from '../../../../templates/domain/errors/template-not-found.error'
 import { Template } from '../../../../templates/domain/models/template.model'
 import { type EmailRepository } from '../../../domain/contracts/repositories/email.repository'
 import { CreateEmailError } from '../../../domain/errors/models/create-email.error'
+import { InvalidEmailPayloadError } from '../../../domain/errors/models/invalid-email-payload.error'
 import { Email } from '../../../domain/models/email.model'
 import { SendEmailUseCase } from '../send-email.use-case'
 
@@ -59,12 +61,13 @@ describe('SendEmailUseCase', () => {
     const email = buildEmail()
     const createIfNotExists = vi.fn().mockResolvedValue(success({ email, created: true }))
     const emailRepository: EmailRepository = { createIfNotExists }
-    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template: buildTemplate() }))
+    const template = buildTemplate()
+    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template }))
     const templateLookup: TemplateLookupProvider = { findByIdAndProjectId }
     const enqueue = vi.fn().mockResolvedValue(success(undefined))
     const outbox: OutboxPort = { enqueue }
     const useCase = new SendEmailUseCase(createTransactionManagerStub(), emailRepository, templateLookup, outbox)
-    const requestedTemplateId = buildTemplate().id.toString()
+    const requestedTemplateId = template.id.toString()
 
     const result = await useCase.execute({
       projectId: '01900000-0000-7000-8000-000000000001',
@@ -179,7 +182,8 @@ describe('SendEmailUseCase', () => {
   })
 
   it('fails with MissingTemplateVariableError and never persists when a variable is missing', async () => {
-    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template: buildTemplate() }))
+    const template = buildTemplate()
+    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template }))
     const templateLookup: TemplateLookupProvider = { findByIdAndProjectId }
     const createIfNotExists = vi.fn()
     const emailRepository: EmailRepository = { createIfNotExists }
@@ -191,7 +195,7 @@ describe('SendEmailUseCase', () => {
       organizationId: '01900000-0000-7000-8000-000000000002',
       from: 'sender@example.com',
       to: 'recipient@example.com',
-      templateId: buildTemplate().id.toString(),
+      templateId: template.id.toString(),
       variables: {}
     })
 
@@ -248,5 +252,64 @@ describe('SendEmailUseCase', () => {
 
     expect(result.isFailure()).toBe(true)
     expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('fails with InvalidEmailPayloadError and never enqueues when the built payload fails schema validation', async () => {
+    /*
+     * Email.create only checks "from" is non-empty (not real email format) — the outbox payload
+     * schema is stricter (z.email()), so this string clears the domain model but must still
+     * trip the defensive safeParse backstop before any transaction opens.
+     */
+    const createIfNotExists = vi.fn()
+    const emailRepository: EmailRepository = { createIfNotExists }
+    const enqueue = vi.fn()
+    const outbox: OutboxPort = { enqueue }
+    const useCase = new SendEmailUseCase(
+      createTransactionManagerStub(),
+      emailRepository,
+      { findByIdAndProjectId: vi.fn() },
+      outbox
+    )
+
+    const result = await useCase.execute({
+      projectId: '01900000-0000-7000-8000-000000000001',
+      organizationId: '01900000-0000-7000-8000-000000000002',
+      from: 'not-an-email',
+      to: 'recipient@example.com',
+      subject: 'Hi',
+      html: '<p>Hi</p>'
+    })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBeInstanceOf(InvalidEmailPayloadError)
+    expect(createIfNotExists).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('rolls the transaction back to failure when the outbox enqueue fails on a newly created row', async () => {
+    const email = buildEmail()
+    const createIfNotExists = vi.fn().mockResolvedValue(success({ email, created: true }))
+    const emailRepository: EmailRepository = { createIfNotExists }
+    const enqueueError = new EnqueueOutboxMessageError({ error: new Error('kafka unreachable') })
+    const enqueue = vi.fn().mockResolvedValue(failure(enqueueError))
+    const outbox: OutboxPort = { enqueue }
+    const useCase = new SendEmailUseCase(
+      createTransactionManagerStub(),
+      emailRepository,
+      { findByIdAndProjectId: vi.fn() },
+      outbox
+    )
+
+    const result = await useCase.execute({
+      projectId: '01900000-0000-7000-8000-000000000001',
+      organizationId: '01900000-0000-7000-8000-000000000002',
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Hi',
+      html: '<p>Hi</p>'
+    })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBe(enqueueError)
   })
 })

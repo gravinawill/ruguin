@@ -1,7 +1,8 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 
 import { PrismaPg } from '@prisma/adapter-pg'
 
+import { hashApiKey } from '../src/modules/api-keys/domain/hash-api-key'
 import { PrismaClient } from '../src/shared/infrastructure/database/prisma/generated/client'
 
 async function main(): Promise<void> {
@@ -10,10 +11,17 @@ async function main(): Promise<void> {
     throw new Error('DATABASE_URL must be set to run the seed.')
   }
 
+  /*
+   * This app owns exactly one Postgres schema, core_server (see apps/core-server/CLAUDE.md) — a
+   * DATABASE_URL missing ?schema= or pointing at a different one would silently seed into the
+   * wrong place (Postgres defaults to `public`) rather than fail loudly.
+   */
   const schema = new URL(connectionString).searchParams.get('schema')
-  const prisma = new PrismaClient({
-    adapter: new PrismaPg({ connectionString }, schema === null || schema === '' ? {} : { schema })
-  })
+  if (schema !== 'core_server') {
+    throw new Error(`DATABASE_URL must include ?schema=core_server to run the seed (got: ${schema ?? 'none'}).`)
+  }
+
+  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }, { schema }) })
 
   const organization = await prisma.organization.create({ data: { name: 'Dev Organization' } })
   const project = await prisma.project.create({ data: { organizationId: organization.id, name: 'Dev Project' } })
@@ -26,7 +34,7 @@ async function main(): Promise<void> {
    * recoverable afterward, matching the guarantee that only its hash is ever persisted.
    */
   const rawApiKey = randomBytes(32).toString('hex')
-  const hashedKey = createHash('sha256').update(rawApiKey).digest('hex')
+  const hashedKey = hashApiKey({ rawKey: rawApiKey })
   await prisma.apiKey.create({ data: { projectId: project.id, hashedKey } })
 
   console.log('Seeded development data:')

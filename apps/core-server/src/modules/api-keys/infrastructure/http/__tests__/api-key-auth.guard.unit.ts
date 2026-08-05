@@ -5,6 +5,7 @@ import { failure, success } from '@ruguin/utils'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { type ProjectLookupProvider } from '../../../../projects/domain/contracts/project-lookup.provider'
+import { FindProjectError } from '../../../../projects/domain/errors/find-project.error'
 import { Project } from '../../../../projects/domain/models/project.model'
 import { type ApiKeyRepository } from '../../../domain/contracts/api-key.repository'
 import { FindApiKeyError } from '../../../domain/errors/find-api-key.error'
@@ -138,5 +139,62 @@ describe('ApiKeyAuthGuard', () => {
 
     expect(isResult).toBe(true)
     expect(request.authenticatedTenant).toEqual({ projectId: 'project-1', organizationId: 'org-1' })
+  })
+
+  it('propagates an infrastructure failure from the project lookup', async () => {
+    const apiKeyRepository = {
+      findActiveByHashedKey: vi.fn().mockResolvedValue(success({ apiKey: buildApiKey(null) }))
+    } as unknown as ApiKeyRepository
+    const projectLookup = {
+      findById: vi.fn().mockResolvedValue(failure(new FindProjectError({})))
+    } as unknown as ProjectLookupProvider
+    const guard = new ApiKeyAuthGuard(apiKeyRepository, projectLookup, createCacheStub())
+    const { context } = createContext('Bearer sk-valid')
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(FindProjectError)
+  })
+
+  it('rejects when the API key points at a project that no longer exists', async () => {
+    const apiKeyRepository = {
+      findActiveByHashedKey: vi.fn().mockResolvedValue(success({ apiKey: buildApiKey(null) }))
+    } as unknown as ApiKeyRepository
+    const projectLookup = {
+      findById: vi.fn().mockResolvedValue(success({ project: null }))
+    } as unknown as ProjectLookupProvider
+    const guard = new ApiKeyAuthGuard(apiKeyRepository, projectLookup, createCacheStub())
+    const { context } = createContext('Bearer sk-valid')
+
+    await expect(guard.canActivate(context)).rejects.toThrow('Unknown or revoked API key')
+  })
+
+  it('passes the hashed key, a colon/whitespace-free namespace, and a millisecond TTL to cache.getOrSet', async () => {
+    const apiKeyRepository = {
+      findActiveByHashedKey: vi.fn().mockResolvedValue(success({ apiKey: buildApiKey(null) }))
+    } as unknown as ApiKeyRepository
+    const projectLookup = {
+      findById: vi.fn().mockResolvedValue(success({ project: buildProject() }))
+    } as unknown as ProjectLookupProvider
+    const getOrSet = vi.fn(async ({ loader }) => {
+      const loaded = await loader()
+      if (loaded.isFailure()) return failure(loaded.value)
+
+      return success({ value: loaded.value, source: CacheSource.LOADER, lockOutcome: CacheLockOutcome.NOT_ATTEMPTED })
+    })
+    const cache = { getOrSet } as unknown as IGetOrSetCacheProvider
+    const guard = new ApiKeyAuthGuard(apiKeyRepository, projectLookup, cache)
+    const { context } = createContext('Bearer sk-valid')
+
+    await guard.canActivate(context)
+
+    expect(getOrSet).toHaveBeenCalledTimes(1)
+    const [options] = getOrSet.mock.calls[0] as [{ key: string; namespace: string; ttlInMs: number }]
+    expect(options.key).toBe(hashApiKey({ rawKey: 'sk-valid' }))
+    /*
+     * KeyBuilder.validateSegment rejects ':' and whitespace in both namespace and key — see
+     * packages/cache/src/infra/key-builder.ts. A regression here silently no-ops the whole cache.
+     */
+    expect(options.namespace).not.toMatch(/[\s:]/)
+    expect(Number.isSafeInteger(options.ttlInMs)).toBe(true)
+    expect(options.ttlInMs).toBeGreaterThanOrEqual(1000)
   })
 })

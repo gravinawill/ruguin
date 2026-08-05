@@ -20,8 +20,16 @@ const projectId = /projectId:\s+(\S+)/.exec(seedOutput)?.[1]
 const templateId = /templateId:\s+(\S+)/.exec(seedOutput)?.[1]
 const apiKey = /API key:\s+(\S+)/.exec(seedOutput)?.[1]
 
+/*
+ * Report which fields failed to parse, never the raw output — it carries the seeded API key in
+ * cleartext, and this message can land in a CI log with far wider, longer-lived reach than the
+ * terminal it was meant for.
+ */
 if (organizationId === undefined || projectId === undefined || templateId === undefined || apiKey === undefined) {
-  throw new Error(`Failed to parse seed output:\n${seedOutput}`)
+  const missing = Object.entries({ organizationId, projectId, templateId, apiKey })
+    .filter(([, value]) => value === undefined)
+    .map(([name]) => name)
+  throw new Error(`Failed to parse seed output — missing: ${missing.join(', ')}.`)
 }
 
 process.env.TEST_SEEDED_ORGANIZATION_ID = organizationId

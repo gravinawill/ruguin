@@ -29,6 +29,7 @@ export class Email {
     html: string
     createdAt: Date
   }): Either<InvalidEmailError, Email> {
+    if (input.projectId.trim().length === 0) return failure(new InvalidEmailError({ reason: 'projectId is empty' }))
     if (input.from.trim().length === 0) return failure(new InvalidEmailError({ reason: '"from" is empty' }))
     if (input.to.trim().length === 0) return failure(new InvalidEmailError({ reason: '"to" is empty' }))
     if (input.subject.trim().length === 0) return failure(new InvalidEmailError({ reason: 'subject is empty' }))

@@ -16,6 +16,8 @@ import { hashApiKey } from '../../domain/hash-api-key'
 import { type AuthenticatedRequest, type AuthenticatedTenant } from './authenticated-tenant'
 
 const BEARER_PREFIX = 'Bearer '
+// KeyBuilder.validateSegment forbids ':' in namespace/key segments — see packages/cache/src/infra/key-builder.ts.
+const CACHE_NAMESPACE = 'core-server-api-key'
 
 @Injectable()
 export class ApiKeyAuthGuard implements CanActivate {
@@ -64,7 +66,7 @@ export class ApiKeyAuthGuard implements CanActivate {
 
     const cached = await this.cache.getOrSet<AuthenticatedTenant, FindApiKeyError | FindProjectError>({
       key: hashedKey,
-      namespace: 'core-server:api-key',
+      namespace: CACHE_NAMESPACE,
       ttlInMs: coreServerENV.API_KEY_CACHE_TTL_IN_SECONDS * 1000,
       loader: () => this.resolveTenant(hashedKey)
     })

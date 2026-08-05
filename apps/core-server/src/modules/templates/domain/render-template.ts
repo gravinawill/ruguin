@@ -14,13 +14,19 @@ function substitute(text: string, variables: Record<string, string>): Either<Mis
      */
     if (missingVariableName !== undefined) return ''
 
-    const value = variables[variableName]
-    if (value === undefined) {
+    /*
+     * Object.hasOwn, not `variables[variableName] === undefined`: a plain object literal
+     * inherits from Object.prototype, so a template referencing {{toString}} or
+     * {{constructor}} would otherwise resolve to a prototype method (a function, not
+     * undefined) and slip past the missing-variable check entirely.
+     */
+    if (!Object.hasOwn(variables, variableName)) {
       missingVariableName = variableName
       return ''
     }
 
-    return value
+    // Object.hasOwn just confirmed the key is present; noUncheckedIndexedAccess can't see that.
+    return variables[variableName]!
   })
 
   if (missingVariableName !== undefined) {

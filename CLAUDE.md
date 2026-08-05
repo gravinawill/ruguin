@@ -293,3 +293,4 @@ This project is indexed by GitNexus as **ruguin** (478 symbols, 603 relationship
 
 - Prefer `Either`/`Success`/`Failure` from `@ruguin/utils` for expected/domain failures instead of throwing exceptions or inventing ad-hoc result types.
 - Check `@ruguin/utils` before adding a new dependency for common functional/utility helpers.
+- For vitest tests, `vitest-mock-extended` may also be used (e.g. `mock<T>()`/`mockDeep<T>()`) instead of hand-rolled `{ method: vi.fn() } as unknown as T` stubs for mocking contracts/interfaces.
