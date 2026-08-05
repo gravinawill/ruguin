@@ -146,4 +146,35 @@ referenciada até esse commit acontecer).
 
 ## Resultado
 
-_(preenchido depois da implementação)_
+Implementado numa única task (commits `06ecc20`..`37bf767`), revisada limpa de primeira. A revisão
+final de branch inteiro (modelo mais capaz) encontrou 4 problemas reais que a revisão de tarefa não
+pegou — todos corrigidos numa única rodada (commit `e0f01dd`), confirmados pela re-revisão:
+
+- **Critical:** o `git push` do job `promote` colidia com `@semantic-release/git` (`release.yml`),
+  que também empurra um commit `chore(release): x.y.z` pra `master` no mesmo push — não era uma
+  corrida rara, acontecia em praticamente toda release, já que `release.yml` sempre termina
+  primeiro. Corrigido com retry (`git pull --rebase` + nova tentativa, até 3x).
+- **Important:** promover em `develop` **e** `master` ao mesmo tempo garantia conflito de merge em
+  `deployment.yaml` toda vez que `git flow release finish` rodasse — release nasce de `develop` e
+  integra em `master` por merge, e as duas branches reescreviam a mesma linha independentemente.
+  Descoberto durante a revisão final; o usuário, informado do custo concreto (recorrente, não
+  hipotético), decidiu restringir a promoção só a `master` por enquanto — revisitado quando um
+  ambiente de development de verdade existir (ver próxima wave).
+- **Important:** o comentário de `infrastructure/terraform/argocd.tf` acima de `targetRevision =
+  "HEAD"` ainda dizia que "a promotion pipeline that doesn't exist yet" — falso assim que o job
+  `promote` passou a existir. Reescrito pra explicar por que `HEAD` continua correto agora que a
+  imagem está fixada num digest.
+- **Minor:** nenhuma validação de que o digest é bem-formado antes de escrevê-lo no manifesto —
+  como o ArgoCD sincroniza automaticamente (`selfHeal: true`, sem gate manual), um valor malformado
+  chegaria direto ao cluster. Adicionada uma guarda de regex antes do `sed`.
+
+Durante a implementação do fix, o usuário revelou que pretende ter ambientes de production e
+development de verdade — isso não muda a correção do fix aplicado (produção continua correta
+independente disso), mas confirma que suportar múltiplos ambientes é sua própria wave futura
+(overlays por ambiente, uma `Application` do ArgoCD por ambiente), não algo a encaixar
+retroativamente neste mecanismo de promoção single-environment.
+
+Nenhuma aplicação real testada (sem cluster/ArgoCD de verdade neste ambiente, como já esperado) —
+`actionlint`, `terraform fmt`/`validate` e o script de verificação do `sed` (rodado contra GNU sed
+de verdade, não o `sed` padrão do macOS, que tem um bug de parsing de flags diferente) foram os
+únicos checks possíveis.
