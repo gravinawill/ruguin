@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-server
+  labels:
+    app: core-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: core-server
+  template:
+    metadata:
+      labels:
+        app: core-server
+    spec:
+      # core-server never calls the Kubernetes API, so the default token has nothing to do here.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: core-server
+          # Image is set per environment by each overlay's kustomization.yaml `images:`
+          # transformer (overlays/production, overlays/development) — release-image.yml's
+          # "promote" job rewrites the digest there automatically. Never hardcode a tag/digest
+          # here; Kustomize matches this bare image name against each overlay's `images:` entry.
+          image: ghcr.io/gravinawill/ruguin/core-server
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - containerPort: 3333
+              name: http
+          envFrom:
+            - configMapRef:
+                name: core-server-config
+            - secretRef:
+                name: core-server-secrets
+          # Fargate sizes the pod's microVM from the sum of requests, so a limit above the request is
+          # unreachable — matching them keeps what's declared and what's provisioned the same number.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 256Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              ephemeral-storage: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          # Deliberately not /health: that endpoint checks RDS and Valkey, so an outage in either
+          # would restart every replica in a loop without fixing anything. Withdrawing from the
+          # Service is the right response to a sick dependency, and that's readiness' job above.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20

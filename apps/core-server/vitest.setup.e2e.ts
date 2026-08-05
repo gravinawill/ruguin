@@ -2,6 +2,11 @@ import { execSync } from 'node:child_process'
 
 process.env.DATABASE_URL ??= 'postgresql://ruguin:ruguin@localhost:5432/ruguin?schema=core_server'
 process.env.ENVIRONMENT ??= 'test'
+/*
+ * app.module.ts now wires MessageBrokerModule (publishing side of the outbox→dispatch-worker
+ * flow) — matches apps/dispatch-worker's own docker-compose Kafka listener.
+ */
+process.env.KAFKA_BOOTSTRAP_BROKERS ??= 'localhost:9092'
 
 // eslint-disable-next-line sonarjs/no-os-command-from-path -- static command, no interpolated input; `pnpm exec` is the intended way to resolve workspace-local binaries via PATH.
 const seedOutput = execSync('pnpm exec tsx prisma/seed.ts', {

@@ -153,4 +153,75 @@ describe('OutboxRelayService#relay', () => {
     expect((updates[0]?.data as { nextAttemptAt: Date }).nextAttemptAt).toBeInstanceOf(Date)
     expect((updates[0]?.data as { status?: unknown }).status).toBeUndefined()
   })
+
+  it('extracts a message even when publish() rejects with a non-Error value', async () => {
+    const row = createRow({ attempts: 1 })
+    const { prisma, updates } = createPrismaStub([row])
+    const messageProducer: MessageProducerPort = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- Satisfies async publish contract; this stub rejects instead of awaiting
+      publish: vi.fn(async (): Promise<Either<SamplePublishError, void>> => {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error -- Exercising a broker client that rejects with a non-Error value
+        throw 'ECONNRESET'
+      })
+    }
+
+    const relay = new OutboxRelayService(prisma, messageProducer)
+    await relay.relay()
+
+    expect(updates[0]?.data).toMatchObject({ lastError: 'ECONNRESET' })
+  })
+
+  it('swallows a whole-transaction failure so one bad @Interval tick cannot crash the scheduler, and clears the running guard for the next tick', async () => {
+    let transactionAttempts = 0
+    const prisma = {
+      $transaction: () => {
+        transactionAttempts += 1
+        return Promise.reject(new Error('deadlock detected'))
+      },
+      schema: 'core_server'
+    } as unknown as PrismaService
+    const publish = vi.fn()
+    const relay = new OutboxRelayService(prisma, { publish })
+
+    await expect(relay.relay()).resolves.toBeUndefined()
+    await expect(relay.relay()).resolves.toBeUndefined()
+
+    expect(transactionAttempts).toBe(2)
+    expect(publish).not.toHaveBeenCalled()
+  })
+
+  it('swallows a whole-transaction failure even when it rejects with a non-Error value', async () => {
+    const prisma = {
+      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- exercising a rejection reason that isn't an Error, on purpose
+      $transaction: () => Promise.reject('connection pool exhausted'),
+      schema: 'core_server'
+    } as unknown as PrismaService
+    const messageProducer: MessageProducerPort = { publish: vi.fn() }
+    const relay = new OutboxRelayService(prisma, messageProducer)
+
+    await expect(relay.relay()).resolves.toBeUndefined()
+  })
+
+  it('skips a tick entirely while the previous one is still running, instead of starting a second transaction on top of it', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- Promise.withResolvers<void>() is the documented signature for a promise with no resolved value
+    const firstTransaction = Promise.withResolvers<void>()
+    let transactionStarts = 0
+    const prisma = {
+      $transaction: () => {
+        transactionStarts += 1
+        return firstTransaction.promise
+      },
+      schema: 'core_server'
+    } as unknown as PrismaService
+    const messageProducer: MessageProducerPort = { publish: vi.fn() }
+    const relay = new OutboxRelayService(prisma, messageProducer)
+
+    const firstTick = relay.relay()
+    await relay.relay()
+
+    expect(transactionStarts).toBe(1)
+
+    firstTransaction.resolve()
+    await firstTick
+  })
 })

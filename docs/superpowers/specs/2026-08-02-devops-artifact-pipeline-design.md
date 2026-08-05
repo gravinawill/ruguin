@@ -153,3 +153,59 @@ Três lacunas concretas:
   tentativa.
 - **Node 26 é recente.** O `preinstall` do Prisma declara suporte até 24; funciona hoje, verificado,
   mas um upgrade de qualquer um dos dois pode quebrar sem aviso.
+
+## Resultado
+
+`pnpm run check`, `pnpm build` e `npx turbo test:all` passam limpos (7/7, 7/7, 5/5). A imagem final
+(`node:26.5.1-alpine`, com `pino-pretty` incluído) tem **183,5 MB**, confirmado via `docker inspect
+--format='{{.Size}}'` — o `docker images` chegou a reportar 891 MB para a mesma imagem por conta de
+como o containerd store do buildx soma blobs de atestação; o número de `docker inspect` é o real.
+
+### Cobertura efetivamente aplicada
+
+Nenhum pacote chegou a 100% em todas as quatro métricas na primeira medição; cada threshold é o
+degrau medido, registrado no próprio `vitest.config.ts` do pacote — não um valor arbitrário nem uma
+promessa futura sem data:
+
+| Pacote | Statements | Branches | Functions | Lines |
+|---|---|---|---|---|
+| `@ruguin/cache` | 83 | 75 | 79 | 91 |
+| `@ruguin/core-server` (unit) | 91 | 93 | 87 | 92 |
+| `@ruguin/env` | 83 | 75 | 90 | 83 |
+| `@ruguin/shared-domain` | 96 | 78 | 100 | 100 |
+| `@ruguin/utils` | 100 | 100 | 100 | 100 |
+
+`@ruguin/core-server`'s `test:cov` cobre só o project `unit` — `integration` e `e2e` seguem fora do
+gate de cobertura porque dependem de Postgres e Valkey vivos, que a máquina de quem desenvolve tem
+via `docker compose` mas o script de cobertura, sozinho, não garante.
+
+### Decisões do plano que a implementação precisou mudar
+
+- **`pnpm deploy --prod --legacy`.** A flag `--legacy` não estava na Decisão 3; sem ela o `pnpm
+  deploy` desta versão rejeita o layout do workspace.
+- **Task 3.5, não prevista.** `@ruguin/env`, `@ruguin/utils` e `@ruguin/shared-domain` (então
+  `ddd-kernel`) eram consumidos como fonte (`./src/index.ts`). Isso funciona por acidente via
+  symlink do pnpm em desenvolvimento, mas `pnpm deploy` materializa arquivo real dentro de
+  `node_modules`, e Node recusa type-stripping de `.ts` ali — `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`.
+  Os três passaram a ser buildados com `tsdown`, no mesmo padrão que `@ruguin/cache` já usava.
+- **`test:coverage` era gate morto.** O vitest do workspace raiz não propaga `test.projects`
+  aninhados nem os thresholds de cada pacote — `turbo run test:cov` por pacote resolveu, e cada
+  configuração local passou a valer de fato.
+- **CI nunca provisionava Valkey.** O gate de cobertura de `@ruguin/cache` mede unit e integration
+  juntos por design (é como o driver Valkey é exercitado), mas o `ci.yml` nunca subia um Valkey para
+  os testes de integração se conectarem — a primeira execução real, após o fix do gate morto acima,
+  falhou com `Cache connection failed`. `ci.yml` sobe master + réplica via `docker run` direto (o
+  bloco `services:` do GitHub Actions não tem campo para sobrescrever o comando do container, que a
+  réplica precisa via `--replicaof`), com espera pelo link de replicação, não só `PONG`.
+- **QEMU quebrava `prisma generate` no cross-build.** A primeira publicação real revelou que
+  cross-buildar `linux/arm64` no runner amd64 corrompe o stdout do `schema-engine` nativo sob
+  emulação (`Unable to parse JSON [Context: getDmmf]`). Como o `core-server` não tem nenhuma
+  dependência nativa em produção (verificado com `pnpm deploy --prod`), as etapas `pruner` e
+  `builder` do Dockerfile passaram a fixar `--platform=$BUILDPLATFORM`: rodam uma vez, nativas, e só
+  a etapa final cruza arquitetura.
+- **`pino-pretty` faltava em produção.** `createPinoHttpOptions` pede esse transport sempre que
+  `ENVIRONMENT !== 'production'`, mas o pacote vivia em `devDependencies` — qualquer ambiente não-
+  produção (staging, local) quebrava o boot com `unable to determine transport target for
+  "pino-pretty"`. Reproduzido rodando a imagem com `ENVIRONMENT=local`, o mesmo cenário do critério
+  de aceite da Task 3.5. Movido para `dependencies`; sem binário nativo, não reabre o problema do
+  item anterior.

@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1
+#
+# Local development only — not what release-image.yml builds or publishes (that's ./Dockerfile).
+# Single stage, full devDependencies, nodemon watch mode. Bind-mount the repo over /repo for live
+# reload; without a mount this still works off the COPY below, just without picking up edits.
+#
+#   docker build -f apps/core-server/Dockerfile.dev -t ruguin/core-server:dev .
+#   docker run --rm -it -p 3333:3333 -v "$(pwd)":/repo \
+#     -v /repo/node_modules -v /repo/apps/core-server/node_modules \
+#     -w /repo/apps/core-server --network ruguin_default ruguin/core-server:dev
+#
+# The two extra -v flags are anonymous volumes over the bind mount's node_modules subpaths —
+# without them, the host's bind-mounted /repo shadows the image-installed dependencies entirely
+# (the host repo has no node_modules unless it happens to have been installed there too).
+#
+# The backing services (Postgres, Kafka, Valkey, LocalStack, ...) still come from
+# infrastructure/local/docker-compose.yml — this image only runs the app itself.
+FROM node:26.5.1-alpine
+WORKDIR /repo
+
+# node:26 dropped the bundled corepack binary; npm is still present, so it installs corepack itself.
+RUN npm install -g corepack@0.35.0 --ignore-scripts && corepack enable
+
+COPY . .
+# No --ignore-scripts here, unlike the production Dockerfile: dev needs Prisma's schema-engine
+# and the other native builds (@swc/core, esbuild) that `pnpm-workspace.yaml`'s
+# onlyBuiltDependencies list allows, since `pnpm dev` runs the real build on every file change.
+# chown after install, same as the production Dockerfile's final COPY --chown: `pnpm run dev`
+# below runs as the unprivileged "node" user, and it rewrites the Prisma client and other
+# generated output on every watched change — without this, those writes would hit files this
+# RUN step (still root at this point) already created, and fail with EACCES.
+RUN pnpm install --frozen-lockfile && chown -R node:node /repo
+
+WORKDIR /repo/apps/core-server
+EXPOSE 3333
+# node:26-alpine ships a built-in "node" user (uid/gid 1000). On Linux hosts where the calling
+# user's uid differs from 1000, the bind mount above may need `docker run --user "$(id -u):$(id -g)"`
+# to keep write access — harmless to add unconditionally since it only overrides the container's
+# default, already-unprivileged user.
+USER node
+CMD ["pnpm", "run", "dev"]
