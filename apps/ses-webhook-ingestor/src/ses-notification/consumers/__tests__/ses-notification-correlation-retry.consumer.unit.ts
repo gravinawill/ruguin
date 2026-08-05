@@ -1,6 +1,7 @@
 import { SES_NOTIFICATION_CORRELATION_RETRY_TOPIC, SES_NOTIFICATION_MALFORMED_DLQ_TOPIC } from '@ruguin/event-schemas'
 import { type MessageConsumerPort, type MessageProducerPort, type SubscribeInput } from '@ruguin/message-broker'
-import { failure, success } from '@ruguin/utils'
+import { type BaseError } from '@ruguin/shared-domain'
+import { type Either, failure, success } from '@ruguin/utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { type ResolvePendingCorrelationUseCase } from '../../application/use-cases/resolve-pending-correlation.use-case.ts'
@@ -23,7 +24,7 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     let subscribeInput: SubscribeInput | undefined
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         subscribeInput = input
         return success(undefined)
       })
@@ -55,7 +56,7 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -89,7 +90,7 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -119,7 +120,7 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -157,7 +158,7 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -195,7 +196,7 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -233,7 +234,7 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -271,7 +272,7 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
@@ -301,7 +302,7 @@ describe('SesNotificationCorrelationRetryConsumer', () => {
     let onMessage!: SubscribeInput['onMessage']
     const fakeConsumer: MessageConsumerPort = {
       // eslint-disable-next-line @typescript-eslint/require-await -- Async is required by interface contract
-      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput) => {
+      subscribe: vi.fn().mockImplementation(async (input: SubscribeInput): Promise<Either<BaseError, void>> => {
         onMessage = input.onMessage
         return success(undefined)
       })
