@@ -74,7 +74,7 @@ Getting it would require either running with a real `GH_TOKEN` (out of scope her
 `@semantic-release/github` plugin from a throwaway test config to isolate the versioning/tagging
 plugins from the GitHub-publishing plugins — neither of which Step 4 as written asked for.
 
-## Question 3: Did every one of the 12 workspaces get analyzed?
+## Question 3: Did every one of the 11 workspaces (the brief's original count of 12 double-counted `packages/ddd-kernel`, renamed to `packages/shared-domain` in commit `98a7d0e` and no longer a real package — corrected here) get analyzed?
 
 **No — only 6 of the packages that actually exist were analyzed, and the "12" premise itself is
 partly stale.**
