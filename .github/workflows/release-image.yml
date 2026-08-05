@@ -138,7 +138,7 @@ jobs:
     needs: image
     if: |
       github.event_name != 'pull_request' &&
-      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+      github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -148,6 +148,7 @@ jobs:
 
       - name: Update deployment image digest
         run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::refusing to promote invalid digest '$DIGEST'"; exit 1; }
           sed -i -E "s#image: ${IMAGE}(:[^[:space:]]+|@sha256:[a-f0-9]+)#image: ${IMAGE}@${DIGEST}#" \
             infrastructure/k8s/core-server/deployment.yaml
         env:
@@ -161,6 +162,13 @@ jobs:
           git diff --quiet -- infrastructure/k8s/core-server/deployment.yaml && exit 0
           git add infrastructure/k8s/core-server/deployment.yaml
           git commit -m "chore(deploy): promote core-server to ${DIGEST}"
-          git push
+          for attempt in 1 2 3; do
+            echo "Push attempt $attempt/3..."
+            if git push; then
+              exit 0
+            fi
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
+          exit 1
         env:
           DIGEST: ${{ needs.image.outputs.digest }}

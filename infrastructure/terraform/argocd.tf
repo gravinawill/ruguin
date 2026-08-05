@@ -43,10 +43,9 @@ resource "kubectl_manifest" "core_server_application" {
       project = "default"
       source = {
         repoURL = var.argocd_repo_url
-        # Known gap, deliberately deferred: HEAD tracks the branch tip, and the Deployment's
-        # image tag is `latest` (see deployment.yaml) — neither is pinned to a signed release.
-        # Promoting to an immutable release tag / image digest needs a release-promotion
-        # pipeline that doesn't exist yet; tracked as a known risk, not a silent gap.
+        # The image is pinned to a digest by release-image.yml's "promote" job (only runs on
+        # push to master, after a build is scanned and signed) — HEAD stays correct to track
+        # here because this directory only changes via that deliberate commit, not implicitly.
         targetRevision = "HEAD"
         path           = "infrastructure/k8s/core-server"
       }
