@@ -81,3 +81,35 @@ describe('coreServerENV.API_KEY_CACHE_TTL_IN_SECONDS', () => {
     expect(coreServerENV.API_KEY_CACHE_TTL_IN_SECONDS).toBe(120)
   })
 })
+
+describe('coreServerENV.SENDER_IDENTITY_CACHE_TTL_IN_SECONDS', () => {
+  const ORIGINAL_ENV = { ...process.env }
+
+  beforeEach(() => {
+    vi.resetModules()
+    process.env.ENVIRONMENT = 'test'
+    process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/db'
+    process.env.CACHE_PREFIX = 'ruguin:core-server'
+    process.env.KAFKA_BOOTSTRAP_BROKERS = 'localhost:9092'
+    process.env.DOCS_USERNAME = 'docs'
+    process.env.DOCS_PASSWORD = 'docs'
+  })
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV }
+  })
+
+  it('defaults to 300 when unset', async () => {
+    delete process.env.SENDER_IDENTITY_CACHE_TTL_IN_SECONDS
+    const { coreServerENV } = await import('../core-server.environment.ts')
+
+    expect(coreServerENV.SENDER_IDENTITY_CACHE_TTL_IN_SECONDS).toBe(300)
+  })
+
+  it('reads a positive integer override from the environment', async () => {
+    process.env.SENDER_IDENTITY_CACHE_TTL_IN_SECONDS = '120'
+    const { coreServerENV } = await import('../core-server.environment.ts')
+
+    expect(coreServerENV.SENDER_IDENTITY_CACHE_TTL_IN_SECONDS).toBe(120)
+  })
+})

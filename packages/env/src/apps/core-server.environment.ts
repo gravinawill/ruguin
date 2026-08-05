@@ -23,7 +23,8 @@ export const coreServerENV = lazyEnvironment(() =>
        * How long a resolved (projectId, organizationId) tuple for a given API key stays cached.
        * Revoking a key has no effect until this expires — accepted explicitly by ticket EMAIL-3.
        */
-      API_KEY_CACHE_TTL_IN_SECONDS: z.coerce.number().int().positive().default(300)
+      API_KEY_CACHE_TTL_IN_SECONDS: z.coerce.number().int().positive().default(300),
+      SENDER_IDENTITY_CACHE_TTL_IN_SECONDS: z.coerce.number().int().positive().default(300)
     },
     extends: [serverENV, databaseENV, cacheENV, messageBrokerENV, docsENV, awsENV],
     runtimeEnv: process.env,
