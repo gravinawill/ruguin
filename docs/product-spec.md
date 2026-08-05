@@ -64,7 +64,7 @@ Nenhum dos seis serviços tem nome de diretório fixado no monorepo ainda além 
 - Mensagens malformadas/corrompidas vão para a DLQ de `email.send.requested`, sem travar o processamento das mensagens seguintes.
 - Proteção contra reenvio duplicado da mesma mensagem Kafka (entrega "pelo menos uma vez").
 
-### 3.4 Recepção de status de entrega — [Planejado]
+### 3.4 Recepção de status de entrega — [Implementado]
 
 - Endpoint HTTP que recebe notificações da SES via Amazon EventBridge (delivered, bounce, complaint) — não SNS; ver `docs/superpowers/specs/2026-08-04-ses-webhook-ingestor-design.md`.
 - Mantém uma tabela de correlação `sesMessageId → emailId`, populada a partir de `email.status.updated` (`status=sent`) — a notificação da SES só carrega o `sesMessageId`, nunca o `emailId` interno.
