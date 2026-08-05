@@ -31,6 +31,16 @@ same `TransactionManager`/`OutboxPort` the outbox-pattern plan already built.
   so they only need `domain/` (`models/`, `errors/`, `contracts/`) and `infrastructure/`.
 - **Every `Either`-returning function has an explicit return type annotation** — `success(x)` alone
   infers `Either<unknown, X>`.
+- **Never `return` a narrowed `Failure`/`Success` value directly across a function boundary whose
+  success type differs from the value's own** — `if (x.isFailure()) return x` only type-checks when
+  `x`'s success type is identical to the enclosing function's declared success type. `Failure<F, S>`
+  and `Success<F, S>` both reference the *other* branch's success type in their `isFailure()`/
+  `isSuccess()` type-predicate signatures, so TypeScript treats `Failure<F, S1>` and `Failure<F, S2>`
+  as structurally different when `S1 ≠ S2`, even though `Failure` itself only stores `F`. Always
+  re-wrap instead: `return failure(x.value)`. Every occurrence of this pattern already in this plan's
+  code has been written as `return failure(x.value)` for exactly this reason — keep new code
+  consistent with it rather than reaching for `as unknown as Either<...>`, which silently discards
+  type safety instead of fixing the actual mismatch.
 - **Repository code casts `tx as unknown as Prisma.TransactionClient`** exactly like
   `apps/core-server/src/shared/infrastructure/outbox/outbox.repository.ts:17` — no other cast to a
   Prisma type is introduced.
@@ -1457,14 +1467,16 @@ export function renderTemplate(input: {
   variables: Record<string, string>
 }): Either<MissingTemplateVariableError, { subject: string; html: string }> {
   const subjectResult = substitute(input.subject, input.variables)
-  if (subjectResult.isFailure()) return subjectResult
+  if (subjectResult.isFailure()) return failure(subjectResult.value)
 
   const htmlResult = substitute(input.html, input.variables)
-  if (htmlResult.isFailure()) return htmlResult
+  if (htmlResult.isFailure()) return failure(htmlResult.value)
 
   return success({ subject: subjectResult.value, html: htmlResult.value })
 }
 ```
+
+`return failure(x.value)`, never `return x` directly: `Either`'s `Failure<F, S>`/`Success<F, S>` both reference the *other* branch's success type in their `isFailure()`/`isSuccess()` type-predicate signatures, so a `Failure<F, string>` is not structurally assignable to `Failure<F, { subject; html }>` even though `Failure` itself only stores `F` — TypeScript sees the predicate mismatch. Re-wrapping the already-known error value in a fresh `failure()` call sidesteps this entirely (same pattern already used by every repository's `toDomain` error path above).
 
 - [ ] **Step 4: Run the tests again**
 
@@ -1902,7 +1914,7 @@ function createCacheStub(): IGetOrSetCacheProvider {
   return {
     getOrSet: vi.fn(async ({ loader }) => {
       const loaded = await loader()
-      if (loaded.isFailure()) return loaded
+      if (loaded.isFailure()) return failure(loaded.value)
 
       return success({ value: loaded.value, source: CacheSource.LOADER, lockOutcome: CacheLockOutcome.NOT_ATTEMPTED })
     })
@@ -2015,7 +2027,7 @@ export class ApiKeyUnauthorizedError extends BaseError {
 import { type CanActivate, type ExecutionContext, Inject, Injectable } from '@nestjs/common'
 import { GET_OR_SET_CACHE_PROVIDER, type IGetOrSetCacheProvider } from '@ruguin/cache'
 import { coreServerENV } from '@ruguin/env'
-import { type Either, success } from '@ruguin/utils'
+import { type Either, failure, success } from '@ruguin/utils'
 
 import { API_KEY_REPOSITORY, type ApiKeyRepository } from '../../domain/contracts/api-key.repository'
 import { ApiKeyUnauthorizedError } from '../../domain/errors/api-key-unauthorized.error'
@@ -2038,11 +2050,11 @@ export class ApiKeyAuthGuard implements CanActivate {
 
   private async resolveTenant(hashedKey: string): Promise<Either<FindApiKeyError | FindProjectError, AuthenticatedTenant | null>> {
     const apiKeyResult = await this.apiKeyRepository.findActiveByHashedKey({ hashedKey })
-    if (apiKeyResult.isFailure()) return apiKeyResult
+    if (apiKeyResult.isFailure()) return failure(apiKeyResult.value)
     if (apiKeyResult.value.apiKey === null) return success(null)
 
     const projectResult = await this.projectLookup.findById({ projectId: apiKeyResult.value.apiKey.projectId })
-    if (projectResult.isFailure()) return projectResult
+    if (projectResult.isFailure()) return failure(projectResult.value)
     if (projectResult.value.project === null) return success(null)
 
     return success({
@@ -3047,7 +3059,7 @@ export class SendEmailUseCase {
         templateId: input.templateId,
         projectId: input.projectId
       })
-      if (templateResult.isFailure()) return templateResult
+      if (templateResult.isFailure()) return failure(templateResult.value)
       if (templateResult.value.template === null) {
         return failure(new TemplateNotFoundError({ templateId: input.templateId }))
       }
@@ -3057,7 +3069,7 @@ export class SendEmailUseCase {
         html: templateResult.value.template.html,
         variables: input.variables
       })
-      if (rendered.isFailure()) return rendered
+      if (rendered.isFailure()) return failure(rendered.value)
 
       subject = rendered.value.subject
       html = rendered.value.html
@@ -3089,7 +3101,7 @@ export class SendEmailUseCase {
 
     return this.transactionManager.execute(async (tx) => {
       const createResult = await this.emailRepository.createIfNotExists({ email: emailResult.value, tx })
-      if (createResult.isFailure()) return createResult
+      if (createResult.isFailure()) return failure(createResult.value)
 
       const { email: persisted, created } = createResult.value
 
@@ -3106,7 +3118,7 @@ export class SendEmailUseCase {
         })
         const event = Event.create(EMAIL_SEND_REQUESTED_TOPIC, payload)
         const enqueued = await this.outbox.enqueue(event, { topic: EMAIL_SEND_REQUESTED_TOPIC, key: persisted.projectId }, tx)
-        if (enqueued.isFailure()) return enqueued
+        if (enqueued.isFailure()) return failure(enqueued.value)
       }
 
       return success(persisted)
