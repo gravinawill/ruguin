@@ -1,0 +1,11 @@
+model Template {
+  id        String   @id @default(uuid(7))
+  projectId String
+  name      String
+  subject   String
+  html      String
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@map("templates")
+}
