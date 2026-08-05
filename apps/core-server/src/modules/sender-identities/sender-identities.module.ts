@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common'
 
+import { ListSenderIdentitiesUseCase } from './application/use-cases/list-sender-identities.use-case'
+import { RegisterSenderIdentityUseCase } from './application/use-cases/register-sender-identity.use-case'
 import { SES_IDENTITY_PROVIDER } from './domain/contracts/providers/ses-identity.provider'
 import { SENDER_IDENTITY_REPOSITORY } from './domain/contracts/repositories/sender-identity.repository'
 import { SENDER_IDENTITY_CACHE_PROVIDER } from './domain/contracts/sender-identity-cache.provider'
@@ -16,7 +18,9 @@ import { SenderIdentityRepository } from './infrastructure/database/prisma/sende
     AwsSesIdentityProvider,
     { provide: SES_IDENTITY_PROVIDER, useExisting: AwsSesIdentityProvider },
     SenderIdentityCacheProvider,
-    { provide: SENDER_IDENTITY_CACHE_PROVIDER, useExisting: SenderIdentityCacheProvider }
+    { provide: SENDER_IDENTITY_CACHE_PROVIDER, useExisting: SenderIdentityCacheProvider },
+    RegisterSenderIdentityUseCase,
+    ListSenderIdentitiesUseCase
   ],
   exports: [SENDER_IDENTITY_REPOSITORY, SES_IDENTITY_PROVIDER, SENDER_IDENTITY_CACHE_PROVIDER]
 })
