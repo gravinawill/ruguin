@@ -275,6 +275,20 @@ produção.
   conscientemente pelo custo (ver Contexto); se o tráfego de qualquer um dos dois crescer a ponto de
   interferir no outro, separar as instâncias vira a próxima decisão a revisitar, não algo a
   antecipar sem sinal real de que é necessário.
+- **O compartilhamento é blast radius de credencial, não só de disponibilidade.**
+  `DATABASE_URL` de development usa o mesmo usuário master do RDS que produção — o `?schema=`
+  só define o `search_path` da conexão, a role continua com acesso irrestrito de leitura e
+  escrita a QUALQUER schema, incluindo `core_server` de produção. `CACHE_MASTER_URL` é idêntico
+  byte a byte ao de produção (mesmo endpoint, mesmo AUTH token); só o `CACHE_PREFIX` no ConfigMap
+  separa as chaves por convenção de aplicação, não por permissão. Um bug ou comando manual
+  disparado contra development (`FLUSHALL`, uma migration mal escrita) pode atingir dados de
+  produção diretamente. Mitigação real (role Postgres dedicada com `GRANT` restrito a
+  `core_server_dev`) fica fora do escopo desta wave — registrado aqui para não ser esquecido, não
+  porque o risco seja aceitável indefinidamente.
+- **`develop` passa a receber commits de bot** (o job `promote`, junto com quem já empurra
+  código de verdade nessa branch) — o retry do CI protege o push do próprio CI, mas um
+  desenvolvedor rodando `git flow release finish` ou um push manual em `develop` pode esbarrar
+  num push rejeitado se coincidir com uma promoção em andamento. Fricção nova, não um bug.
 - **Segundo NLB público aumenta a superfície exposta na internet** — mesma ressalva já registrada
   na spec de observabilidade pra produção ("sem WAF/autenticação de borda") agora vale pros dois
   endereços, não só um. `core-server` já tem seus próprios guards (Basic Auth em `/docs`), então o

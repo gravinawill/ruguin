@@ -46,6 +46,12 @@ resource "kubectl_manifest" "core_server_application" {
         # The image is pinned to a digest by release-image.yml's "promote" job (only runs on
         # push to master, after a build is scanned and signed) — HEAD stays correct to track
         # here because this directory only changes via that deliberate commit, not implicitly.
+        #
+        # Apply-ordering prerequisite: this `path` only exists once this branch's Kustomize
+        # restructure has actually landed on master via a real merge — applying before that gives
+        # ArgoCD a ComparisonError, not a clean no-op. And even after master has the new layout,
+        # production needs one successful "promote" run there before this overlay's placeholder
+        # digest is replaced with a real one.
         targetRevision = "HEAD"
         path           = "infrastructure/k8s/core-server/overlays/production"
       }
@@ -90,7 +96,10 @@ resource "kubectl_manifest" "core_server_dev_application" {
         repoURL = var.argocd_repo_url
         # Unlike production's Application above, this tracks the literal "develop" branch, not
         # HEAD (which resolves to the repo's default branch, master) — development follows
-        # develop specifically, independent of whatever master is doing.
+        # develop specifically, independent of whatever master is doing. Same apply-ordering
+        # prerequisite as core_server_application's comment above, but for develop instead of
+        # master — usually a shorter window since this repo's git-flow routes feature/bugfix work
+        # through develop first.
         targetRevision = "develop"
         path           = "infrastructure/k8s/core-server/overlays/development"
       }

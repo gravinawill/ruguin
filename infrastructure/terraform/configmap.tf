@@ -29,7 +29,7 @@ resource "kubernetes_config_map" "core_server_dev_config" {
   }
 
   data = {
-    ENVIRONMENT = "development"
+    ENVIRONMENT = "develop"
     PORT        = "3333"
 
     # Same RDS/ElastiCache as production (see external-secrets.tf's core_server_dev_secrets for

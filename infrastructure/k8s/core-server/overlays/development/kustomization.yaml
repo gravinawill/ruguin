@@ -8,6 +8,9 @@ patches:
     target:
       kind: Deployment
       name: core-server
+# The digest below is a placeholder (sha256: + 64 zeros), never a real image — no read:packages
+# scope was available to seed a real one. release-image.yml's "promote" job overwrites it with
+# the real, scanned-and-signed digest on the next push to develop. Do not edit by hand.
 images:
   - name: ghcr.io/gravinawill/ruguin/core-server
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

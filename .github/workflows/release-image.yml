@@ -149,6 +149,9 @@ jobs:
       - name: Update overlay image digest
         run: |
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::refusing to promote invalid digest '$DIGEST'"; exit 1; }
+          # Assumes exactly one entry under images: per overlay — this sed isn't anchored to the
+          # image name, so a second entry would get the same digest written into both. True today
+          # (single-image deployment); revisit this pattern if that ever changes.
           sed -i -E "s#digest: sha256:[0-9a-f]+#digest: ${DIGEST}#" \
             "infrastructure/k8s/core-server/overlays/${OVERLAY}/kustomization.yaml"
         env:
