@@ -28,4 +28,10 @@ describe('Project.create', () => {
 
     expect(result.isFailure()).toBe(true)
   })
+
+  it('rejects an empty organizationId', () => {
+    const result = Project.create({ id: validId(), organizationId: '', name: 'Prod', createdAt: new Date() })
+
+    expect(result.isFailure()).toBe(true)
+  })
 })
