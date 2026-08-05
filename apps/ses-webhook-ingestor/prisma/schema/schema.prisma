@@ -1,0 +1,9 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../../src/shared/infrastructure/database/prisma/generated"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}

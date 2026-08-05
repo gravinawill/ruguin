@@ -1,10 +1,25 @@
 import { Module } from '@nestjs/common'
 import { CacheModule } from '@ruguin/cache'
-import { cacheENV } from '@ruguin/env'
+import { cacheENV, databaseENV } from '@ruguin/env'
 import { LoggerModule } from 'nestjs-pino'
 
 import { HealthModule } from './health/health.module.ts'
+import { DatabaseModule } from './shared/infrastructure/database/database.module.ts'
 import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-options.ts'
+
+/*
+ * Same Postgres instance/database as every other app (docs/superpowers/specs/2026-08-04-ses-webhook-ingestor-design.md
+ * "Cada serviço possui seu próprio schema Postgres dentro da mesma instância") — isolation comes
+ * from a distinct schema, not a distinct DATABASE_URL, since the whole monorepo shares one root
+ * .env. PrismaService reads the schema back out of the connection string's `schema` query param
+ * (see prisma.service.ts's resolveSchemaFrom).
+ */
+const DATABASE_SCHEMA = 'ses_webhook_ingestor'
+
+export function withSchema(connectionString: string): string {
+  const separator = connectionString.includes('?') ? '&' : '?'
+  return `${connectionString}${separator}schema=${DATABASE_SCHEMA}`
+}
 
 @Module({
   imports: [
@@ -33,6 +48,10 @@ import { createPinoHttpOptions } from './shared/infrastructure/logger/pino-http-
       },
       ...(cacheENV.CACHE_MASTER_URL !== undefined && { masterUrl: cacheENV.CACHE_MASTER_URL }),
       ...(cacheENV.CACHE_REPLICA_URLS.length > 0 && { replicaUrls: cacheENV.CACHE_REPLICA_URLS })
+    }),
+
+    DatabaseModule.forRoot({
+      connectionString: withSchema(databaseENV.DATABASE_URL)
     }),
 
     HealthModule

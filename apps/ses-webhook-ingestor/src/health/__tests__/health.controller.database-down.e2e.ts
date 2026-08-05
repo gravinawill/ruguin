@@ -6,12 +6,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { AppModule } from '../../app.module.ts'
 
 vi.hoisted(() => {
-  process.env.CACHE_PREFIX = 'ruguin:e2e'
+  process.env.CACHE_PREFIX = 'ruguin:e2e-db-down'
   process.env.CACHE_DRIVER = 'memory'
-  process.env.DATABASE_URL ??= 'postgresql://ruguin:ruguin@localhost:5432/ruguin'
+  // Deliberately unreachable — proves the health check reports "down" instead of hanging or throwing.
+  process.env.DATABASE_URL = 'postgresql://ruguin:ruguin@localhost:1/ruguin'
 })
 
-describe('GET /health', () => {
+describe('GET /health with Postgres unreachable', () => {
   let app: INestApplication
 
   beforeAll(async () => {
@@ -26,16 +27,13 @@ describe('GET /health', () => {
     await app.close()
   })
 
-  it('returns 200 with cache and database reported as up', async () => {
+  it('returns 503 with database reported as down', async () => {
     const response = await (app as unknown as NestFastifyApplication)
       .getHttpAdapter()
       .getInstance()
       .inject({ method: 'GET', url: '/health' })
 
-    expect(response.statusCode).toBe(200)
-    expect(JSON.parse(response.payload)).toMatchObject({
-      status: 'ok',
-      info: { cache: { status: 'up' }, database: { status: 'up' } }
-    })
-  })
+    expect(response.statusCode).toBe(503)
+    expect(JSON.parse(response.payload)).toMatchObject({ status: 'error', error: { database: { status: 'down' } } })
+  }, 15_000)
 })

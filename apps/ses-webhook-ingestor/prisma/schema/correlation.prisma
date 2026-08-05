@@ -1,0 +1,10 @@
+// sesMessageId is the AWS-assigned SES message id (dispatch-worker's SendEmailCommand response),
+// the only identifier the EventBridge notification carries back — see the design doc's
+// "Decisão de arquitetura: correlação sesMessageId → emailId".
+model SesMessageCorrelation {
+  sesMessageId String   @id
+  emailId      String
+  createdAt    DateTime @default(now())
+
+  @@map("ses_message_correlations")
+}
