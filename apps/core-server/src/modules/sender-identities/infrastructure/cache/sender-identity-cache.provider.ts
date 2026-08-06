@@ -50,7 +50,7 @@ export class SenderIdentityCacheProvider implements SenderIdentityCacheProviderC
      * ISerializerStrategy (JSON.stringify/parse), which strips the SenderIdentity prototype and
      * turns verifiedAt/createdAt back into strings: the value is a plain object shaped like
      * SenderIdentity, not an instance, so `.isVerified()` throws TypeError on the caller's side.
-     * Reidrating unconditionally (hit or miss) means both paths return the exact same guarantee.
+     * Rehydrating unconditionally (hit or miss) means both paths return the exact same guarantee.
      */
     return this.toDomain(cached.value.value)
   }

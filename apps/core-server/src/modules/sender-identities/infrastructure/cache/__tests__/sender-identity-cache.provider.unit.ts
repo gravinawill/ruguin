@@ -139,7 +139,7 @@ describe('SenderIdentityCacheProvider', () => {
       if (result.isSuccess()) expect(result.value).toBeNull()
     })
 
-    it('reidrates a real SenderIdentity instance from a cache hit, so isVerified() keeps working after the JSON round-trip', async () => {
+    it('rehydrates a real SenderIdentity instance from a cache hit, so isVerified() keeps working after the JSON round-trip', async () => {
       const senderIdentity = buildSenderIdentity()
       const findByIdMock = vi.fn().mockResolvedValue(success({ senderIdentity }))
       const repository = { findById: findByIdMock } as unknown as SenderIdentityRepository

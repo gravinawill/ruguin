@@ -67,6 +67,20 @@ describe('SenderIdentity.create', () => {
     expect(result.isFailure()).toBe(true)
   })
 
+  it('falls back to an empty domain when the email has no @ (create only checks email is non-empty, not well-formed — well-formedness is enforced at the DTO boundary, not here)', () => {
+    const result = SenderIdentity.create({
+      id: validId(),
+      projectId: 'project-1',
+      name: 'Will Gravina',
+      email: 'not-an-email',
+      verifiedAt: null,
+      createdAt: new Date()
+    })
+
+    expect(result.isSuccess()).toBe(true)
+    if (result.isSuccess()) expect(result.value.domain).toBe('')
+  })
+
   it('rejects an empty email', () => {
     const result = SenderIdentity.create({
       id: validId(),

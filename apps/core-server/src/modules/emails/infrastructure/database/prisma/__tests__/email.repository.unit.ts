@@ -43,6 +43,12 @@ function createTxStub(input: {
   findFirst?: () => Promise<unknown>
   executeRawUnsafe?: (query: string) => Promise<unknown>
 }): { tx: TransactionContext; findFirst: ReturnType<typeof vi.fn>; executeRawUnsafe: ReturnType<typeof vi.fn> } {
+  /*
+   * The repository issues SAVEPOINT/ROLLBACK TO SAVEPOINT around the insert to survive Postgres
+   * aborting the transaction on a real unique-violation; that recovery is exercised against a
+   * real database in email.repository.int.ts. Mocked to a no-op here by default, but exposed as
+   * a spy so a test can both assert it was called and inject a failure from it.
+   */
   const executeRawUnsafe = vi.fn(input.executeRawUnsafe ?? (() => Promise.resolve(0)))
   const findFirst = vi.fn(input.findFirst ?? (() => Promise.resolve(null)))
   const tx = {
@@ -114,10 +120,18 @@ describe('EmailRepository#createIfNotExists', () => {
       expect(result.value.created).toBe(false)
       expect(result.value.email.id.toString()).toBe(existingRow.id)
     }
+    /*
+     * The recovery read has to be scoped by projectId in the query itself — looking the row up by
+     * idempotencyKey alone would hand one tenant another tenant's email as its own replay.
+     */
     expect(findFirst).toHaveBeenCalledWith({ where: { projectId: 'project-1', idempotencyKey: 'idem-1' } })
   })
 
   it('returns EmailIdempotencyConflictError when the key was already used with a different body', async () => {
+    /*
+     * Same key, different content: returning the pre-existing row as a successful replay would
+     * report 202 for a message that is never queued and never sent — silent, permanent loss.
+     */
     const email = buildEmail('idem-1', { to: 'someone-else@example.com', subject: 'Different subject' })
     const existingRow = {
       id: '0198f3b2-1234-7000-8000-000000000099',
@@ -149,6 +163,10 @@ describe('EmailRepository#createIfNotExists', () => {
   })
 
   it('treats a replay whose only difference is the rendered html as a conflict', async () => {
+    /*
+     * html is compared post-render, because that is what was persisted and what a replay would
+     * re-send: two requests with the same templateId but different variables are different emails.
+     */
     const email = buildEmail('idem-1')
     const repository = new EmailRepository()
     const { tx } = createTxStub({
@@ -191,6 +209,11 @@ describe('EmailRepository#createIfNotExists', () => {
   })
 
   it('returns failure without querying findFirst when a P2002 fires and the email has no idempotencyKey', async () => {
+    /*
+     * A NULL idempotencyKey can never match the partial index's WHERE clause, so a P2002 here
+     * can only be a primary-key collision, never a lost idempotency race — findFirst must never
+     * run, or it could hand back an unrelated email as if it were "already sent this request".
+     */
     const email = buildEmail(null)
     const repository = new EmailRepository()
     const { findFirst, tx } = createTxStub({
@@ -227,6 +250,10 @@ describe('EmailRepository#createIfNotExists', () => {
         throw new UniqueConstraintViolation()
       },
       executeRawUnsafe: () => {
+        /*
+         * First call is the SAVEPOINT before the insert — let it succeed. Only the
+         * ROLLBACK TO SAVEPOINT that follows the P2002 catch should fail.
+         */
         if (!isSavepointTaken) {
           isSavepointTaken = true
           return Promise.resolve(0)

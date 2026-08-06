@@ -33,7 +33,8 @@ export class SenderIdentitySyncService {
        * net so a bug there can never crash the interval timer and silently stop all future syncs.
        */
       const message = error instanceof Error ? error.message : String(error)
-      this.logger.error(`Sender identity sync tick failed: ${message}`)
+      const stack = error instanceof Error ? error.stack : undefined
+      this.logger.error(`Sender identity sync tick failed: ${message}`, stack)
     } finally {
       this.isRunning = false
     }
