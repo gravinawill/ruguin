@@ -260,6 +260,14 @@ jobs:
               echo "::error::refusing to promote invalid digest '$digest' for $name"
               exit 1
             }
+            # Verify exactly one matching entry exists
+            local count
+            count=$(yq eval "[.images[] | select(.name == \"${name}\")] | length" \
+              "infrastructure/k8s/core-server/overlays/${OVERLAY}/kustomization.yaml")
+            [[ "$count" == "1" ]] || {
+              echo "::error::expected exactly 1 image named '$name', found $count"
+              exit 1
+            }
             yq eval "(.images[] | select(.name == \"${name}\") | .digest) = \"${digest}\"" \
               -i "infrastructure/k8s/core-server/overlays/${OVERLAY}/kustomization.yaml"
           }
