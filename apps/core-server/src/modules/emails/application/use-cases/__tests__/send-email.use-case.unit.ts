@@ -45,6 +45,7 @@ function buildTemplate(senderIdentityId: string) {
     name: 'Welcome',
     subject: 'Hi {{name}}',
     html: '<p>Hi {{name}}</p>',
+    text: 'Hi {{name}}',
     createdAt: new Date()
   })
   if (result.isFailure()) throw new Error('unreachable')

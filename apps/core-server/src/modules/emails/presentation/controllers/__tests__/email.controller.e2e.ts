@@ -130,7 +130,8 @@ describe('POST /v1/emails (e2e)', () => {
         senderIdentityId: otherSenderIdentity.id,
         name: 'Other Template',
         subject: 'Hi',
-        html: '<p>Hi</p>'
+        html: '<p>Hi</p>',
+        text: 'Hi'
       }
     })
 
@@ -171,7 +172,8 @@ describe('POST /v1/emails (e2e)', () => {
         senderIdentityId: unverifiedSenderIdentity.id,
         name: 'Unverified Sender Template',
         subject: 'Hi',
-        html: '<p>Hi</p>'
+        html: '<p>Hi</p>',
+        text: 'Hi'
       }
     })
 

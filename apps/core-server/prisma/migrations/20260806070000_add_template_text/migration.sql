@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "templates" ADD COLUMN "text" TEXT NOT NULL;

@@ -19,6 +19,7 @@ export class TemplateRepository implements TemplateLookupProvider {
     name: string
     subject: string
     html: string
+    text: string
     createdAt: Date
   }): Either<InvalidTemplateError, Template> {
     const idResult = ID.validate({ id: row.id, modelName: 'Template' })
@@ -31,6 +32,7 @@ export class TemplateRepository implements TemplateLookupProvider {
       name: row.name,
       subject: row.subject,
       html: row.html,
+      text: row.text,
       createdAt: row.createdAt
     })
   }

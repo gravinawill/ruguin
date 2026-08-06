@@ -49,6 +49,7 @@
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "@ruguin/cache": "workspace:*",
+    "@ruguin/email-templates": "workspace:*",
     "@ruguin/env": "workspace:*",
     "@ruguin/event-schemas": "workspace:*",
     "@ruguin/message-broker": "workspace:*",

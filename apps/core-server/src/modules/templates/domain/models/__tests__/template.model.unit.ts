@@ -18,7 +18,8 @@ describe('Template.create', () => {
       name: 'Welcome',
       subject: 'Hi {{name}}',
       html: '<p>Hi {{name}}</p>',
-      createdAt: new Date('2026-08-05T00:00:00Z')
+      text: 'Hi {{name}}',
+      createdAt: new Date('2026-08-06T00:00:00Z')
     })
 
     expect(result.isSuccess()).toBe(true)
@@ -32,6 +33,7 @@ describe('Template.create', () => {
       name: 'Welcome',
       subject: 'Hi {{name}}',
       html: '<p>Hi {{name}}</p>',
+      text: 'Hi {{name}}',
       createdAt: new Date()
     })
 
@@ -46,6 +48,7 @@ describe('Template.create', () => {
       name: 'Welcome',
       subject: '',
       html: '<p>Hi {{name}}</p>',
+      text: 'Hi {{name}}',
       createdAt: new Date()
     })
 
@@ -60,6 +63,22 @@ describe('Template.create', () => {
       name: 'Welcome',
       subject: 'Hi {{name}}',
       html: '',
+      text: 'Hi {{name}}',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
+  })
+
+  it('rejects an empty text', () => {
+    const result = Template.create({
+      id: validId(),
+      projectId: 'project-1',
+      senderIdentityId: 'sender-1',
+      name: 'Welcome',
+      subject: 'Hi {{name}}',
+      html: '<p>Hi {{name}}</p>',
+      text: '',
       createdAt: new Date()
     })
 

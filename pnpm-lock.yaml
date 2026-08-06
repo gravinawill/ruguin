@@ -208,6 +208,9 @@ importers:
       '@ruguin/cache':
         specifier: workspace:*
         version: link:../../packages/cache
+      '@ruguin/email-templates':
+        specifier: workspace:*
+        version: link:../../packages/email-templates
       '@ruguin/env':
         specifier: workspace:*
         version: link:../../packages/env

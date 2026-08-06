@@ -20,6 +20,7 @@ describe('TemplateRepository#findByIdAndProjectId', () => {
       name: 'Welcome',
       subject: 'Hi {{name}}',
       html: '<p>Hi {{name}}</p>',
+      text: 'Hi {{name}}',
       createdAt: new Date()
     })
     const prisma = { template: { findFirst } } as unknown as PrismaService
@@ -28,7 +29,7 @@ describe('TemplateRepository#findByIdAndProjectId', () => {
     const result = await repository.findByIdAndProjectId({ templateId: id.toString(), projectId: 'project-1' })
 
     expect(result.isSuccess()).toBe(true)
-    if (result.isSuccess()) expect(result.value.template?.senderIdentityId).toBe('sender-1')
+    if (result.isSuccess()) expect(result.value.template?.text).toBe('Hi {{name}}')
     expect(findFirst).toHaveBeenCalledWith({ where: { id: id.toString(), projectId: 'project-1' } })
   })
 

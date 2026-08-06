@@ -11,6 +11,7 @@ export class Template {
     readonly name: string,
     readonly subject: string,
     readonly html: string,
+    readonly text: string,
     readonly createdAt: Date
   ) {
     Object.freeze(this)
@@ -23,6 +24,7 @@ export class Template {
     name: string
     subject: string
     html: string
+    text: string
     createdAt: Date
   }): Either<InvalidTemplateError, Template> {
     if (input.senderIdentityId.trim().length === 0) {
@@ -30,6 +32,7 @@ export class Template {
     }
     if (input.subject.trim().length === 0) return failure(new InvalidTemplateError({ reason: 'subject is empty' }))
     if (input.html.trim().length === 0) return failure(new InvalidTemplateError({ reason: 'html is empty' }))
+    if (input.text.trim().length === 0) return failure(new InvalidTemplateError({ reason: 'text is empty' }))
 
     return success(
       new Template(
@@ -39,6 +42,7 @@ export class Template {
         input.name,
         input.subject,
         input.html,
+        input.text,
         input.createdAt
       )
     )

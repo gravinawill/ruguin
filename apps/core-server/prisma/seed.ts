@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 
 import { PrismaPg } from '@prisma/adapter-pg'
+import { renderWelcomeEmailTemplate } from '@ruguin/email-templates'
 
 import { hashApiKey } from '../src/modules/api-keys/domain/hash-api-key'
 import { PrismaClient } from '../src/shared/infrastructure/database/prisma/generated/client'
@@ -28,8 +29,9 @@ async function main(): Promise<void> {
 
   /*
    * Written directly, verifiedAt already set — bypasses the real SES CreateEmailIdentity call
-   * (design spec decision 9) so dev/test never depends on AWS/LocalStack actually confirming a
-   * mailbox that doesn't exist.
+   * (design spec decision 9 of the SenderIdentity plan) so dev/test never depends on AWS/LocalStack
+   * actually confirming a mailbox that doesn't exist. Email randomized so re-running the seed
+   * against the same database doesn't collide on SenderIdentity.email's global unique index.
    */
   const senderIdentity = await prisma.senderIdentity.create({
     data: {
@@ -40,13 +42,20 @@ async function main(): Promise<void> {
     }
   })
 
+  /*
+   * subject/html/text come from the React Email component (packages/email-templates), not a
+   * hand-written literal — `{{name}}` is still literal text in all three, substituted per
+   * recipient at send time by renderTemplate.
+   */
+  const welcomeTemplate = await renderWelcomeEmailTemplate()
   const template = await prisma.template.create({
     data: {
       projectId: project.id,
       senderIdentityId: senderIdentity.id,
       name: 'Welcome',
-      subject: 'Hi {{name}}',
-      html: '<p>Hi {{name}}</p>'
+      subject: welcomeTemplate.subject,
+      html: welcomeTemplate.html,
+      text: welcomeTemplate.text
     }
   })
 

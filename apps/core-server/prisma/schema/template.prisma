@@ -5,6 +5,7 @@ model Template {
   name             String
   subject          String
   html             String
+  text             String
   createdAt        DateTime @default(now())
 
   @@index([projectId])
