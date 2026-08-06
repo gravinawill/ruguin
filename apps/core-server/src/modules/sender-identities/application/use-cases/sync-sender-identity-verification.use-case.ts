@@ -40,7 +40,8 @@ export class SyncSenderIdentityVerificationUseCase {
        * the rest of the unverified batch still deserves its check this tick, and this one gets
        * retried automatically on the next.
        */
-      this.logger.warn(`Failed to check SES verification status for ${email}: ${status.value.message}`)
+      // Sender identity id only — email is personal data and must not land in logs.
+      this.logger.warn(`Failed to check SES verification status for sender identity ${id}: ${status.value.message}`)
       return
     }
 
@@ -53,6 +54,6 @@ export class SyncSenderIdentityVerificationUseCase {
     }
 
     await this.cache.invalidate({ senderIdentityId: id })
-    this.logger.log(`Sender identity ${id} (${email}) is now verified.`)
+    this.logger.log(`Sender identity ${id} is now verified.`)
   }
 }
