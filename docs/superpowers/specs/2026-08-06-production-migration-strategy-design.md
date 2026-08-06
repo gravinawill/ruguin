@@ -30,7 +30,7 @@ outro serviço futuro que ganhe overlay de produção.
 Nenhuma migration aplicada em produção deve: (a) derrubar ou travar o serviço enquanto está sendo
 aplicada, ou (b) quebrar o código da versão anterior que ainda está servindo tráfego durante o
 rollout. As duas garantias vêm de peças diferentes: (a) é regra de como escrever a migration
-(Decisões 3-8); (b) é ordem de execução no pipeline de deploy (Decisão 1).
+(Decisões 4-9); (b) é ordem de execução no pipeline de deploy (Decisão 1).
 
 ## Decisões
 
@@ -57,8 +57,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: migrate
-          image: ghcr.io/gravinawill/ruguin/core-server
-          command: ['node_modules/.bin/prisma', 'migrate', 'deploy']
+          image: ghcr.io/gravinawill/ruguin/core-server-migrator
           envFrom:
             - secretRef:
                 name: core-server-secrets
@@ -69,7 +68,7 @@ spec:
 
 ArgoCD roda hooks `PreSync` **antes** de sincronizar os demais recursos do `Application`. Se o Job
 falhar, o sync inteiro é marcado como falho e o `Deployment` novo nunca é aplicado — os pods antigos
-continuam servindo com o schema anterior, que por construção (Decisões 3-8) ainda é compatível com
+continuam servindo com o schema anterior, que por construção (Decisões 4-9) ainda é compatível com
 eles. Resultado: uma migration ruim atrasa o deploy, não derruba produção.
 
 Por viver em `base/`, os dois overlays herdam o mesmo Job automaticamente — `development` roda a
@@ -77,15 +76,14 @@ mesma migration contra `core_server_dev` antes de `production` sequer existir co
 virando um staging de graça: toda migration passa pelo fluxo normal `develop → master` do git flow
 antes de chegar em produção.
 
-Reaproveita o que já existe, sem plumbing novo:
+Reaproveita o que já existe:
 
-- **Imagem**: a mesma que o `Deployment` já usa — só troca o `command` padrão (que sobe a app) por
-  `prisma migrate deploy`. `pnpm --filter @ruguin/core-server deploy --prod --legacy /prod` no
-  Dockerfile já preserva a pasta `prisma/` (schema + `migrations/`) na imagem final; confirmar isso
-  no plano de implementação antes de assumir que o Job consegue rodar sem mudança no Dockerfile.
 - **Credenciais**: o mesmo `Secret` `core-server-secrets` (populado por ExternalSecret a partir do
   Secrets Manager) que o `Deployment` já consome via `envFrom.secretRef` — já contém `DATABASE_URL`
   com o schema certo por ambiente.
+- **Pull secret**: o mesmo `ghcr-pull-secret`, já existente nos dois namespaces.
+
+A imagem (`core-server-migrator`) é nova — ver Decisão 2.
 
 Trade-off aceito: pods do Job levam ~30-60s pra agendar no Fargate, então cada deploy fica esse
 tanto mais lento. Não há downtime nisso — é atraso no rollout, não indisponibilidade.
@@ -100,7 +98,59 @@ tanto mais lento. Não há downtime nisso — é atraso no rollout, não indispo
   observável — uma migration lenta trava o rollout de forma imprevisível, e falha de migration fica
   difícil de distinguir de pod crashando no monitoramento.
 
-### 2. Retry e limpeza do Job
+### 2. Imagem do Job: estágio novo no Dockerfile, publicado à parte
+
+**Correção em relação ao rascunho inicial deste documento.** A suposição original era "mesma
+imagem que o `Deployment` já usa, só troca o `command`" — verificado durante o planejamento (build
+local do estágio `builder` e `prisma migrate deploy` rodado de fato contra um Postgres real, duas
+vezes: aplicação limpa e reaplicação idempotente) que isso é **falso**. `apps/core-server/package.json`
+tem `"files": ["dist"]`, então `pnpm deploy --prod` nunca inclui `prisma/` (schema + migrations) na
+imagem final, e `prisma` é `devDependency` — some inteiro do `/prod` que o estágio `runner` copia. A
+imagem hoje publicada não tem CLI nem migrations; não dá para rodar `prisma migrate deploy` nela sem
+mudança no Dockerfile.
+
+Estágio novo, `migrator`, entre `builder` e `runner` em `apps/core-server/Dockerfile` (mantém
+`runner` como último estágio do arquivo — `release-image.yml` builda sem `--target` explícito hoje,
+então o último estágio continua sendo o default implícito):
+
+```dockerfile
+FROM node:26.5.1-alpine AS migrator
+RUN apk add --no-cache openssl=3.5.7-r0
+WORKDIR /app
+RUN npm install prisma@7.9.1
+COPY --from=builder /repo/apps/core-server/prisma ./prisma
+COPY --from=builder /repo/apps/core-server/prisma.config.ts ./prisma.config.ts
+ENTRYPOINT ["node_modules/.bin/prisma"]
+CMD ["migrate", "deploy"]
+```
+
+Não estende `builder` diretamente: aquele estágio é fixado em `--platform=$BUILDPLATFORM` para que
+`prisma generate` não rode sob QEMU (comentário já existente no Dockerfile) — mas o binário nativo
+do schema-engine que `migrate deploy` precisa em tempo de execução é específico de arquitetura, o
+oposto do que `builder` garante. `migrator` fica sem override de `--platform`, igual a `runner`, para
+o buildx resolver a arquitetura certa por plataforma alvo — o mesmo padrão que o `apk add` do `tini`
+em `runner` já usa com sucesso hoje em build multi-arch.
+
+`npm install prisma@7.9.1` roda isolado (sem copiar o `package.json` do core-server) para não
+resolver as ~60 dependências não relacionadas (`@nestjs/*` etc.) que estão lá — só a CLI e sua
+dependência nativa (`@prisma/engines`, baixada pelo `postinstall` do próprio pacote). Versão travada
+manualmente, mesmo padrão que este Dockerfile já usa para `openssl`/`tini`: atualizar esse número
+junto de qualquer bump de `prisma`/`@prisma/client` em `apps/core-server/package.json`.
+
+Publicado como imagem separada, `ghcr.io/gravinawill/ruguin/core-server-migrator`, pelo mesmo job
+`image` de `release-image.yml` (build/scan/sign, mesmo padrão já aplicado ao `core-server`
+principal). Mantém `runner` sem o binário nativo do schema-engine, preservando a propriedade que o
+comentário do `pruner` já documenta hoje ("core-server ships zero native runtime dependencies") —
+em vez de inflar toda réplica da app com um binário que só o Job usa.
+
+O job `promote` de `release-image.yml` precisa de ajuste: o `sed` que hoje substitui o digest
+**assume um único item em `images:` por overlay** (comentário explícito nesse trecho do workflow).
+Com duas imagens, os dois `kustomization.yaml` (production e development) ganham uma segunda
+entrada em `images:`, e o `sed` precisa ficar ancorado por nome de imagem em vez de substituir o
+primeiro placeholder `sha256: 0...0` que encontrar — hoje os dois entram com o mesmo placeholder,
+então o `sed` atual escreveria o mesmo digest nas duas entradas.
+
+### 3. Retry e limpeza do Job
 
 `backoffLimit: 1` — uma falha tenta de novo uma vez (cobre timeout transitório de conexão) e desiste
 depois disso, deixando o pod do Job vivo (`hook-delete-policy: HookSucceeded` só apaga em sucesso)
@@ -108,7 +158,7 @@ para inspeção via `kubectl logs`. `activeDeadlineSeconds: 300` evita que uma m
 o deploy indefinidamente — 5 minutos é folga generosa para o volume de dados atual; revisitar se
 migrations passarem a envolver backfill de tabelas grandes.
 
-### 3. Expand/contract como regra, não como exceção
+### 4. Expand/contract como regra, não como exceção
 
 Nenhuma migration muda o schema de um jeito que quebra o código da release anterior. Mudança
 estrutural (renomear coluna, mudar tipo, remover coluna em uso) vira uma sequência de deploys, nunca
@@ -121,7 +171,7 @@ um passo só:
 Cada etapa precisa tolerar código velho *e* novo rodando ao mesmo tempo — é exatamente o que acontece
 durante o intervalo do rollout do `Deployment`.
 
-### 4. Índices e constraints únicas: sempre `CONCURRENTLY`, um por arquivo
+### 5. Índices e constraints únicas: sempre `CONCURRENTLY`, um por arquivo
 
 `CREATE INDEX` e `DROP INDEX` tomam lock que bloqueia escrita na tabela inteira enquanto constroem;
 a variante `CONCURRENTLY` evita isso. Regra: todo índice em produção usa `CONCURRENTLY`, e — porque o
@@ -139,26 +189,26 @@ DROP INDEX CONCURRENTLY IF EXISTS "emails_projectId_idx";
 CREATE INDEX CONCURRENTLY "emails_projectId_idx" ON "emails"("projectId");
 ```
 
-### 5. Foreign keys e CHECK em tabela existente: `NOT VALID` + `VALIDATE CONSTRAINT`
+### 6. Foreign keys e CHECK em tabela existente: `NOT VALID` + `VALIDATE CONSTRAINT`
 
 `ADD CONSTRAINT` direto escaneia e trava a tabela inteira para validar as linhas existentes.
 `NOT VALID` cria a constraint sem esse escaneamento (lock rápido, aplica só a partir dali) e
 `VALIDATE CONSTRAINT`, em migration separada, confere as linhas antigas com um lock mais leve que não
 bloqueia escrita concorrente.
 
-### 6. Coluna nova: sem reescrever a tabela
+### 7. Coluna nova: sem reescrever a tabela
 
 Coluna com `DEFAULT` constante ou nullable não reescreve a tabela (Postgres 11+). Para exigir
 `NOT NULL`: adiciona nullable → backfill em lote → só então `ALTER COLUMN ... SET NOT NULL`.
 
-### 7. Backfill grande: em lote, nunca um `UPDATE` cobrindo a tabela inteira
+### 8. Backfill grande: em lote, nunca um `UPDATE` cobrindo a tabela inteira
 
 Nenhuma migration roda um `UPDATE` sem filtro sobre uma tabela inteira. Lote de tamanho fixo (ex.:
 `WHERE id BETWEEN ... AND ...`, repetido), para não segurar uma transação longa nem inchar o WAL de
 um `db.t4g.micro`. Tabelas hoje são pequenas — a regra existe para não reintroduzir o problema quando
 crescerem.
 
-### 8. `lock_timeout` curto na sessão de migration
+### 9. `lock_timeout` curto na sessão de migration
 
 Toda sessão que roda `migrate deploy` define um `lock_timeout` de poucos segundos. Sem isso, uma
 migration que esbarra numa query longa já em andamento fica na fila de lock — e tudo que vier depois
@@ -167,7 +217,7 @@ dela na mesma tabela enfileira atrás, inclusive tráfego normal da aplicação.
 faz a migration falhar rápido em vez disso — falha visível no Job (Decisão 1) é preferível a lock
 silencioso em cascata.
 
-### 9. Rollback: forward-only
+### 10. Rollback: forward-only
 
 Prisma Migrate não tem down-migration nativa — cada migration é só um `up`. Nenhuma migration
 aplicada em produção é revertida. Um problema vira uma **nova migration corretiva**, nunca uma
@@ -184,20 +234,20 @@ Runbook para quando uma migration causa problema em produção:
    fora do fluxo normal (ex.: incidente grave exigindo intervenção direta no banco) — serve para
    destravar o histórico do Prisma nesse cenário, nunca como primeira resposta.
 
-### 10. Enforcement: checklist documentado, sem lint automatizado nesta v1
+### 11. Enforcement: checklist documentado, sem lint automatizado nesta v1
 
-As Decisões 3-8 viram checklist de referência para revisão de PR quando o diff toca
-`prisma/migrations/`. Sem gate automatizado no CI nesta primeira versão (YAGNI) — dá para adicionar
-um check de padrões perigosos (`DROP COLUMN`, `RENAME`, `ALTER ... TYPE`, `CREATE INDEX` sem
-`CONCURRENTLY`) plugado no `pre-commit-checks.mjs` que já existe, se migrations arriscadas passarem
-batido na revisão humana com frequência.
+As Decisões 4-9 viram checklist de referência (`docs/database-migrations-guide.md`) para revisão de
+PR quando o diff toca `prisma/migrations/`. Sem gate automatizado no CI nesta primeira versão
+(YAGNI) — dá para adicionar um check de padrões perigosos (`DROP COLUMN`, `RENAME`, `ALTER ... TYPE`,
+`CREATE INDEX` sem `CONCURRENTLY`) plugado no `pre-commit-checks.mjs` que já existe, se migrations
+arriscadas passarem batido na revisão humana com frequência.
 
-### 11. Template reutilizável para outros serviços
+### 12. Template reutilizável para outros serviços
 
 Quando `ses-webhook-ingestor` (ou outro serviço Prisma) ganhar overlay de produção, o mesmo
-`migration-job.yaml` (Decisão 1) é copiado para `infrastructure/k8s/<serviço>/base/`, trocando
-apenas nome da imagem e do `Secret`. As Decisões 3-10 já valem sem alteração — são regras de SQL e
-processo, não específicas do core-server.
+`migration-job.yaml` (Decisão 1) e o mesmo estágio `migrator` no Dockerfile (Decisão 2) são copiados
+para a estrutura equivalente do novo serviço, trocando apenas nome da imagem e do `Secret`. As
+Decisões 4-11 já valem sem alteração — são regras de SQL e processo, não específicas do core-server.
 
 ## Testes
 
@@ -207,7 +257,7 @@ processo, não específicas do core-server.
 - **Verificação manual de lock** antes de mergear uma migration que toca tabela grande ou dado real:
   rodar a migration localmente contra uma cópia/subset e observar `pg_stat_activity` /
   `pg_locks` durante a aplicação, confirmando que não segura lock por mais que o `lock_timeout`
-  configurado (Decisão 8).
+  configurado (Decisão 9).
 - Nenhum teste automatizado novo de infraestrutura nesta spec — o Job em si (Decisão 1) é validado na
   prática no primeiro deploy real de `production`, que ainda não aconteceu.
 
@@ -216,7 +266,7 @@ processo, não específicas do core-server.
 - Blue/green ou réplica de leitura para o RDS (`multi_az = false` hoje) — decisão de disponibilidade
   do banco em si, não de como as migrations rodam contra ele. Fica para uma spec própria se o SLA
   exigir.
-- Lint automatizado de padrões perigosos em migration.sql — mencionado na Decisão 10 como extensão
+- Lint automatizado de padrões perigosos em migration.sql — mencionado na Decisão 11 como extensão
   futura, não implementado agora.
 - Migração do conteúdo de dados entre schemas/serviços (ex.: particionamento, sharding) — fora do
   problema "aplicar uma migration sem downtime".
@@ -225,10 +275,14 @@ processo, não específicas do core-server.
 
 - **Fargate cold start no Job** (Decisão 1) adiciona ~30-60s a todo deploy — aceito, é atraso, não
   indisponibilidade.
-- **`db.t4g.micro` é uma instância pequena**: uma migration mal escrita que ignore a Decisão 7
+- **`db.t4g.micro` é uma instância pequena**: uma migration mal escrita que ignore a Decisão 8
   (backfill em lote) pode saturar CPU/IO da instância inteira, afetando todas as queries da app
   mesmo sem lock explícito. A regra mitiga, mas não existe um limite técnico automático além da
-  revisão de PR (Decisão 10) enquanto o lint automatizado não existir.
-- **`activeDeadlineSeconds: 300`** (Decisão 2) é uma estimativa para o volume de dados de hoje — uma
+  revisão de PR (Decisão 11) enquanto o lint automatizado não existir.
+- **`activeDeadlineSeconds: 300`** (Decisão 3) é uma estimativa para o volume de dados de hoje — uma
   migration legítima que precise de mais tempo (backfill grande futuro) vai precisar desse valor
-  revisado, não só da regra de lote da Decisão 7.
+  revisado, não só da regra de lote da Decisão 8.
+- **Duas imagens para manter em sincronia** (Decisão 2): `core-server` e `core-server-migrator`
+  sempre nascem do mesmo commit/build, então não divergem em versão de código — mas o CI passa a
+  fazer o dobro de build/scan/sign, e o `promote` do release-image.yml fica mais complexo (dois
+  digests por overlay em vez de um).
