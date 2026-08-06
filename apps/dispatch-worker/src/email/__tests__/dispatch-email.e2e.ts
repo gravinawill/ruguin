@@ -86,7 +86,8 @@ describe('Dispatch Worker end to end', () => {
           from: sesENV.SES_FROM_ADDRESS,
           to: 'recipient@ruguin.dev',
           subject: 'E2E success',
-          html: '<p>hi</p>'
+          html: '<p>hi</p>',
+          text: 'hi'
         }
       }
     })
@@ -138,7 +139,8 @@ describe('Dispatch Worker end to end', () => {
             from: 'unverified-sender@ruguin.dev',
             to: 'recipient@ruguin.dev',
             subject: 'E2E failure',
-            html: '<p>hi</p>'
+            html: '<p>hi</p>',
+            text: 'hi'
           }
         }
       })
