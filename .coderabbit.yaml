@@ -134,10 +134,12 @@ reviews:
     - path: 'infrastructure/k8s/**'
       instructions: >-
         Resources belong in the core-server namespace, not default. TLS termination on the
-        public NLB and immutable release tags on the Deployment's image are known, documented
-        gaps (need an ACM cert/domain and a release-promotion pipeline that don't exist yet) —
-        flag once per gap is enough, this doesn't need repeating on every PR that touches these
-        files.
+        public NLB is a known, documented gap — needs an ACM cert and a domain, neither of which
+        exist yet. The release-promotion pipeline DOES exist: release-image.yml's "promote" job
+        updates each overlay's kustomization.yaml image digest and commits it on every push to
+        master/develop — don't flag the placeholder zero-digest in the overlays or claim the
+        pipeline is missing. Flagging the TLS gap once per PR is enough, no need to repeat it on
+        every PR that touches these files.
 
   tools:
     eslint:

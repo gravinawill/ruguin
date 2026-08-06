@@ -22,5 +22,5 @@ pnpm infra:up          # sobe redis + redis-replica junto com o resto do runtime
 
 - Master: `localhost:6379`, sem senha.
 - Réplica (somente leitura): `localhost:6380`, sem senha.
-- Para inspecionar via UI, suba o [RedisInsight](redisinsight.md) (`pnpm infra:tools:up`) e adicione uma conexão apontando para `redis:6379` (dentro da rede do compose) ou `localhost:6379` (do host).
+- Para inspecionar via UI, suba o [RedisInsight](redisinsight.md) (`pnpm infra:tools:up`) e adicione uma conexão apontando para `redis:6379` ou `redis-replica:6379`. Use `localhost:6379` somente quando o RedisInsight rodar no host.
 - `pnpm infra:reset` apaga o volume `valkey_data` — a réplica se resincroniza do zero a partir do master na próxima subida.
