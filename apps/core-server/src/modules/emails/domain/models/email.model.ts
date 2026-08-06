@@ -14,6 +14,7 @@ export class Email {
     readonly to: string,
     readonly subject: string,
     readonly html: string,
+    readonly text: string,
     readonly createdAt: Date
   ) {
     Object.freeze(this)
@@ -29,6 +30,7 @@ export class Email {
     to: string
     subject: string
     html: string
+    text: string
     createdAt: Date
   }): Either<InvalidEmailError, Email> {
     if (input.projectId.trim().length === 0) return failure(new InvalidEmailError({ reason: 'projectId is empty' }))
@@ -40,6 +42,7 @@ export class Email {
     if (input.to.trim().length === 0) return failure(new InvalidEmailError({ reason: '"to" is empty' }))
     if (input.subject.trim().length === 0) return failure(new InvalidEmailError({ reason: 'subject is empty' }))
     if (input.html.trim().length === 0) return failure(new InvalidEmailError({ reason: 'html is empty' }))
+    if (input.text.trim().length === 0) return failure(new InvalidEmailError({ reason: 'text is empty' }))
 
     return success(
       new Email(
@@ -52,6 +55,7 @@ export class Email {
         input.to,
         input.subject,
         input.html,
+        input.text,
         input.createdAt
       )
     )

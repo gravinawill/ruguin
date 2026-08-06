@@ -21,7 +21,8 @@ describe('Email.create', () => {
       to: 'recipient@example.com',
       subject: 'Hello',
       html: '<p>Hello</p>',
-      createdAt: new Date('2026-08-04T00:00:00Z')
+      text: 'Hello',
+      createdAt: new Date('2026-08-06T00:00:00Z')
     })
 
     expect(result.isSuccess()).toBe(true)
@@ -38,6 +39,7 @@ describe('Email.create', () => {
       to: 'recipient@example.com',
       subject: 'Hello',
       html: '<p>Hello</p>',
+      text: 'Hello',
       createdAt: new Date()
     })
 
@@ -55,6 +57,7 @@ describe('Email.create', () => {
       to: 'recipient@example.com',
       subject: 'Hello',
       html: '<p>Hello</p>',
+      text: 'Hello',
       createdAt: new Date()
     })
 
@@ -72,6 +75,7 @@ describe('Email.create', () => {
       to: 'recipient@example.com',
       subject: 'Hello',
       html: '<p>Hello</p>',
+      text: 'Hello',
       createdAt: new Date()
     })
 
@@ -89,6 +93,7 @@ describe('Email.create', () => {
       to: '',
       subject: 'Hello',
       html: '<p>Hello</p>',
+      text: 'Hello',
       createdAt: new Date()
     })
 
@@ -106,6 +111,7 @@ describe('Email.create', () => {
       to: 'recipient@example.com',
       subject: '',
       html: '<p>Hello</p>',
+      text: 'Hello',
       createdAt: new Date()
     })
 
@@ -123,6 +129,25 @@ describe('Email.create', () => {
       to: 'recipient@example.com',
       subject: 'Hello',
       html: '',
+      text: 'Hello',
+      createdAt: new Date()
+    })
+
+    expect(result.isFailure()).toBe(true)
+  })
+
+  it('rejects an empty text', () => {
+    const result = Email.create({
+      id: validId(),
+      projectId: 'project-1',
+      templateId: 'template-1',
+      senderIdentityId: 'sender-1',
+      idempotencyKey: null,
+      from: 'sender@example.com',
+      to: 'recipient@example.com',
+      subject: 'Hello',
+      html: '<p>Hello</p>',
+      text: '',
       createdAt: new Date()
     })
 

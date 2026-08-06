@@ -26,6 +26,7 @@ export class EmailRepository implements EmailRepositoryContract {
     to: string
     subject: string
     html: string
+    text: string
     createdAt: Date
   }): Either<InvalidEmailError, Email> {
     const idResult = ID.validate({ id: row.id, modelName: 'Email' })
@@ -41,6 +42,7 @@ export class EmailRepository implements EmailRepositoryContract {
       to: row.to,
       subject: row.subject,
       html: row.html,
+      text: row.text,
       createdAt: row.createdAt
     })
   }
@@ -97,14 +99,16 @@ export class EmailRepository implements EmailRepositoryContract {
      * Replay only means "same request sent twice"; the same key over a DIFFERENT body is a
      * client bug, and answering it with the first email's id would report success for a message
      * that is never queued and never sent — silent, permanent loss. Compared on the resolved
-     * from/to/subject/html because those are what was persisted and what a replay would re-send:
-     * templateId + variables have already been rendered into subject/html by the use case.
+     * from/to/subject/html/text because those are what was persisted and what a replay would
+     * re-send: templateId + variables have already been rendered into subject/html/text by the
+     * use case.
      */
     const isSameRequest =
       mapped.value.from === email.from &&
       mapped.value.to === email.to &&
       mapped.value.subject === email.subject &&
-      mapped.value.html === email.html
+      mapped.value.html === email.html &&
+      mapped.value.text === email.text
     if (!isSameRequest) return failure(new EmailIdempotencyConflictError({ idempotencyKey }))
 
     return success({ email: mapped.value, created: false })
@@ -141,7 +145,8 @@ export class EmailRepository implements EmailRepositoryContract {
           from: input.email.from,
           to: input.email.to,
           subject: input.email.subject,
-          html: input.email.html
+          html: input.email.html,
+          text: input.email.text
         }
       })
 

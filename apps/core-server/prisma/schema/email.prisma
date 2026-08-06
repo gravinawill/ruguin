@@ -8,6 +8,7 @@ model Email {
   to               String
   subject          String
   html             String
+  text             String
   status           EmailStatus @default(QUEUED)
   createdAt        DateTime    @default(now())
 

@@ -30,6 +30,7 @@ function buildEmail(input: { projectId: string; idempotencyKey: string | null })
     to: 'recipient@example.com',
     subject: 'Hello',
     html: '<p>Hello</p>',
+    text: 'Hello',
     createdAt: new Date()
   })
   if (result.isFailure()) throw new Error('unreachable')

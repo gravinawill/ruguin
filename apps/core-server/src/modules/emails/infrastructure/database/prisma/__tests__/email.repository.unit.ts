@@ -23,6 +23,7 @@ function buildEmail(idempotencyKey: string | null, overrides: Partial<{ to: stri
     to: 'recipient@example.com',
     subject: 'Hello',
     html: '<p>Hello</p>',
+    text: 'Hello',
     createdAt: new Date('2026-08-04T00:00:00Z'),
     ...overrides
   })
@@ -78,6 +79,7 @@ describe('EmailRepository#createIfNotExists', () => {
           to: data.to,
           subject: data.subject,
           html: data.html,
+          text: data.text,
           createdAt: email.createdAt
         })
     })
@@ -103,6 +105,7 @@ describe('EmailRepository#createIfNotExists', () => {
       to: 'recipient@example.com',
       subject: 'Hello',
       html: '<p>Hello</p>',
+      text: 'Hello',
       createdAt: new Date('2026-08-04T00:00:00Z')
     }
     const repository = new EmailRepository()
@@ -143,6 +146,7 @@ describe('EmailRepository#createIfNotExists', () => {
       to: 'recipient@example.com',
       subject: 'Hello',
       html: '<p>Hello</p>',
+      text: 'Hello',
       createdAt: new Date('2026-08-04T00:00:00Z')
     }
     const repository = new EmailRepository()
@@ -160,6 +164,40 @@ describe('EmailRepository#createIfNotExists', () => {
       expect(result.value).toBeInstanceOf(EmailIdempotencyConflictError)
       expect(result.value.status).toBe(StatusError.CONFLICT)
     }
+  })
+
+  it('treats a replay whose only difference is the rendered text as a conflict', async () => {
+    /*
+     * text is compared post-render, same reasoning already applied to html: two requests with the
+     * same templateId but different variables are different emails, even if subject/html happen
+     * to match.
+     */
+    const email = buildEmail('idem-1')
+    const repository = new EmailRepository()
+    const { tx } = createTxStub({
+      create: () => {
+        throw new UniqueConstraintViolation()
+      },
+      findFirst: () =>
+        Promise.resolve({
+          id: '0198f3b2-1234-7000-8000-000000000099',
+          projectId: 'project-1',
+          templateId: '0198f3b2-1234-7000-8000-000000000020',
+          senderIdentityId: 'sender-1',
+          idempotencyKey: 'idem-1',
+          from: 'sender@example.com',
+          to: 'recipient@example.com',
+          subject: 'Hello',
+          html: '<p>Hello</p>',
+          text: 'Hello, Ada',
+          createdAt: new Date('2026-08-04T00:00:00Z')
+        })
+    })
+
+    const result = await repository.createIfNotExists({ email, tx })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBeInstanceOf(EmailIdempotencyConflictError)
   })
 
   it('treats a replay whose only difference is the rendered html as a conflict', async () => {
@@ -184,6 +222,7 @@ describe('EmailRepository#createIfNotExists', () => {
           to: 'recipient@example.com',
           subject: 'Hello',
           html: '<p>Hello, Ada</p>',
+          text: 'Hello',
           createdAt: new Date('2026-08-04T00:00:00Z')
         })
     })
