@@ -1,0 +1,48 @@
+{
+  "name": "@ruguin/email-templates",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "scripts": {
+    "build": "tsdown",
+    "check:lint": "eslint . --max-warnings 0",
+    "check:types": "tsc --noEmit --pretty",
+    "clean": "rm -rf .claude-flow .swarm .superpowers .remember .gitnexus .turbo coverage node_modules dist build",
+    "dev": "email dev --dir src/templates",
+    "fix:lint": "eslint --fix .",
+    "test:all": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "test:unit": "vitest run",
+    "update:deps": "ncu -u"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": "eslint --fix"
+  },
+  "devDependencies": {
+    "@ruguin/eslint-config": "workspace:*",
+    "@ruguin/typescript-config": "workspace:*",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "npm-check-updates": "23.0.0",
+    "react-email": "^6.9.1",
+    "tsdown": "^0.22.14",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.10",
+    "vitest-sonar-reporter": "^3.0.0"
+  },
+  "dependencies": {
+    "@react-email/components": "^1.0.12",
+    "@react-email/render": "^2.1.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}
