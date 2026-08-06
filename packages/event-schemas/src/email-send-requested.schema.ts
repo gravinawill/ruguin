@@ -9,9 +9,11 @@ export const EmailSendRequestedPayloadSchema = z.object({
   organizationId: z.uuid(),
   projectId: z.uuid(),
   from: z.email(),
+  fromName: z.string().min(1).optional(),
   to: z.email(),
   subject: z.string().min(1),
   html: z.string().min(1),
+  text: z.string().min(1),
   idempotencyKey: z.string().min(1).optional()
 })
 

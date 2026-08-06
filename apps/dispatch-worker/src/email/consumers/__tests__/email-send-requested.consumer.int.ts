@@ -70,7 +70,8 @@ describe('EmailSendRequestedConsumer (real Kafka + Redis)', () => {
           from: FROM_ADDRESS,
           to: 'recipient@ruguin.dev',
           subject: 'Integration test',
-          html: '<p>hi</p>'
+          html: '<p>hi</p>',
+          text: 'hi'
         }
       }
     })

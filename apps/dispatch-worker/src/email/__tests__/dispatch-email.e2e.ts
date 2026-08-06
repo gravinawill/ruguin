@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import { SESClient, VerifyEmailIdentityCommand } from '@aws-sdk/client-ses'
 import { Test, type TestingModule } from '@nestjs/testing'
-import { awsENV } from '@ruguin/env'
+import { sesENV } from '@ruguin/env'
 import {
   EMAIL_SEND_REQUESTED_DLQ_TOPIC,
   EMAIL_SEND_REQUESTED_TOPIC,
@@ -51,7 +51,7 @@ describe('Dispatch Worker end to end', () => {
      * and silently drifts from what the app really uses if that wiring ever changes.
      */
     const sesClient = moduleReference.get(SESClient)
-    await sesClient.send(new VerifyEmailIdentityCommand({ EmailAddress: awsENV.SES_FROM_ADDRESS }))
+    await sesClient.send(new VerifyEmailIdentityCommand({ EmailAddress: sesENV.SES_FROM_ADDRESS }))
 
     producer = moduleReference.get<MessageProducerPort>(MESSAGE_PRODUCER_PORT)
     consumer = moduleReference.get<MessageConsumerPort>(MESSAGE_CONSUMER_PORT)
@@ -83,10 +83,11 @@ describe('Dispatch Worker end to end', () => {
           emailId,
           organizationId: randomUUID(),
           projectId: randomUUID(),
-          from: awsENV.SES_FROM_ADDRESS,
+          from: sesENV.SES_FROM_ADDRESS,
           to: 'recipient@ruguin.dev',
           subject: 'E2E success',
-          html: '<p>hi</p>'
+          html: '<p>hi</p>',
+          text: 'hi'
         }
       }
     })
@@ -122,7 +123,7 @@ describe('Dispatch Worker end to end', () => {
        * against SendEmailCommand's `to` was accepted (LocalStack's SES emulation validates recipients far
        * more loosely than zod's regex does). An unverified *sender* works instead: it's a normal address
        * that passes z.email() (so the message reaches SendEmailUseCase), and LocalStack SES deterministically
-       * rejects every send from it with "Email address not verified" — since only `awsENV.SES_FROM_ADDRESS`
+       * rejects every send from it with "Email address not verified" — since only `sesENV.SES_FROM_ADDRESS`
        * is ever verified in beforeAll, this fails identically on all 4 attempts below (main + 3 retries).
        */
       await producer.publish({
@@ -138,7 +139,8 @@ describe('Dispatch Worker end to end', () => {
             from: 'unverified-sender@ruguin.dev',
             to: 'recipient@ruguin.dev',
             subject: 'E2E failure',
-            html: '<p>hi</p>'
+            html: '<p>hi</p>',
+            text: 'hi'
           }
         }
       })

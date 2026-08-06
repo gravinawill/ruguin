@@ -67,7 +67,8 @@ describe('EmailSendRequestedRetryConsumer', () => {
         from: 'a@ruguin.dev',
         to: 'b@ruguin.dev',
         subject: 'Hi',
-        html: '<p>Hi</p>'
+        html: '<p>Hi</p>',
+        text: 'Hi'
       },
       headers: { attempt: '1', nextAttemptAt: '2026-08-02T12:00:10.000Z' }
     })
@@ -136,7 +137,8 @@ describe('EmailSendRequestedRetryConsumer', () => {
         from: 'a@ruguin.dev',
         to: 'b@ruguin.dev',
         subject: 'Hi',
-        html: '<p>Hi</p>'
+        html: '<p>Hi</p>',
+        text: 'Hi'
       },
       headers: { attempt: 'not-a-number', nextAttemptAt: '2026-08-02T12:00:10.000Z' }
     })
@@ -183,7 +185,8 @@ describe('EmailSendRequestedRetryConsumer', () => {
         from: 'a@ruguin.dev',
         to: 'b@ruguin.dev',
         subject: 'Hi',
-        html: '<p>Hi</p>'
+        html: '<p>Hi</p>',
+        text: 'Hi'
       },
       headers: { attempt: '1', nextAttemptAt: 'not-a-date' }
     })
@@ -222,7 +225,8 @@ describe('EmailSendRequestedRetryConsumer', () => {
         from: 'a@ruguin.dev',
         to: 'b@ruguin.dev',
         subject: 'Hi',
-        html: '<p>Hi</p>'
+        html: '<p>Hi</p>',
+        text: 'Hi'
       },
       headers: { attempt: '1', nextAttemptAt: '2026-08-02T12:00:10.000Z' }
     })

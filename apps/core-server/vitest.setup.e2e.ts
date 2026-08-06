@@ -1,7 +1,12 @@
-process.env.DATABASE_URL ??= 'postgresql://ruguin:ruguin@localhost:5432/ruguin?schema=core_server'
-process.env.ENVIRONMENT ??= 'test'
+import { runSeedAndCaptureIds } from './prisma/run-seed.ts'
+
 /*
- * app.module.ts now wires MessageBrokerModule (publishing side of the outbox→dispatch-worker
- * flow) — matches apps/dispatch-worker's own docker-compose Kafka listener.
+ * A globalSetup file (not setupFiles — see vitest.config.ts's e2e project) must export `setup`,
+ * `teardown`, or a default function; Vitest throws otherwise. runSeedAndCaptureIds() runs exactly
+ * once for the entire `vitest run --project e2e` invocation; the env vars it writes to
+ * process.env are still visible to every test file because Vitest's worker pool spawns after
+ * global setup finishes and inherits process.env at that point.
  */
-process.env.KAFKA_BOOTSTRAP_BROKERS ??= 'localhost:9092'
+export function setup(): void {
+  runSeedAndCaptureIds()
+}

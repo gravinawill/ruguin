@@ -6,7 +6,8 @@ const datasource = databaseUrl === undefined || databaseUrl === '' ? {} : { url:
 export default defineConfig({
   datasource,
   migrations: {
-    path: './prisma/migrations'
+    path: './prisma/migrations',
+    seed: 'tsx prisma/seed.ts'
   },
   schema: './prisma/schema'
 })

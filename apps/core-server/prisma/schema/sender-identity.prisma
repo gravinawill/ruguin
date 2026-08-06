@@ -1,0 +1,11 @@
+model SenderIdentity {
+  id         String    @id @default(uuid(7))
+  projectId  String
+  name       String
+  email      String    @unique
+  verifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([projectId])
+  @@map("sender_identities")
+}

@@ -20,7 +20,7 @@ const SES_RATE_LIMIT_KEY = 'ses-account'
 
 /*
  * A plain configured number, not a port — SES_SEND_RATE_LIMIT_PER_SECOND (packages/env's
- * awsENV) is read once in EmailModule and handed in as a value, the same way every other
+ * sesENV) is read once in EmailModule and handed in as a value, the same way every other
  * environment-derived setting in this app stays out of application-layer classes so their unit
  * tests never need real env vars.
  */
@@ -31,9 +31,11 @@ export type SendEmailUseCaseInput = Readonly<{
   organizationId: string
   projectId: string
   from: string
+  fromName?: string | undefined
   to: string
   subject: string
   html: string
+  text: string
   /*
    * Zod-optional fields infer as `T | undefined`, not just optional — match that spelling for
    * exactOptionalPropertyTypes compatibility when consumers spread parsed payloads in directly.
@@ -109,9 +111,11 @@ export class SendEmailUseCase {
 
     const sent = await this.emailSender.send({
       from: input.from,
+      ...(input.fromName !== undefined && { fromName: input.fromName }),
       to: input.to,
       subject: input.subject,
-      html: input.html
+      html: input.html,
+      text: input.text
     })
 
     if (sent.isSuccess()) {

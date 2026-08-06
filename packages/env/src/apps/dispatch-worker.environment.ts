@@ -3,6 +3,7 @@ import { createEnv } from '@t3-oss/env-core'
 import { awsENV } from '../packages/aws.environment.ts'
 import { cacheENV } from '../packages/cache.environment.ts'
 import { messageBrokerENV } from '../packages/message-broker.environment.ts'
+import { sesENV } from '../packages/ses.environment.ts'
 import { lazyEnvironment } from '../shared/lazy-environment.ts'
 import { serverENV } from '../shared/server.environment.ts'
 
@@ -16,7 +17,7 @@ import { serverENV } from '../shared/server.environment.ts'
 export const dispatchWorkerENV = lazyEnvironment(() =>
   createEnv({
     server: {},
-    extends: [serverENV, cacheENV, messageBrokerENV, awsENV],
+    extends: [serverENV, cacheENV, messageBrokerENV, awsENV, sesENV],
     runtimeEnv: process.env,
     emptyStringAsUndefined: true
   })

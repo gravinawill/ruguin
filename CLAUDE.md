@@ -167,6 +167,14 @@ npx @claude-flow/cli@latest hooks worker dispatch --trigger audit
 
 Any string works as a custom agent type.
 
+## Implementando planos
+
+Ao executar um plano de implementação (tipicamente via `superpowers:subagent-driven-development`),
+é permitido e incentivado combinar com as ferramentas MCP do Ruflo (`swarm_init`, `agent_spawn`,
+`memory_search`, `hooks_route`, etc.) e do GitNexus (`impact`, `detect_changes`, `context`,
+`query`) para apoiar a coordenação multi-agente e a análise de código durante a implementação —
+não são mutuamente exclusivos com o fluxo de subagentes do superpowers.
+
 ## Git Flow
 
 O repositório usa git flow (`git-flow-next`, já inicializado). **Toda branch nova nasce por
@@ -300,3 +308,4 @@ This project is indexed by GitNexus as **ruguin** (478 symbols, 603 relationship
 
 - Prefer `Either`/`Success`/`Failure` from `@ruguin/utils` for expected/domain failures instead of throwing exceptions or inventing ad-hoc result types.
 - Check `@ruguin/utils` before adding a new dependency for common functional/utility helpers.
+- For vitest tests, `vitest-mock-extended` may also be used (e.g. `mock<T>()`/`mockDeep<T>()`) instead of hand-rolled `{ method: vi.fn() } as unknown as T` stubs for mocking contracts/interfaces.

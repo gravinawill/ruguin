@@ -1,0 +1,163 @@
+import { Injectable } from '@nestjs/common'
+import { ID } from '@ruguin/shared-domain'
+import { type Either, failure, success } from '@ruguin/utils'
+
+import { type TransactionContext } from '../../../../../shared/domain/contracts/transaction-context.contract'
+import { type Prisma } from '../../../../../shared/infrastructure/database/prisma/generated/client'
+import { type EmailRepository as EmailRepositoryContract } from '../../../domain/contracts/repositories/email.repository'
+import { CreateEmailError } from '../../../domain/errors/models/create-email.error'
+import { EmailIdempotencyConflictError } from '../../../domain/errors/models/email-idempotency-conflict.error'
+import { InvalidEmailError } from '../../../domain/errors/models/invalid-email.error'
+import { Email } from '../../../domain/models/email.model'
+
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002'
+}
+
+@Injectable()
+export class EmailRepository implements EmailRepositoryContract {
+  private toDomain(row: {
+    id: string
+    projectId: string
+    templateId: string
+    senderIdentityId: string
+    idempotencyKey: string | null
+    from: string
+    to: string
+    subject: string
+    html: string
+    text: string
+    createdAt: Date
+  }): Either<InvalidEmailError, Email> {
+    const idResult = ID.validate({ id: row.id, modelName: 'Email' })
+    if (idResult.isFailure()) return failure(new InvalidEmailError({ reason: idResult.value.message }))
+
+    return Email.create({
+      id: idResult.value.idValidated,
+      projectId: row.projectId,
+      templateId: row.templateId,
+      senderIdentityId: row.senderIdentityId,
+      idempotencyKey: row.idempotencyKey,
+      from: row.from,
+      to: row.to,
+      subject: row.subject,
+      html: row.html,
+      text: row.text,
+      createdAt: row.createdAt
+    })
+  }
+
+  /*
+   * Split out of createIfNotExists to keep that method's cognitive complexity within the repo's
+   * linter budget — this is exactly the recovery path a P2002 on the insert falls into, so it
+   * only ever runs from that one catch block, never called directly by a use case.
+   */
+  private async recoverFromUniqueViolation(input: {
+    client: Prisma.TransactionClient
+    savepoint: string
+    email: Email
+    originalError: unknown
+  }): Promise<Either<CreateEmailError | EmailIdempotencyConflictError, { email: Email; created: boolean }>> {
+    const { client, savepoint, email, originalError } = input
+
+    try {
+      await client.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${savepoint}`)
+    } catch (rollbackError: unknown) {
+      return failure(new CreateEmailError({ error: rollbackError }))
+    }
+
+    /*
+     * A NULL idempotencyKey never matches the partial index's WHERE clause (it only covers
+     * idempotencyKey IS NOT NULL), so a P2002 here can only be a primary-key collision on `id`
+     * — astronomically unlikely with UUIDv7, but silently wrong if mishandled: falling through
+     * to the recovery query below with idempotencyKey: null would return an ARBITRARY earlier
+     * email in this project that also has no idempotency key, report a stranger's id as
+     * "already sent this request", and silently drop the real send.
+     */
+    const { idempotencyKey } = email
+    if (idempotencyKey === null) return failure(new CreateEmailError({ error: originalError }))
+
+    /*
+     * Lost the race on (projectId, idempotencyKey): the winner's row is what the caller must
+     * treat as the result — never a second outbox event for the same logical request. The
+     * partial index guarantees at most one row exists here, so findFirst is not itself racy.
+     * Wrapped like the ROLLBACK call above it: a rejected read here is the same class of infra
+     * failure and must resolve to Either, never escape as a thrown rejection.
+     */
+    let existingRow: Awaited<ReturnType<typeof client.email.findFirst>>
+    try {
+      existingRow = await client.email.findFirst({ where: { projectId: email.projectId, idempotencyKey } })
+    } catch (findError: unknown) {
+      return failure(new CreateEmailError({ error: findError }))
+    }
+    if (existingRow === null) return failure(new CreateEmailError({ error: originalError }))
+
+    const mapped = this.toDomain(existingRow)
+    if (mapped.isFailure()) return failure(new CreateEmailError({ error: mapped.value }))
+
+    /*
+     * Replay only means "same request sent twice"; the same key over a DIFFERENT body is a
+     * client bug, and answering it with the first email's id would report success for a message
+     * that is never queued and never sent — silent, permanent loss. Compared on the resolved
+     * from/to/subject/html/text because those are what was persisted and what a replay would
+     * re-send: templateId + variables have already been rendered into subject/html/text by the
+     * use case.
+     */
+    const isSameRequest =
+      mapped.value.from === email.from &&
+      mapped.value.to === email.to &&
+      mapped.value.subject === email.subject &&
+      mapped.value.html === email.html &&
+      mapped.value.text === email.text
+    if (!isSameRequest) return failure(new EmailIdempotencyConflictError({ idempotencyKey }))
+
+    return success({ email: mapped.value, created: false })
+  }
+
+  public async createIfNotExists(input: {
+    email: Email
+    tx: TransactionContext
+  }): Promise<Either<CreateEmailError | EmailIdempotencyConflictError, { email: Email; created: boolean }>> {
+    const client = input.tx as unknown as Prisma.TransactionClient
+    const savepoint = `create_email_${input.email.id.toString().replaceAll('-', '_')}`
+
+    try {
+      /*
+       * Postgres marks the whole enclosing transaction as aborted the instant the unique-index
+       * insert fails — every statement after it, including the recovery findFirst in
+       * recoverFromUniqueViolation, would error with 25P02 ("current transaction is aborted")
+       * unless it first rolls back to a savepoint taken before the insert. Issued inside this
+       * try: a network failure on the SAVEPOINT call itself is the same class of infra failure as
+       * the insert failing, and this method's contract (Either, never a thrown rejection) must
+       * hold for it too. The savepoint name is derived from the row's own id so concurrent
+       * createIfNotExists calls sharing this transaction (none today, but nothing stops a future
+       * orchestration use case) never collide on the savepoint stack.
+       */
+      await client.$executeRawUnsafe(`SAVEPOINT ${savepoint}`)
+
+      const row = await client.email.create({
+        data: {
+          id: input.email.id.toString(),
+          projectId: input.email.projectId,
+          templateId: input.email.templateId,
+          senderIdentityId: input.email.senderIdentityId,
+          idempotencyKey: input.email.idempotencyKey,
+          from: input.email.from,
+          to: input.email.to,
+          subject: input.email.subject,
+          html: input.email.html,
+          text: input.email.text
+        }
+      })
+
+      const mapped = this.toDomain(row)
+      if (mapped.isFailure()) return failure(new CreateEmailError({ error: mapped.value }))
+
+      return success({ email: mapped.value, created: true })
+    } catch (error: unknown) {
+      if (!isUniqueConstraintViolation(error)) return failure(new CreateEmailError({ error }))
+
+      return this.recoverFromUniqueViolation({ client, savepoint, email: input.email, originalError: error })
+    }
+  }
+}

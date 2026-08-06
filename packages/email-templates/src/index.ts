@@ -1,0 +1,1 @@
+export { renderWelcomeEmailTemplate } from './render'

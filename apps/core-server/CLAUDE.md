@@ -96,11 +96,18 @@ A regra de chamada acima é acompanhada de uma regra de import, que é o que se 
   indireção é o que deixa um `.unit.ts` mockar um repositório sem banco. Um contract cuja única
   implementação é uma classe Prisma continua sendo um contract.
 - **Contract nunca menciona o Prisma.** Transação atravessa como `TransactionContext`
-  (`shared/contracts/`), um tipo opaco cujo símbolo de marca não é exportado — o único cast para
-  `Prisma.TransactionClient` vive dentro de `PrismaTransactionManager`.
-- **Repositórios traduzem erro de infraestrutura em erro de domínio.** Violação de constraint única
-  vira `EmailIdempotencyConflictError` com `StatusError.CONFLICT`. Nada do namespace `Prisma.*` pode
-  cruzar para `application/` ou `domain/`.
+  (`shared/contracts/`), um tipo opaco cujo símbolo de marca não é exportado. O preço disso é o cast
+  `tx as unknown as Prisma.TransactionClient`, esperado em **qualquer** repositório cujo método
+  recebe um `TransactionContext` e precisa rodar Prisma em cima dele — hoje `outbox.repository.ts` e
+  `emails/infrastructure/database/prisma/email.repository.ts`, ambos na primeira linha do método. O
+  que a regra proíbe é o Prisma aparecer na assinatura do contract, não o cast dentro do adapter que
+  o implementa.
+- **Repositórios traduzem erro de infraestrutura em erro de domínio.** Violação da constraint única
+  de idempotência não é uma coisa só: quando o conteúdo da linha existente bate com o da requisição
+  nova, é replay e vira sucesso com `created: false`; quando não bate, vira
+  `EmailIdempotencyConflictError` com `StatusError.CONFLICT`. Devolver a linha antiga para um corpo
+  diferente responderia 202 a uma mensagem que nunca é enfileirada nem enviada — perda silenciosa
+  disfarçada de sucesso. Nada do namespace `Prisma.*` pode cruzar para `application/` ou `domain/`.
 - **Toda falha esperada devolve `Either`; `throw` é para bug.** A exceção sancionada é
   `RollbackSignal`, privada de `prisma-transaction-manager.ts`: ela existe porque o Prisma só faz
   rollback com exceção, enquanto o resto do código reporta falha por valor. Ela nunca escapa desse
@@ -111,9 +118,13 @@ A regra de chamada acima é acompanhada de uma regra de import, que é o que se 
 - **Ler dado de outro módulo passa pelo seu próprio contract.** Declare `<Aggregate>LookupProvider`
   em `domain/contracts/` e implemente em `infra/`. Importar o repositório de outro módulo acopla
   você à persistência dele.
-- **Cache também passa por um contract do módulo.** Declare algo como `TemplateCacheProvider`
-  (`getTemplate`, `invalidateTemplate`) sobre `@ruguin/cache`. O use case fala o próprio domínio em
-  vez de namespaces e TTLs, e o teste dele mocka dois métodos em vez de vinte e cinco.
+- **Cache consumido por um use case passa por um contract do módulo.** Declare algo como
+  `TemplateCacheProvider` (`getTemplate`, `invalidateTemplate`) sobre `@ruguin/cache`. O use case
+  fala o próprio domínio em vez de namespaces e TTLs, e o teste dele mocka dois métodos em vez de
+  vinte e cinco. A regra para em `infrastructure/`: `ApiKeyAuthGuard` injeta
+  `GET_OR_SET_CACHE_PROVIDER` direto e escolhe namespace e TTL sozinho, porque um guard já é adapter
+  da borda HTTP — não é um use case falando o próprio domínio, e envolvê-lo num contract não
+  protegeria camada alguma.
 - **Evento sai pelo outbox, na mesma transação da escrita.** Publicar no Kafka de dentro de um use
   case cria uma transação distribuída implícita: a linha commita e o evento se perde, ou o inverso.
   O relay publica depois do commit.
@@ -179,6 +190,7 @@ que é a resposta certa, não um defeito do teste.
 pnpm --filter @ruguin/core-server test              # unit, sem infraestrutura
 pnpm --filter @ruguin/core-server test:integration
 pnpm --filter @ruguin/core-server test:e2e          # precisa de docker compose up -d
+pnpm --filter @ruguin/core-server test:pipeline-e2e # docker compose up -d, inclui o LocalStack
 pnpm --filter @ruguin/core-server check:types
 pnpm --filter @ruguin/core-server check:lint
 pnpm --filter @ruguin/core-server build             # prisma generate + nest build + fix-esm-imports

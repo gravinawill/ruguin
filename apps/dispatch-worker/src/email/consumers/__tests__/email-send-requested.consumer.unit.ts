@@ -86,7 +86,8 @@ describe('EmailSendRequestedConsumer', () => {
         from: 'a@ruguin.dev',
         to: 'b@ruguin.dev',
         subject: 'Hi',
-        html: '<p>Hi</p>'
+        html: '<p>Hi</p>',
+        text: 'Hi'
       },
       headers: {}
     })
@@ -124,7 +125,8 @@ describe('EmailSendRequestedConsumer', () => {
         from: 'a@ruguin.dev',
         to: 'b@ruguin.dev',
         subject: 'Hi',
-        html: '<p>Hi</p>'
+        html: '<p>Hi</p>',
+        text: 'Hi'
       },
       headers: {}
     })

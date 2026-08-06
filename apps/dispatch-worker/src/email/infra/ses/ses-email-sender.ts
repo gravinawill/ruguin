@@ -18,11 +18,11 @@ export class SesEmailSender implements EmailSenderPort {
     try {
       const response = await this.client.send(
         new SendEmailCommand({
-          Source: input.from,
+          Source: input.fromName === undefined ? input.from : `${input.fromName} <${input.from}>`,
           Destination: { ToAddresses: [input.to] },
           Message: {
             Subject: { Data: input.subject },
-            Body: { Html: { Data: input.html } }
+            Body: { Html: { Data: input.html }, Text: { Data: input.text } }
           }
         })
       )

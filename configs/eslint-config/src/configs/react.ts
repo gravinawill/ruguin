@@ -16,13 +16,13 @@ export const react = (overrides?: RuleOverrides): FlatConfig[] => [
       ...reactPlugin.configs.all.rules,
       ...reactHooksPlugin.configs['recommended-latest'].rules,
 
-      '@eslint-react/naming-convention/filename': [
-        'error',
-        {
-          rule: 'kebab-case',
-          excepts: ['index', '/^_/', String.raw`/^\$/`, '/^[0-9]+$/', String.raw`/^\[[^\]]+\]$/`]
-        }
-      ],
+      /*
+       * `@eslint-react/naming-convention/filename` doesn't exist in the installed
+       * @eslint-react/eslint-plugin@5.x — v5 flattened every sub-plugin (naming-convention,
+       * hooks-extra, dom, web-api, ...) into the single `@eslint-react` namespace and this
+       * particular rule wasn't carried over. Filename casing is already covered repo-wide by
+       * `unicorn/filename-case` (see configs/unicorn.ts), so nothing is lost by dropping it.
+       */
 
       // Unnecessary
       '@eslint-react/avoid-shorthand-boolean': 'off',

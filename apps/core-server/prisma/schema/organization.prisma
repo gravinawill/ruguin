@@ -1,0 +1,7 @@
+model Organization {
+  id        String   @id @default(uuid(7))
+  name      String
+  createdAt DateTime @default(now())
+
+  @@map("organizations")
+}

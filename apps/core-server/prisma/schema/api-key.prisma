@@ -1,0 +1,10 @@
+model ApiKey {
+  id        String    @id @default(uuid(7))
+  projectId String
+  hashedKey String    @unique
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([projectId])
+  @@map("api_keys")
+}

@@ -1,0 +1,9 @@
+model Project {
+  id             String   @id @default(uuid(7))
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@map("projects")
+}

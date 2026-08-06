@@ -1,5 +1,5 @@
 import swc from 'unplugin-swc'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 /*
  * Kept in sync with apps/core-server/.swcrc — both the Nest build and the Vitest
@@ -105,8 +105,48 @@ export default defineConfig({
         test: {
           name: 'e2e',
           include: ['src/**/__tests__/**/*.e2e.ts'],
-          setupFiles: ['./vitest.setup.e2e.ts'],
+          /*
+           * email-pipeline.e2e.ts lives in its own 'pipeline-e2e' project (below), not here: it
+           * spawns real core-server + dispatch-worker processes sharing the dispatch-worker
+           * consumer's fixed groupId ('dispatch-worker') — running it inside this project would let
+           * Turbo schedule it in parallel with dispatch-worker's own test:e2e in CI, and the two
+           * would steal Kafka messages from each other on that groupId.
+           *
+           * Spreads configDefaults.exclude rather than just this one entry — deepMerge (how Vitest
+           * applies a project's `test` options over the root's) replaces arrays instead of
+           * concatenating them, so a bare exclude here would silently stop excluding node_modules/.git too.
+           */
+          exclude: [...configDefaults.exclude, 'src/__tests__/email-pipeline.e2e.ts'],
+          /*
+           * globalSetup, not setupFiles: setupFiles re-runs once per test FILE, and this file's
+           * job is to run prisma/seed.ts once and hand every test file the same seeded
+           * organization/project/sender identity via process.env — running it once per file would
+           * mint a different set of IDs per file with no way to share them. globalSetup runs
+           * exactly once for the entire `vitest run --project e2e` invocation; the env vars it
+           * writes to process.env are still visible to every test file because Vitest's worker
+           * pool spawns after global setup finishes and inherits process.env at that point.
+           */
+          globalSetup: ['./vitest.setup.e2e.ts'],
           testTimeout: 30_000
+        }
+      },
+      {
+        extends: true,
+        test: {
+          name: 'pipeline-e2e',
+          include: ['src/__tests__/email-pipeline.e2e.ts'],
+          /*
+           * Same globalSetup mechanism as the 'e2e' project above (see its comment) — this project
+           * needs the identical seeded organization/project/sender identity/template/API key, plus
+           * the same DATABASE_URL/KAFKA_BOOTSTRAP_BROKERS/AWS_* defaults, so the two real processes
+           * spawned by the test inherit a working environment (see decision 3 of the design spec).
+           */
+          globalSetup: ['./vitest.setup.e2e.ts']
+          /*
+           * No project-level testTimeout here: the single test in email-pipeline.e2e.ts passes its
+           * own TEST_TIMEOUT_MS explicitly, which always wins over a project default — declaring one
+           * here too would just be a second number to keep in sync with no effect of its own.
+           */
         }
       }
     ]
