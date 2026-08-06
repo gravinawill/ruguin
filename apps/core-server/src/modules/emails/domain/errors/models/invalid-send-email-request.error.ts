@@ -13,7 +13,7 @@ export class InvalidSendEmailRequestError extends BaseError {
   constructor(input: { issues: readonly z.core.$ZodIssue[] }) {
     super({
       error: input.issues,
-      message: 'Request body must include either { templateId, variables } or { subject, html }.'
+      message: 'Request body must include { to, templateId }; variables is optional and defaults to {}.'
     })
   }
 }
