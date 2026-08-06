@@ -205,6 +205,12 @@ git flow <tipo> finish <nome>    # integra no parent e remove a branch
 - **`feature` e `bugfix` reintegram por rebase** (`downstreamstrategy rebase`); `release` e
   `hotfix`, por merge. Não force um rebase em release.
 - Antes de abrir um PR, confirme o alvo: `git config gitflow.branch.<tipo>.parent`.
+- **Isolamento automático (worktree do Claude Code) não é exceção.** A ferramenta `EnterWorktree`
+  cria a branch por `git checkout -b`/equivalente, não por `git flow ... start` — ela existe para
+  isolar arquivos, não para decidir nome/parent de branch. Antes de commitar nela ou abrir PR,
+  recrie o trabalho numa branch nascida de `git flow feature start`/`bugfix start`/etc. (mesmo que
+  isso signifique `git flow feature start <nome>` seguido de `git cherry-pick`/`git reset --soft`
+  trazendo os commits já feitos na branch do worktree) e descarte a branch avulsa depois.
 
 ## Build & Test
 
