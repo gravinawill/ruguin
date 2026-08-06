@@ -89,6 +89,36 @@ function createGetOrSetStubWithSerializationRoundTrip(): IGetOrSetCacheProvider 
   } as unknown as IGetOrSetCacheProvider
 }
 
+/*
+ * Unlike createGetOrSetStubWithSerializationRoundTrip (one shared slot, single template id), this
+ * keys the store by whatever `key` getOrSet was called with — the only way to reproduce the
+ * multi-tenant scenario, where two calls share a templateId but must land in different cache
+ * entries because they carry different projectId values.
+ */
+function createGetOrSetStubWithSharedKeyedStore(): IGetOrSetCacheProvider {
+  const store = new Map<string, unknown>()
+
+  return {
+    getOrSet: vi.fn(
+      async ({ key, loader }: { key: string; loader: () => Promise<{ isFailure(): boolean; value: unknown }> }) => {
+        if (store.has(key)) {
+          return success({
+            value: store.get(key),
+            source: CacheSource.CACHE,
+            lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+          })
+        }
+
+        const loaded = await loader()
+        if (loaded.isFailure()) return failure(loaded.value)
+
+        store.set(key, loaded.value)
+        return success({ value: loaded.value, source: CacheSource.LOADER, lockOutcome: CacheLockOutcome.NOT_ATTEMPTED })
+      }
+    )
+  } as unknown as IGetOrSetCacheProvider
+}
+
 describe('TemplateCacheProvider', () => {
   describe('get', () => {
     it('runs the loader through getOrSet, keyed by the template id, with a colon-free namespace', async () => {
@@ -107,7 +137,7 @@ describe('TemplateCacheProvider', () => {
       const [options] = (cache.getOrSet as ReturnType<typeof vi.fn>).mock.calls[0] as [
         { key: string; namespace: string; ttlInMs: number }
       ]
-      expect(options.key).toBe(template.id.toString())
+      expect(options.key).toBe(`project-1-${template.id.toString()}`)
       expect(options.namespace).not.toMatch(/[\s:]/)
       expect(Number.isSafeInteger(options.ttlInMs)).toBe(true)
     })
@@ -162,19 +192,54 @@ describe('TemplateCacheProvider', () => {
         expect(second.value?.id.toString()).toBe(template.id.toString())
       }
     })
+
+    it('keys the cache by projectId + templateId, so a miss for one tenant never poisons another tenant sharing the same templateId', async () => {
+      const template = buildTemplate()
+      const sharedTemplateId = template.id.toString()
+      /*
+       * The victim ('project-1') actually owns a template at this id; the attacker's project
+       * ('project-attacker') does not — findByIdAndProjectId is scoped, so it reports not-found
+       * for the attacker regardless of the id being real for someone else.
+       */
+      const findByIdAndProjectIdMock = vi.fn().mockImplementation(({ projectId }: { projectId: string }) => {
+        if (projectId === 'project-1') return success({ template })
+        return success({ template: null })
+      })
+      const lookup = { findByIdAndProjectId: findByIdAndProjectIdMock } as unknown as TemplateLookupProvider
+      const cache = createGetOrSetStubWithSharedKeyedStore()
+      const cacheInvalidator = { delete: vi.fn() } as unknown as IDeleteCacheProvider
+      const cacheProvider = new TemplateCacheProvider(lookup, cache, cacheInvalidator)
+
+      // Attacker's request warms the cache first, under its own key, with a null (not-found) result.
+      const attackerResult = await cacheProvider.get({ templateId: sharedTemplateId, projectId: 'project-attacker' })
+      // The real owner's request must still hit the loader and get the real template back.
+      const ownerResult = await cacheProvider.get({ templateId: sharedTemplateId, projectId: 'project-1' })
+
+      expect(attackerResult.isSuccess()).toBe(true)
+      if (attackerResult.isSuccess()) expect(attackerResult.value).toBeNull()
+      expect(ownerResult.isSuccess()).toBe(true)
+      if (ownerResult.isSuccess()) expect(ownerResult.value?.id.toString()).toBe(sharedTemplateId)
+
+      const calls = (cache.getOrSet as ReturnType<typeof vi.fn>).mock.calls as Array<[{ key: string }]>
+      const [attackerOptions] = calls[0] as [{ key: string }]
+      const [ownerOptions] = calls[1] as [{ key: string }]
+      expect(attackerOptions.key).toBe(`project-attacker-${sharedTemplateId}`)
+      expect(ownerOptions.key).toBe(`project-1-${sharedTemplateId}`)
+      expect(attackerOptions.key).not.toBe(ownerOptions.key)
+    })
   })
 
   describe('invalidate', () => {
-    it('calls delete with the same namespace used by get', async () => {
+    it('calls delete with a key scoped by projectId + templateId, using the same namespace as get', async () => {
       const lookup = { findByIdAndProjectId: vi.fn() } as unknown as TemplateLookupProvider
       const cache = { getOrSet: vi.fn() } as unknown as IGetOrSetCacheProvider
       const deleteFunction = vi.fn().mockResolvedValue(success({ existed: true }))
       const cacheInvalidator = { delete: deleteFunction } as unknown as IDeleteCacheProvider
       const cacheProvider = new TemplateCacheProvider(lookup, cache, cacheInvalidator)
 
-      await cacheProvider.invalidate({ templateId: 'template-1' })
+      await cacheProvider.invalidate({ templateId: 'template-1', projectId: 'project-1' })
 
-      expect(deleteFunction).toHaveBeenCalledWith({ key: 'template-1', namespace: 'core-server-template' })
+      expect(deleteFunction).toHaveBeenCalledWith({ key: 'project-1-template-1', namespace: 'core-server-template' })
     })
   })
 })

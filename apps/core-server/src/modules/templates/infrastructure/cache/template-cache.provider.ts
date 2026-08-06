@@ -30,7 +30,7 @@ export class TemplateCacheProvider implements TemplateCacheProviderContract {
     projectId: string
   }): Promise<Either<FindTemplateError, Template | null>> {
     const cached = await this.cache.getOrSet<Template, FindTemplateError>({
-      key: input.templateId,
+      key: `${input.projectId}-${input.templateId}`,
       namespace: CACHE_NAMESPACE,
       ttlInMs: coreServerENV.TEMPLATE_CACHE_TTL_IN_SECONDS * 1000,
       loader: async () => {
@@ -75,13 +75,13 @@ export class TemplateCacheProvider implements TemplateCacheProviderContract {
     return success(created.value)
   }
 
-  public async invalidate(input: { templateId: string }): Promise<void> {
+  public async invalidate(input: { templateId: string; projectId: string }): Promise<void> {
     /*
      * Fire-and-forget: nothing writes a Template today (seed only), so this method has no caller
      * yet — included for symmetry with SenderIdentityCacheProvider, ready for whenever Template
      * gets a write path. A failed cache delete just means the stale value survives until its own
      * TTL expires, not incorrect data loss.
      */
-    await this.cacheInvalidator.delete({ key: input.templateId, namespace: CACHE_NAMESPACE })
+    await this.cacheInvalidator.delete({ key: `${input.projectId}-${input.templateId}`, namespace: CACHE_NAMESPACE })
   }
 }
