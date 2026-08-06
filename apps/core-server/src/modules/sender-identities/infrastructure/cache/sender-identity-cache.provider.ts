@@ -6,6 +6,7 @@ import {
   type IGetOrSetCacheProvider
 } from '@ruguin/cache'
 import { coreServerENV } from '@ruguin/env'
+import { ID } from '@ruguin/shared-domain'
 import { type Either, failure, success } from '@ruguin/utils'
 
 import {
@@ -13,8 +14,8 @@ import {
   type SenderIdentityRepository
 } from '../../domain/contracts/repositories/sender-identity.repository'
 import { type SenderIdentityCacheProvider as SenderIdentityCacheProviderContract } from '../../domain/contracts/sender-identity-cache.provider'
-import { type FindSenderIdentityError } from '../../domain/errors/find-sender-identity.error'
-import { type SenderIdentity } from '../../domain/models/sender-identity.model'
+import { FindSenderIdentityError } from '../../domain/errors/find-sender-identity.error'
+import { SenderIdentity } from '../../domain/models/sender-identity.model'
 
 // KeyBuilder.validateSegment forbids ':' in namespace/key segments — see packages/cache/src/infra/key-builder.ts.
 const CACHE_NAMESPACE = 'core-server-sender-identity'
@@ -42,7 +43,33 @@ export class SenderIdentityCacheProvider implements SenderIdentityCacheProviderC
     })
 
     if (cached.isFailure()) return failure(cached.value)
-    return success(cached.value.value)
+    if (cached.value.value === null) return success(null)
+
+    /*
+     * getOrSet's cache HIT path round-trips every driver — including 'memory' — through
+     * ISerializerStrategy (JSON.stringify/parse), which strips the SenderIdentity prototype and
+     * turns verifiedAt/createdAt back into strings: the value is a plain object shaped like
+     * SenderIdentity, not an instance, so `.isVerified()` throws TypeError on the caller's side.
+     * Reidrating unconditionally (hit or miss) means both paths return the exact same guarantee.
+     */
+    return this.toDomain(cached.value.value)
+  }
+
+  private toDomain(raw: SenderIdentity): Either<FindSenderIdentityError, SenderIdentity> {
+    const idResult = ID.validate({ id: raw.id.value, modelName: 'SenderIdentity' })
+    if (idResult.isFailure()) return failure(new FindSenderIdentityError({ error: idResult.value }))
+
+    const created = SenderIdentity.create({
+      id: idResult.value.idValidated,
+      projectId: raw.projectId,
+      name: raw.name,
+      email: raw.email,
+      verifiedAt: raw.verifiedAt === null ? null : new Date(raw.verifiedAt),
+      createdAt: new Date(raw.createdAt)
+    })
+    if (created.isFailure()) return failure(new FindSenderIdentityError({ error: created.value }))
+
+    return success(created.value)
   }
 
   public async invalidate(input: { senderIdentityId: string }): Promise<void> {

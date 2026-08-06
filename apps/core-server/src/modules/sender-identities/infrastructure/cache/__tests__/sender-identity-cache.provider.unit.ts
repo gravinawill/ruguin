@@ -56,6 +56,38 @@ function createGetOrSetStub(): IGetOrSetCacheProvider {
   } as unknown as IGetOrSetCacheProvider
 }
 
+/*
+ * Simulates what every real ICacheDriver (including 'memory') actually does: the first getOrSet
+ * call is a miss that stores the loader's return value; every call after that is a hit that
+ * replays it through a JSON round-trip, exactly like JsonSerializerStrategy's
+ * serialize()/deserialize() does — stripping the SenderIdentity prototype and turning
+ * verifiedAt/createdAt back into strings. `createGetOrSetStub` above never round-trips anything,
+ * so it could not have caught the bug this reproduces.
+ */
+function createGetOrSetStubWithSerializationRoundTrip(): IGetOrSetCacheProvider {
+  let stored: unknown
+
+  return {
+    getOrSet: vi.fn(async ({ loader }) => {
+      if (stored !== undefined) {
+        // eslint-disable-next-line unicorn/prefer-structured-clone -- must be JSON, not structuredClone: structuredClone keeps Date instances intact, which would hide the exact bug (Date -> string) this stub exists to reproduce.
+        const rehydratedFromJson: unknown = JSON.parse(JSON.stringify(stored))
+        return success({
+          value: rehydratedFromJson,
+          source: CacheSource.CACHE,
+          lockOutcome: CacheLockOutcome.NOT_ATTEMPTED
+        })
+      }
+
+      const loaded = await loader()
+      if (loaded.isFailure()) return failure(loaded.value)
+
+      stored = loaded.value
+      return success({ value: loaded.value, source: CacheSource.LOADER, lockOutcome: CacheLockOutcome.NOT_ATTEMPTED })
+    })
+  } as unknown as IGetOrSetCacheProvider
+}
+
 describe('SenderIdentityCacheProvider', () => {
   describe('get', () => {
     it('runs the loader through getOrSet, keyed by the sender identity id, with a colon-free namespace', async () => {
@@ -105,6 +137,30 @@ describe('SenderIdentityCacheProvider', () => {
 
       expect(result.isSuccess()).toBe(true)
       if (result.isSuccess()) expect(result.value).toBeNull()
+    })
+
+    it('reidrates a real SenderIdentity instance from a cache hit, so isVerified() keeps working after the JSON round-trip', async () => {
+      const senderIdentity = buildSenderIdentity()
+      const findByIdMock = vi.fn().mockResolvedValue(success({ senderIdentity }))
+      const repository = { findById: findByIdMock } as unknown as SenderIdentityRepository
+      const cache = createGetOrSetStubWithSerializationRoundTrip()
+      const cacheInvalidator = { delete: vi.fn() } as unknown as IDeleteCacheProvider
+      const cacheProvider = new SenderIdentityCacheProvider(repository, cache, cacheInvalidator)
+
+      const first = await cacheProvider.get({ senderIdentityId: senderIdentity.id.toString() })
+      const second = await cacheProvider.get({ senderIdentityId: senderIdentity.id.toString() })
+
+      expect(findByIdMock).toHaveBeenCalledOnce()
+      expect(first.isSuccess()).toBe(true)
+      expect(second.isSuccess()).toBe(true)
+      if (first.isSuccess() && second.isSuccess()) {
+        expect(first.value).toBeInstanceOf(SenderIdentity)
+        expect(second.value).toBeInstanceOf(SenderIdentity)
+        // The bug this guards against: a plain, deserialized object throws TypeError here instead.
+        expect(second.value?.isVerified()).toBe(false)
+        expect(second.value?.id.toString()).toBe(senderIdentity.id.toString())
+        expect(second.value?.email).toBe(senderIdentity.email)
+      }
     })
   })
 
