@@ -12,6 +12,7 @@ import { PrismaService } from '../../../../../shared/infrastructure/database/pri
 
 const SEEDED_TEMPLATE_ID = testSeedENV.TEST_SEEDED_TEMPLATE_ID
 const SEEDED_API_KEY = testSeedENV.TEST_SEEDED_API_KEY
+const SEEDED_PROJECT_ID = testSeedENV.TEST_SEEDED_PROJECT_ID
 
 describe('POST /v1/emails (e2e)', () => {
   let app: NestFastifyApplication
@@ -34,7 +35,7 @@ describe('POST /v1/emails (e2e)', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/emails',
-      payload: { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' }
+      payload: { to: 'recipient@example.com', templateId: SEEDED_TEMPLATE_ID, variables: {} }
     })
 
     expect(response.statusCode).toBe(401)
@@ -45,7 +46,7 @@ describe('POST /v1/emails (e2e)', () => {
       method: 'POST',
       url: '/v1/emails',
       headers: { authorization: 'Bearer not-a-real-key' },
-      payload: { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' }
+      payload: { to: 'recipient@example.com', templateId: SEEDED_TEMPLATE_ID, variables: {} }
     })
 
     expect(response.statusCode).toBe(401)
@@ -64,12 +65,7 @@ describe('POST /v1/emails (e2e)', () => {
       method: 'POST',
       url: '/v1/emails',
       headers: { authorization: `Bearer ${SEEDED_API_KEY}` },
-      payload: {
-        from: 'sender@example.com',
-        to: 'recipient@example.com',
-        templateId: SEEDED_TEMPLATE_ID,
-        variables: { name: 'Ada' }
-      }
+      payload: { to: 'recipient@example.com', templateId: SEEDED_TEMPLATE_ID, variables: { name: 'Ada' } }
     })
 
     expect(response.statusCode).toBe(202)
@@ -86,12 +82,12 @@ describe('POST /v1/emails (e2e)', () => {
     expect(row?.html).toBe('<p>Hi Ada</p>')
   })
 
-  it('returns 400 when the body has neither templateId nor subject+html', async () => {
+  it('returns 400 when the body is missing templateId', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/emails',
       headers: { authorization: `Bearer ${SEEDED_API_KEY}` },
-      payload: { from: 'sender@example.com', to: 'recipient@example.com' }
+      payload: { to: 'recipient@example.com' }
     })
 
     expect(response.statusCode).toBe(400)
@@ -102,12 +98,7 @@ describe('POST /v1/emails (e2e)', () => {
       method: 'POST',
       url: '/v1/emails',
       headers: { authorization: `Bearer ${SEEDED_API_KEY}` },
-      payload: {
-        from: 'sender@example.com',
-        to: 'recipient@example.com',
-        templateId: randomUUID(),
-        variables: {}
-      }
+      payload: { to: 'recipient@example.com', templateId: randomUUID(), variables: {} }
     })
 
     expect(response.statusCode).toBe(404)
@@ -116,19 +107,27 @@ describe('POST /v1/emails (e2e)', () => {
   it('returns 404 for a templateId that exists but belongs to a different project', async () => {
     /*
      * A random UUID alone only proves "nonexistent template" → 404, not multi-tenant isolation.
-     * This seeds a second, genuinely different project + template so the assertion actually
-     * exercises the `WHERE projectId = ...` scoping in TemplateLookupProvider, not just a
-     * not-found path that would also fire for a typo.
+     * This seeds a second, genuinely different project + sender identity + template so the
+     * assertion actually exercises the `WHERE projectId = ...` scoping in TemplateLookupProvider,
+     * not just a not-found path that would also fire for a typo.
      */
     const prisma = app.get(PrismaService)
     const otherOrganization = await prisma.organization.create({ data: { name: 'Other Org' } })
     const otherProject = await prisma.project.create({
       data: { organizationId: otherOrganization.id, name: 'Other Project' }
     })
+    const otherSenderIdentity = await prisma.senderIdentity.create({
+      data: {
+        projectId: otherProject.id,
+        name: 'Other Sender',
+        email: `other+${randomUUID()}@example.com`,
+        verifiedAt: new Date()
+      }
+    })
     const otherTemplate = await prisma.template.create({
       data: {
         projectId: otherProject.id,
-        senderIdentityId: 'other-sender-identity',
+        senderIdentityId: otherSenderIdentity.id,
         name: 'Other Template',
         subject: 'Hi',
         html: '<p>Hi</p>'
@@ -139,12 +138,7 @@ describe('POST /v1/emails (e2e)', () => {
       method: 'POST',
       url: '/v1/emails',
       headers: { authorization: `Bearer ${SEEDED_API_KEY}` },
-      payload: {
-        from: 'sender@example.com',
-        to: 'recipient@example.com',
-        templateId: otherTemplate.id,
-        variables: {}
-      }
+      payload: { to: 'recipient@example.com', templateId: otherTemplate.id, variables: {} }
     })
 
     expect(response.statusCode).toBe(404)
@@ -155,12 +149,37 @@ describe('POST /v1/emails (e2e)', () => {
       method: 'POST',
       url: '/v1/emails',
       headers: { authorization: `Bearer ${SEEDED_API_KEY}` },
-      payload: {
-        from: 'sender@example.com',
-        to: 'recipient@example.com',
-        templateId: SEEDED_TEMPLATE_ID,
-        variables: {}
+      payload: { to: 'recipient@example.com', templateId: SEEDED_TEMPLATE_ID, variables: {} }
+    })
+
+    expect(response.statusCode).toBe(422)
+  })
+
+  it('returns 422 when the template points at a sender identity that is not verified', async () => {
+    const prisma = app.get(PrismaService)
+    const unverifiedSenderIdentity = await prisma.senderIdentity.create({
+      data: {
+        projectId: SEEDED_PROJECT_ID,
+        name: 'Unverified Sender',
+        email: `unverified+${randomUUID()}@example.com`,
+        verifiedAt: null
       }
+    })
+    const templateWithUnverifiedSender = await prisma.template.create({
+      data: {
+        projectId: SEEDED_PROJECT_ID,
+        senderIdentityId: unverifiedSenderIdentity.id,
+        name: 'Unverified Sender Template',
+        subject: 'Hi',
+        html: '<p>Hi</p>'
+      }
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/emails',
+      headers: { authorization: `Bearer ${SEEDED_API_KEY}` },
+      payload: { to: 'recipient@example.com', templateId: templateWithUnverifiedSender.id, variables: {} }
     })
 
     expect(response.statusCode).toBe(422)
@@ -175,7 +194,7 @@ describe('POST /v1/emails (e2e)', () => {
       method: 'POST',
       url: '/v1/emails',
       headers: { authorization: `Bearer ${SEEDED_API_KEY}`, 'idempotency-key': '' },
-      payload: { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' }
+      payload: { to: 'recipient@example.com', templateId: SEEDED_TEMPLATE_ID, variables: { name: 'Ada' } }
     })
 
     expect(response.statusCode).toBe(202)
@@ -184,7 +203,9 @@ describe('POST /v1/emails (e2e)', () => {
   it('returns 409 when an Idempotency-Key is reused with a different body', async () => {
     /*
      * Answering the second request with the first email's id would report 202 for a message that
-     * is never queued and never sent — silent, permanent loss disguised as success.
+     * is never queued and never sent — silent, permanent loss disguised as success. Same
+     * templateId, different variables → different rendered content, which is what the repository
+     * actually compares.
      */
     const idempotencyKey = `idem-${randomUUID()}`
     const headers = { authorization: `Bearer ${SEEDED_API_KEY}`, 'idempotency-key': idempotencyKey }
@@ -193,13 +214,13 @@ describe('POST /v1/emails (e2e)', () => {
       method: 'POST',
       url: '/v1/emails',
       headers,
-      payload: { from: 'sender@example.com', to: 'first@example.com', subject: 'First', html: '<p>First</p>' }
+      payload: { to: 'first@example.com', templateId: SEEDED_TEMPLATE_ID, variables: { name: 'Ada' } }
     })
     const second = await app.inject({
       method: 'POST',
       url: '/v1/emails',
       headers,
-      payload: { from: 'sender@example.com', to: 'second@example.com', subject: 'Second', html: '<p>Second</p>' }
+      payload: { to: 'second@example.com', templateId: SEEDED_TEMPLATE_ID, variables: { name: 'Bob' } }
     })
 
     expect(first.statusCode).toBe(202)
@@ -214,7 +235,7 @@ describe('POST /v1/emails (e2e)', () => {
 
   it('returns the same id for two concurrent requests sharing an Idempotency-Key', async () => {
     const idempotencyKey = `idem-${randomUUID()}`
-    const payload = { from: 'sender@example.com', to: 'recipient@example.com', subject: 'Hi', html: '<p>Hi</p>' }
+    const payload = { to: 'recipient@example.com', templateId: SEEDED_TEMPLATE_ID, variables: { name: 'Ada' } }
 
     const [first, second] = await Promise.all([
       app.inject({

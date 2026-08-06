@@ -14,6 +14,7 @@ export const testSeedENV = lazyEnvironment(() =>
     server: {
       TEST_SEEDED_ORGANIZATION_ID: z.string().min(1),
       TEST_SEEDED_PROJECT_ID: z.string().min(1),
+      TEST_SEEDED_SENDER_IDENTITY_ID: z.string().min(1),
       TEST_SEEDED_TEMPLATE_ID: z.string().min(1),
       TEST_SEEDED_API_KEY: z.string().min(1)
     },
