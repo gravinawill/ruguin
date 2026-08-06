@@ -102,6 +102,7 @@ export class SendEmailUseCase {
       organizationId: input.organizationId,
       projectId: emailResult.value.projectId,
       from: emailResult.value.from,
+      fromName: senderIdentity.name,
       to: emailResult.value.to,
       subject: emailResult.value.subject,
       html: emailResult.value.html,

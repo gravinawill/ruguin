@@ -31,6 +31,12 @@ describe('EmailSendRequestedPayloadSchema', () => {
     expect(result.success).toBe(true)
   })
 
+  it('accepts a valid payload with an optional fromName', () => {
+    const result = EmailSendRequestedPayloadSchema.safeParse({ ...validPayload, fromName: 'Will Gravina' })
+
+    expect(result.success).toBe(true)
+  })
+
   it('rejects a payload missing a required field', () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars,sonarjs/no-unused-vars -- intentionally destructure subject to test exclusion
     const { subject: _subject, ...withoutSubject } = validPayload

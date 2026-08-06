@@ -31,6 +31,7 @@ export type SendEmailUseCaseInput = Readonly<{
   organizationId: string
   projectId: string
   from: string
+  fromName?: string | undefined
   to: string
   subject: string
   html: string
@@ -109,6 +110,7 @@ export class SendEmailUseCase {
 
     const sent = await this.emailSender.send({
       from: input.from,
+      ...(input.fromName !== undefined && { fromName: input.fromName }),
       to: input.to,
       subject: input.subject,
       html: input.html

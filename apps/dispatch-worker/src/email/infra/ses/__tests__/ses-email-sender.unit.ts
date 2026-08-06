@@ -31,6 +31,22 @@ describe('SesEmailSender', () => {
     })
   })
 
+  it('formats Source as "Name <email>" when fromName is provided', async () => {
+    const send = vi.fn().mockResolvedValue({ MessageId: 'ses-msg-2' })
+    const sender = new SesEmailSender(fakeSesClient(send))
+
+    await sender.send({
+      from: 'a@ruguin.dev',
+      fromName: 'Will Gravina',
+      to: 'b@ruguin.dev',
+      subject: 'Hi',
+      html: '<p>Hi</p>'
+    })
+
+    const command = send.mock.calls[0]?.[0] as SendEmailCommand
+    expect(command.input.Source).toBe('Will Gravina <a@ruguin.dev>')
+  })
+
   it('returns a SesSendError when the SDK call rejects', async () => {
     const send = vi.fn().mockRejectedValue(new Error('Throttled'))
     const sender = new SesEmailSender(fakeSesClient(send))

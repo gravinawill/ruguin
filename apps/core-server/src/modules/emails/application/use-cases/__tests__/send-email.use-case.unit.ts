@@ -131,7 +131,8 @@ describe('SendEmailUseCase', () => {
     expect(event.payload).toMatchObject({
       organizationId: '01900000-0000-7000-8000-000000000002',
       projectId: '01900000-0000-7000-8000-000000000001',
-      from: senderIdentity.email
+      from: senderIdentity.email,
+      fromName: senderIdentity.name
     })
   })
 
