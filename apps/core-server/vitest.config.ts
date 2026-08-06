@@ -106,6 +106,14 @@ export default defineConfig({
           name: 'e2e',
           include: ['src/**/__tests__/**/*.e2e.ts'],
           /*
+           * email-pipeline.e2e.ts lives in its own 'pipeline-e2e' project (below), not here: it
+           * spawns real core-server + dispatch-worker processes sharing the dispatch-worker
+           * consumer's fixed groupId ('dispatch-worker') — running it inside this project would let
+           * Turbo schedule it in parallel with dispatch-worker's own test:e2e in CI, and the two
+           * would steal Kafka messages from each other on that groupId.
+           */
+          exclude: ['src/__tests__/email-pipeline.e2e.ts'],
+          /*
            * globalSetup, not setupFiles: setupFiles re-runs once per test FILE, and this file's
            * job is to run prisma/seed.ts once and hand every test file the same seeded
            * organization/project/sender identity via process.env — running it once per file would
@@ -116,6 +124,21 @@ export default defineConfig({
            */
           globalSetup: ['./vitest.setup.e2e.ts'],
           testTimeout: 30_000
+        }
+      },
+      {
+        extends: true,
+        test: {
+          name: 'pipeline-e2e',
+          include: ['src/__tests__/email-pipeline.e2e.ts'],
+          /*
+           * Same globalSetup mechanism as the 'e2e' project above (see its comment) — this project
+           * needs the identical seeded organization/project/sender identity/template/API key, plus
+           * the same DATABASE_URL/KAFKA_BOOTSTRAP_BROKERS/AWS_* defaults, so the two real processes
+           * spawned by the test inherit a working environment (see decision 3 of the design spec).
+           */
+          globalSetup: ['./vitest.setup.e2e.ts'],
+          testTimeout: 90_000
         }
       }
     ]

@@ -35,6 +35,16 @@ export function runSeedAndCaptureIds(): void {
   process.env.AWS_ENDPOINT_URL ??= 'http://localhost:4566'
   process.env.AWS_ACCESS_KEY_ID ??= 'test'
   process.env.AWS_SECRET_ACCESS_KEY ??= 'test'
+  /*
+   * core-server itself never reads sesENV — this default exists solely for the pipeline-e2e
+   * project (apps/core-server/src/__tests__/email-pipeline.e2e.ts), which spawns the real
+   * dispatch-worker process via `pnpm --filter @ruguin/dispatch-worker start`. That process
+   * validates sesENV (SES_FROM_ADDRESS has no schema default) at boot regardless of whether a
+   * given send uses it, and inherits process.env from this globalSetup, not from dispatch-worker's
+   * own .env.test (only loaded by its `test:e2e` script, not by `start`). Same placeholder value
+   * as apps/dispatch-worker/.env.test — no real secret, LocalStack's SES emulator accepts any string.
+   */
+  process.env.SES_FROM_ADDRESS ??= 'test@ruguin.local'
 
   // eslint-disable-next-line sonarjs/no-os-command-from-path -- static command, no interpolated input; `pnpm exec` is the intended way to resolve workspace-local binaries via PATH.
   const seedOutput = execSync('pnpm exec tsx prisma/seed.ts', {
