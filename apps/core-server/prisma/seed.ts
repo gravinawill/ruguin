@@ -68,11 +68,12 @@ async function main(): Promise<void> {
   await prisma.apiKey.create({ data: { projectId: project.id, hashedKey } })
 
   console.log('Seeded development data:')
-  console.log(`  organizationId:   ${organization.id}`)
-  console.log(`  projectId:        ${project.id}`)
-  console.log(`  senderIdentityId: ${senderIdentity.id}`)
-  console.log(`  templateId:       ${template.id}`)
-  console.log(`  API key:          ${rawApiKey}`)
+  console.log(`  organizationId:      ${organization.id}`)
+  console.log(`  projectId:           ${project.id}`)
+  console.log(`  senderIdentityId:    ${senderIdentity.id}`)
+  console.log(`  senderIdentityEmail: ${senderIdentity.email}`)
+  console.log(`  templateId:          ${template.id}`)
+  console.log(`  API key:             ${rawApiKey}`)
   console.log('This key is shown once. It is not recoverable — re-run the seed to mint a new one.')
 
   await prisma.$disconnect()
