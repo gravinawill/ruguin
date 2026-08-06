@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: core-server-migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  template:
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: migrate
+          image: ghcr.io/gravinawill/ruguin/core-server-migrator
+          envFrom:
+            - secretRef:
+                name: core-server-secrets
+          resources:
+            requests: { cpu: 100m, memory: 128Mi, ephemeral-storage: 128Mi }
+            limits: { cpu: 100m, memory: 128Mi, ephemeral-storage: 128Mi }
