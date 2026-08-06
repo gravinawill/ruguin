@@ -39,13 +39,17 @@ function substitute(text: string, variables: Record<string, string>): Either<Mis
 export function renderTemplate(input: {
   subject: string
   html: string
+  text: string
   variables: Record<string, string>
-}): Either<MissingTemplateVariableError, { subject: string; html: string }> {
+}): Either<MissingTemplateVariableError, { subject: string; html: string; text: string }> {
   const subjectResult = substitute(input.subject, input.variables)
   if (subjectResult.isFailure()) return failure(subjectResult.value)
 
   const htmlResult = substitute(input.html, input.variables)
   if (htmlResult.isFailure()) return failure(htmlResult.value)
 
-  return success({ subject: subjectResult.value, html: htmlResult.value })
+  const textResult = substitute(input.text, input.variables)
+  if (textResult.isFailure()) return failure(textResult.value)
+
+  return success({ subject: subjectResult.value, html: htmlResult.value, text: textResult.value })
 }
