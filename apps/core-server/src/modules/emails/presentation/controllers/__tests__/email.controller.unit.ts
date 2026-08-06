@@ -32,6 +32,7 @@ function buildEmail() {
     to: 'recipient@example.com',
     subject: 'Hi',
     html: '<p>Hi</p>',
+    text: 'Hi',
     createdAt: new Date()
   })
   if (result.isFailure()) throw new Error('unreachable')

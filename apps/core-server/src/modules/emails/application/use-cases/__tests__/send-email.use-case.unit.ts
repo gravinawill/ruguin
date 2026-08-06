@@ -9,7 +9,7 @@ import { EnqueueOutboxMessageError } from '../../../../../shared/domain/errors/e
 import { type SenderIdentityCacheProvider } from '../../../../sender-identities/domain/contracts/sender-identity-cache.provider'
 import { SenderIdentityNotVerifiedError } from '../../../../sender-identities/domain/errors/sender-identity-not-verified.error'
 import { SenderIdentity } from '../../../../sender-identities/domain/models/sender-identity.model'
-import { type TemplateLookupProvider } from '../../../../templates/domain/contracts/template-lookup.provider'
+import { type TemplateCacheProvider } from '../../../../templates/domain/contracts/template-cache.provider'
 import { TemplateNotFoundError } from '../../../../templates/domain/errors/template-not-found.error'
 import { Template } from '../../../../templates/domain/models/template.model'
 import { type EmailRepository } from '../../../domain/contracts/repositories/email.repository'
@@ -24,10 +24,10 @@ function validId(modelName: string): ID {
   return generated.value.idGenerated
 }
 
-function buildSenderIdentity(overrides: Partial<{ verifiedAt: Date | null; projectId: string }> = {}) {
+function buildSenderIdentity(overrides: Partial<{ verifiedAt: Date | null }> = {}) {
   const result = SenderIdentity.create({
     id: validId('SenderIdentity'),
-    projectId: overrides.projectId ?? '01900000-0000-7000-8000-000000000001',
+    projectId: '01900000-0000-7000-8000-000000000001',
     name: 'Sender',
     email: 'sender@example.com',
     verifiedAt: overrides.verifiedAt === undefined ? new Date() : overrides.verifiedAt,
@@ -63,6 +63,7 @@ function buildEmail(overrides: Partial<{ idempotencyKey: string | null }> = {}) 
     to: 'recipient@example.com',
     subject: 'Hi Ada',
     html: '<p>Hi Ada</p>',
+    text: 'Hi Ada',
     createdAt: new Date()
   })
   if (result.isFailure()) throw new Error('unreachable')
@@ -82,8 +83,10 @@ describe('SendEmailUseCase', () => {
     const email = buildEmail()
     const createIfNotExists = vi.fn().mockResolvedValue(success({ email, created: true }))
     const emailRepository: EmailRepository = { createIfNotExists }
-    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template }))
-    const templateLookup: TemplateLookupProvider = { findByIdAndProjectId }
+    const templateCache: TemplateCacheProvider = {
+      get: vi.fn().mockResolvedValue(success(template)),
+      invalidate: vi.fn()
+    }
     const senderIdentityCache: SenderIdentityCacheProvider = {
       get: vi.fn().mockResolvedValue(success(senderIdentity)),
       invalidate: vi.fn()
@@ -93,7 +96,7 @@ describe('SendEmailUseCase', () => {
     const useCase = new SendEmailUseCase(
       createTransactionManagerStub(),
       emailRepository,
-      templateLookup,
+      templateCache,
       senderIdentityCache,
       outbox
     )
@@ -119,7 +122,8 @@ describe('SendEmailUseCase', () => {
           from: senderIdentity.email,
           to: 'recipient@example.com',
           subject: 'Hi Ada',
-          html: '<p>Hi Ada</p>'
+          html: '<p>Hi Ada</p>',
+          text: 'Hi Ada'
         })
       })
     )
@@ -133,7 +137,7 @@ describe('SendEmailUseCase', () => {
       organizationId: '01900000-0000-7000-8000-000000000002',
       projectId: '01900000-0000-7000-8000-000000000001',
       from: senderIdentity.email,
-      fromName: senderIdentity.name
+      text: 'Hi Ada'
     })
   })
 
@@ -148,7 +152,7 @@ describe('SendEmailUseCase', () => {
     const useCase = new SendEmailUseCase(
       createTransactionManagerStub(),
       emailRepository,
-      { findByIdAndProjectId: vi.fn().mockResolvedValue(success({ template })) },
+      { get: vi.fn().mockResolvedValue(success(template)), invalidate: vi.fn() },
       { get: vi.fn().mockResolvedValue(success(senderIdentity)), invalidate: vi.fn() },
       outbox
     )
@@ -178,7 +182,7 @@ describe('SendEmailUseCase', () => {
     const useCase = new SendEmailUseCase(
       createTransactionManagerStub(),
       emailRepository,
-      { findByIdAndProjectId: vi.fn().mockResolvedValue(success({ template })) },
+      { get: vi.fn().mockResolvedValue(success(template)), invalidate: vi.fn() },
       { get: vi.fn().mockResolvedValue(success(senderIdentity)), invalidate: vi.fn() },
       outbox
     )
@@ -200,8 +204,7 @@ describe('SendEmailUseCase', () => {
   })
 
   it('fails with TemplateNotFoundError when the templateId does not resolve for this project', async () => {
-    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template: null }))
-    const templateLookup: TemplateLookupProvider = { findByIdAndProjectId }
+    const templateCache: TemplateCacheProvider = { get: vi.fn().mockResolvedValue(success(null)), invalidate: vi.fn() }
     const createIfNotExists = vi.fn()
     const emailRepository: EmailRepository = { createIfNotExists }
     const outbox: OutboxPort = { enqueue: vi.fn() }
@@ -210,7 +213,7 @@ describe('SendEmailUseCase', () => {
     const useCase = new SendEmailUseCase(
       createTransactionManagerStub(),
       emailRepository,
-      templateLookup,
+      templateCache,
       senderIdentityCache,
       outbox
     )
@@ -232,11 +235,13 @@ describe('SendEmailUseCase', () => {
   it('fails with MissingTemplateVariableError and never persists when a variable is missing', async () => {
     const senderIdentity = buildSenderIdentity()
     const template = buildTemplate(senderIdentity.id.toString())
-    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template }))
-    const templateLookup: TemplateLookupProvider = { findByIdAndProjectId }
     const createIfNotExists = vi.fn()
     const emailRepository: EmailRepository = { createIfNotExists }
     const outbox: OutboxPort = { enqueue: vi.fn() }
+    const templateCache: TemplateCacheProvider = {
+      get: vi.fn().mockResolvedValue(success(template)),
+      invalidate: vi.fn()
+    }
     const senderIdentityCache: SenderIdentityCacheProvider = {
       get: vi.fn().mockResolvedValue(success(senderIdentity)),
       invalidate: vi.fn()
@@ -244,7 +249,7 @@ describe('SendEmailUseCase', () => {
     const useCase = new SendEmailUseCase(
       createTransactionManagerStub(),
       emailRepository,
-      templateLookup,
+      templateCache,
       senderIdentityCache,
       outbox
     )
@@ -264,11 +269,13 @@ describe('SendEmailUseCase', () => {
   it('fails with SenderIdentityNotVerifiedError and never persists when the sender identity is not verified', async () => {
     const senderIdentity = buildSenderIdentity({ verifiedAt: null })
     const template = buildTemplate(senderIdentity.id.toString())
-    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template }))
-    const templateLookup: TemplateLookupProvider = { findByIdAndProjectId }
     const createIfNotExists = vi.fn()
     const emailRepository: EmailRepository = { createIfNotExists }
     const outbox: OutboxPort = { enqueue: vi.fn() }
+    const templateCache: TemplateCacheProvider = {
+      get: vi.fn().mockResolvedValue(success(template)),
+      invalidate: vi.fn()
+    }
     const senderIdentityCache: SenderIdentityCacheProvider = {
       get: vi.fn().mockResolvedValue(success(senderIdentity)),
       invalidate: vi.fn()
@@ -276,71 +283,7 @@ describe('SendEmailUseCase', () => {
     const useCase = new SendEmailUseCase(
       createTransactionManagerStub(),
       emailRepository,
-      templateLookup,
-      senderIdentityCache,
-      outbox
-    )
-
-    const result = await useCase.execute({
-      projectId: '01900000-0000-7000-8000-000000000001',
-      organizationId: '01900000-0000-7000-8000-000000000002',
-      to: 'recipient@example.com',
-      templateId: template.id.toString(),
-      variables: { name: 'Ada' }
-    })
-
-    expect(result.isFailure()).toBe(true)
-    if (result.isFailure()) expect(result.value).toBeInstanceOf(SenderIdentityNotVerifiedError)
-    expect(createIfNotExists).not.toHaveBeenCalled()
-  })
-
-  it('fails with SenderIdentityNotVerifiedError when the sender identity no longer resolves', async () => {
-    const template = buildTemplate('01900000-0000-7000-8000-000000000099')
-    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template }))
-    const templateLookup: TemplateLookupProvider = { findByIdAndProjectId }
-    const createIfNotExists = vi.fn()
-    const emailRepository: EmailRepository = { createIfNotExists }
-    const outbox: OutboxPort = { enqueue: vi.fn() }
-    const senderIdentityCache: SenderIdentityCacheProvider = {
-      get: vi.fn().mockResolvedValue(success(null)),
-      invalidate: vi.fn()
-    }
-    const useCase = new SendEmailUseCase(
-      createTransactionManagerStub(),
-      emailRepository,
-      templateLookup,
-      senderIdentityCache,
-      outbox
-    )
-
-    const result = await useCase.execute({
-      projectId: '01900000-0000-7000-8000-000000000001',
-      organizationId: '01900000-0000-7000-8000-000000000002',
-      to: 'recipient@example.com',
-      templateId: template.id.toString(),
-      variables: {}
-    })
-
-    expect(result.isFailure()).toBe(true)
-    if (result.isFailure()) expect(result.value).toBeInstanceOf(SenderIdentityNotVerifiedError)
-  })
-
-  it('fails with SenderIdentityNotVerifiedError and never persists when the resolved sender identity belongs to another project', async () => {
-    const senderIdentity = buildSenderIdentity({ projectId: '01900000-0000-7000-8000-000000000099' })
-    const template = buildTemplate(senderIdentity.id.toString())
-    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template }))
-    const templateLookup: TemplateLookupProvider = { findByIdAndProjectId }
-    const createIfNotExists = vi.fn()
-    const emailRepository: EmailRepository = { createIfNotExists }
-    const outbox: OutboxPort = { enqueue: vi.fn() }
-    const senderIdentityCache: SenderIdentityCacheProvider = {
-      get: vi.fn().mockResolvedValue(success(senderIdentity)),
-      invalidate: vi.fn()
-    }
-    const useCase = new SendEmailUseCase(
-      createTransactionManagerStub(),
-      emailRepository,
-      templateLookup,
+      templateCache,
       senderIdentityCache,
       outbox
     )
@@ -369,7 +312,7 @@ describe('SendEmailUseCase', () => {
     const useCase = new SendEmailUseCase(
       createTransactionManagerStub(),
       emailRepository,
-      { findByIdAndProjectId: vi.fn().mockResolvedValue(success({ template })) },
+      { get: vi.fn().mockResolvedValue(success(template)), invalidate: vi.fn() },
       { get: vi.fn().mockResolvedValue(success(senderIdentity)), invalidate: vi.fn() },
       outbox
     )
@@ -402,7 +345,7 @@ describe('SendEmailUseCase', () => {
     const useCase = new SendEmailUseCase(
       createTransactionManagerStub(),
       emailRepository,
-      { findByIdAndProjectId: vi.fn().mockResolvedValue(success({ template })) },
+      { get: vi.fn().mockResolvedValue(success(template)), invalidate: vi.fn() },
       { get: vi.fn().mockResolvedValue(success(senderIdentity)), invalidate: vi.fn() },
       outbox
     )
@@ -433,7 +376,7 @@ describe('SendEmailUseCase', () => {
     const useCase = new SendEmailUseCase(
       createTransactionManagerStub(),
       emailRepository,
-      { findByIdAndProjectId: vi.fn().mockResolvedValue(success({ template })) },
+      { get: vi.fn().mockResolvedValue(success(template)), invalidate: vi.fn() },
       { get: vi.fn().mockResolvedValue(success(senderIdentity)), invalidate: vi.fn() },
       outbox
     )

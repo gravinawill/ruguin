@@ -14,9 +14,9 @@ import {
 } from '../../../sender-identities/domain/contracts/sender-identity-cache.provider'
 import { SenderIdentityNotVerifiedError } from '../../../sender-identities/domain/errors/sender-identity-not-verified.error'
 import {
-  TEMPLATE_LOOKUP_PROVIDER,
-  type TemplateLookupProvider
-} from '../../../templates/domain/contracts/template-lookup.provider'
+  TEMPLATE_CACHE_PROVIDER,
+  type TemplateCacheProvider
+} from '../../../templates/domain/contracts/template-cache.provider'
 import { TemplateNotFoundError } from '../../../templates/domain/errors/template-not-found.error'
 import { renderTemplate } from '../../../templates/domain/render-template'
 import { EMAIL_REPOSITORY, type EmailRepository } from '../../domain/contracts/repositories/email.repository'
@@ -37,27 +37,28 @@ export class SendEmailUseCase {
   constructor(
     @Inject(TRANSACTION_MANAGER) private readonly transactionManager: TransactionManager,
     @Inject(EMAIL_REPOSITORY) private readonly emailRepository: EmailRepository,
-    @Inject(TEMPLATE_LOOKUP_PROVIDER) private readonly templateLookup: TemplateLookupProvider,
+    @Inject(TEMPLATE_CACHE_PROVIDER) private readonly templateCache: TemplateCacheProvider,
     @Inject(SENDER_IDENTITY_CACHE_PROVIDER) private readonly senderIdentityCache: SenderIdentityCacheProvider,
     @Inject(OUTBOX_PORT) private readonly outbox: OutboxPort
   ) {}
 
   public async execute(input: SendEmailUseCaseInput): Promise<Either<BaseError, Email>> {
-    const templateResult = await this.templateLookup.findByIdAndProjectId({
-      templateId: input.templateId,
-      projectId: input.projectId
-    })
+    /*
+     * Resolved from the cache-backed contract, not the raw lookup — the send path is the hot path
+     * this cache exists for (design spec decision 6 of the React Email plan).
+     */
+    const templateResult = await this.templateCache.get({ templateId: input.templateId, projectId: input.projectId })
     if (templateResult.isFailure()) return failure(templateResult.value)
-    if (templateResult.value.template === null) {
+    if (templateResult.value === null) {
       return failure(new TemplateNotFoundError({ templateId: input.templateId }))
     }
-    const { template } = templateResult.value
+    const template = templateResult.value
 
     /*
      * Resolved from the cache-backed contract, not the raw repository — the send path is the hot
-     * path this cache exists for (design spec decision 5). A miss (deleted row, cache/DB
-     * disagreement) is treated exactly like "not verified": there is no legitimate send without a
-     * resolvable, verified sender.
+     * path this cache exists for (design spec decision 5 of the SenderIdentity plan). A miss
+     * (deleted row, cache/DB disagreement) is treated exactly like "not verified": there is no
+     * legitimate send without a resolvable, verified sender.
      */
     const senderIdentityResult = await this.senderIdentityCache.get({ senderIdentityId: template.senderIdentityId })
     if (senderIdentityResult.isFailure()) return failure(senderIdentityResult.value)
@@ -66,7 +67,12 @@ export class SendEmailUseCase {
       return failure(new SenderIdentityNotVerifiedError({ senderIdentityId: template.senderIdentityId }))
     }
 
-    const rendered = renderTemplate({ subject: template.subject, html: template.html, variables: input.variables })
+    const rendered = renderTemplate({
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+      variables: input.variables
+    })
     if (rendered.isFailure()) return failure(rendered.value)
 
     const idGenerated = ID.generate({ modelName: 'Email' })
@@ -88,6 +94,7 @@ export class SendEmailUseCase {
       to: input.to,
       subject: rendered.value.subject,
       html: rendered.value.html,
+      text: rendered.value.text,
       createdAt: new Date()
     })
     if (emailResult.isFailure()) return emailResult
@@ -106,6 +113,7 @@ export class SendEmailUseCase {
       to: emailResult.value.to,
       subject: emailResult.value.subject,
       html: emailResult.value.html,
+      text: emailResult.value.text,
       ...(emailResult.value.idempotencyKey !== null && { idempotencyKey: emailResult.value.idempotencyKey })
     })
     if (!payloadParsed.success) return failure(new InvalidEmailPayloadError({ error: payloadParsed.error }))
