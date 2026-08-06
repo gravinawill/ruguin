@@ -107,12 +107,12 @@ export default defineConfig({
           include: ['src/**/__tests__/**/*.e2e.ts'],
           /*
            * globalSetup, not setupFiles: setupFiles re-runs once per test FILE, and this file's
-           * job is to run prisma/seed.ts — which is not idempotent (hardcoded SenderIdentity
-           * email). A second run within the same suite hits a unique constraint and crashes that
-           * file's whole setup before any of its tests execute. globalSetup runs exactly once for
-           * the entire `vitest run --project e2e` invocation; the env vars it writes to
-           * process.env are still visible to every test file because Vitest's worker pool spawns
-           * after global setup finishes and inherits process.env at that point.
+           * job is to run prisma/seed.ts once and hand every test file the same seeded
+           * organization/project/sender identity via process.env — running it once per file would
+           * mint a different set of IDs per file with no way to share them. globalSetup runs
+           * exactly once for the entire `vitest run --project e2e` invocation; the env vars it
+           * writes to process.env are still visible to every test file because Vitest's worker
+           * pool spawns after global setup finishes and inherits process.env at that point.
            */
           globalSetup: ['./vitest.setup.e2e.ts'],
           testTimeout: 30_000

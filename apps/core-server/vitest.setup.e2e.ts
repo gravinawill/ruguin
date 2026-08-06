@@ -4,8 +4,8 @@ import { execSync } from 'node:child_process'
  * A globalSetup file (not setupFiles — see vitest.config.ts's e2e project) must export `setup`,
  * `teardown`, or a default function; Vitest throws otherwise. Everything below used to be
  * top-level side effects run once per test file — now it runs exactly once for the whole
- * `vitest run --project e2e` invocation, which is what makes seeding here safe despite
- * prisma/seed.ts not being idempotent (hardcoded SenderIdentity email).
+ * `vitest run --project e2e` invocation, so every test file shares the one organization/project/
+ * sender identity this seeds instead of each file minting its own.
  */
 export function setup(): void {
   process.env.DATABASE_URL ??= 'postgresql://ruguin:ruguin@localhost:5432/ruguin?schema=core_server'

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 
 import { PrismaPg } from '@prisma/adapter-pg'
 
@@ -32,7 +32,12 @@ async function main(): Promise<void> {
    * mailbox that doesn't exist.
    */
   const senderIdentity = await prisma.senderIdentity.create({
-    data: { projectId: project.id, name: 'Dev Sender', email: 'dev-sender@ruguin.dev', verifiedAt: new Date() }
+    data: {
+      projectId: project.id,
+      name: 'Dev Sender',
+      email: `dev-sender+${randomUUID()}@ruguin.dev`,
+      verifiedAt: new Date()
+    }
   })
 
   const template = await prisma.template.create({
