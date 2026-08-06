@@ -1,5 +1,5 @@
 import swc from 'unplugin-swc'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 /*
  * Kept in sync with apps/core-server/.swcrc — both the Nest build and the Vitest
@@ -111,8 +111,12 @@ export default defineConfig({
            * consumer's fixed groupId ('dispatch-worker') — running it inside this project would let
            * Turbo schedule it in parallel with dispatch-worker's own test:e2e in CI, and the two
            * would steal Kafka messages from each other on that groupId.
+           *
+           * Spreads configDefaults.exclude rather than just this one entry — deepMerge (how Vitest
+           * applies a project's `test` options over the root's) replaces arrays instead of
+           * concatenating them, so a bare exclude here would silently stop excluding node_modules/.git too.
            */
-          exclude: ['src/__tests__/email-pipeline.e2e.ts'],
+          exclude: [...configDefaults.exclude, 'src/__tests__/email-pipeline.e2e.ts'],
           /*
            * globalSetup, not setupFiles: setupFiles re-runs once per test FILE, and this file's
            * job is to run prisma/seed.ts once and hand every test file the same seeded
@@ -137,8 +141,12 @@ export default defineConfig({
            * the same DATABASE_URL/KAFKA_BOOTSTRAP_BROKERS/AWS_* defaults, so the two real processes
            * spawned by the test inherit a working environment (see decision 3 of the design spec).
            */
-          globalSetup: ['./vitest.setup.e2e.ts'],
-          testTimeout: 90_000
+          globalSetup: ['./vitest.setup.e2e.ts']
+          /*
+           * No project-level testTimeout here: the single test in email-pipeline.e2e.ts passes its
+           * own TEST_TIMEOUT_MS explicitly, which always wins over a project default — declaring one
+           * here too would just be a second number to keep in sync with no effect of its own.
+           */
         }
       }
     ]

@@ -1,4 +1,5 @@
 import { execSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 /*
  * Shared by both e2e globalSetups (the existing `e2e` project and the new `pipeline-e2e` project,
@@ -45,10 +46,23 @@ export function runSeedAndCaptureIds(): void {
    * as apps/dispatch-worker/.env.test — no real secret, LocalStack's SES emulator accepts any string.
    */
   process.env.SES_FROM_ADDRESS ??= 'test@ruguin.local'
+  /*
+   * serverENV.PORT already defaults to 3333 when unset, but this pins it explicitly: the spawned
+   * core-server process (pipeline-e2e's real `pnpm --filter @ruguin/core-server start`) inherits
+   * process.env from this globalSetup, which in turn inherits whatever the shell that invoked
+   * `vitest run` already exports. An ambient PORT from that shell would silently win over the
+   * schema default, and email-pipeline.e2e.ts's hardcoded CORE_SERVER_PORT constant (3333) would
+   * then be polling the wrong port.
+   */
+  process.env.PORT ??= '3333'
 
   // eslint-disable-next-line sonarjs/no-os-command-from-path -- static command, no interpolated input; `pnpm exec` is the intended way to resolve workspace-local binaries via PATH.
   const seedOutput = execSync('pnpm exec tsx prisma/seed.ts', {
-    cwd: new URL('..', import.meta.url).pathname,
+    /*
+     * fileURLToPath, not .pathname — the latter is percent-encoded, so a checkout path containing
+     * a space (e.g. "%20") would resolve to a cwd that doesn't exist on disk.
+     */
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
     env: process.env,
     encoding: 'utf8'
   })

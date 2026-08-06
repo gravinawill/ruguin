@@ -22,11 +22,11 @@
     "start:dev": "nodemon --watch src --ext ts --ignore \"src/**/generated/**\" --exec \"pnpm run build && pnpm run start\"",
     "start:prod": "NODE_ENV=production node --import ./dist/tracing.js dist/main.js",
     "test": "vitest run --project unit",
-    "test:all": "vitest run",
+    "test:all": "vitest run --project '!pipeline-e2e'",
     "test:cov": "vitest run --project unit --coverage",
     "test:e2e": "vitest run --project e2e",
     "test:integration": "vitest run --project integration",
-    "test:pipeline-e2e": "pnpm run build && pnpm --filter @ruguin/dispatch-worker build && vitest run --project pipeline-e2e",
+    "test:pipeline-e2e": "turbo run build --filter=@ruguin/core-server --filter=@ruguin/dispatch-worker && vitest run --project pipeline-e2e",
     "test:watch": "vitest --project unit",
     "update:deps": "ncu -u"
   },

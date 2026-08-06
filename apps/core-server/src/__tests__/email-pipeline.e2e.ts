@@ -18,10 +18,14 @@ const BOOT_TIMEOUT_MS = HEALTH_POLL_TIMEOUT_MS + 15_000
 const STATUS_EVENT_TIMEOUT_MS = 20_000
 const TEST_TIMEOUT_MS = 60_000
 /*
+ * How long killApp waits for a graceful SIGTERM exit before escalating to SIGKILL.
+ */
+const FORCE_KILL_GRACE_MS = 5000
+/*
  * Vitest's hookTimeout default (10_000ms) is too short here: afterAll closes a real Kafka
  * consumer, then SIGTERMs two real child process groups concurrently (Promise.all) — each with
- * its own 5000ms force-kill grace period (killApp). 20s leaves comfortable headroom over that
- * worst case.
+ * its own FORCE_KILL_GRACE_MS force-kill grace period (killApp). 20s leaves comfortable headroom
+ * over that worst case.
  */
 const SHUTDOWN_TIMEOUT_MS = 20_000
 
@@ -72,6 +76,15 @@ async function waitForHealthy(app: SpawnedApp, port: number): Promise<void> {
   try {
     await vi.waitUntil(
       async () => {
+        /*
+         * Fails fast on a dead child instead of polling to the full timeout. Also the only way to
+         * tell an EADDRINUSE boot crash (port already bound by e.g. a developer's own `pnpm dev`)
+         * apart from a healthy response actually coming from that pre-existing, unrelated process —
+         * otherwise this poll would happily report the wrong process as "healthy".
+         */
+        if (app.process.exitCode !== null || app.process.signalCode !== null) {
+          throw new Error(`${app.packageName} exited during boot:\n${app.output.join('')}`)
+        }
         try {
           const response = await fetch(`http://localhost:${port}/health`)
           return response.status === 200
@@ -98,6 +111,11 @@ async function waitForHealthy(app: SpawnedApp, port: number): Promise<void> {
  */
 function killApp(app: SpawnedApp | undefined): Promise<void> {
   if (app === undefined) return Promise.resolve()
+  /*
+   * Already dead (boot crash, missing dist/, ...) — nothing to signal, and 'exit' already fired
+   * before this listener could attach, so waiting for it here would hang to the hook timeout.
+   */
+  if (app.process.exitCode !== null || app.process.signalCode !== null) return Promise.resolve()
 
   return new Promise((resolve) => {
     const pid = app.process.pid
@@ -107,13 +125,24 @@ function killApp(app: SpawnedApp | undefined): Promise<void> {
     }
 
     const forceKillTimer = setTimeout(() => {
-      process.kill(-pid, 'SIGKILL')
-    }, 5000)
+      // ESRCH here just means the process group is already gone — the desired end state, not an error.
+      try {
+        process.kill(-pid, 'SIGKILL')
+      } catch {
+        /* already dead */
+      }
+    }, FORCE_KILL_GRACE_MS)
     app.process.once('exit', () => {
       clearTimeout(forceKillTimer)
       resolve()
     })
-    process.kill(-pid, 'SIGTERM')
+    try {
+      process.kill(-pid, 'SIGTERM')
+    } catch {
+      /* already dead */
+      clearTimeout(forceKillTimer)
+      resolve()
+    }
   })
 }
 
@@ -182,7 +211,7 @@ describe('Email send pipeline end to end (core-server + dispatch-worker as real 
     'sends an email through POST /v1/emails and observes email.status.updated with status=sent',
     async () => {
       const statusEvents: unknown[] = []
-      await consumer.subscribe({
+      const subscribeResult = await consumer.subscribe({
         topic: EMAIL_STATUS_UPDATED_TOPIC,
         groupId: `pipeline-e2e-${Date.now()}`,
         onMessage: (message) => {
@@ -190,6 +219,11 @@ describe('Email send pipeline end to end (core-server + dispatch-worker as real 
           return Promise.resolve(success(undefined))
         }
       })
+      /*
+       * A broker-connect failure here would otherwise only surface as an unexplained
+       * STATUS_EVENT_TIMEOUT_MS timeout below, with no indication the consumer never subscribed.
+       */
+      expect(subscribeResult.isSuccess()).toBe(true)
 
       const response = await fetch(`http://localhost:${CORE_SERVER_PORT}/v1/emails`, {
         method: 'POST',
@@ -215,7 +249,7 @@ describe('Email send pipeline end to end (core-server + dispatch-worker as real 
       })
 
       expect(statusEvents).toContainEqual(
-        expect.objectContaining({ emailId: body.id, status: 'sent', sesMessageId: expect.any(String) })
+        expect.objectContaining({ emailId: body.id, status: 'sent', sesMessageId: expect.stringMatching(/.+/) })
       )
     },
     TEST_TIMEOUT_MS

@@ -190,6 +190,7 @@ que é a resposta certa, não um defeito do teste.
 pnpm --filter @ruguin/core-server test              # unit, sem infraestrutura
 pnpm --filter @ruguin/core-server test:integration
 pnpm --filter @ruguin/core-server test:e2e          # precisa de docker compose up -d
+pnpm --filter @ruguin/core-server test:pipeline-e2e # docker compose up -d, inclui o LocalStack
 pnpm --filter @ruguin/core-server check:types
 pnpm --filter @ruguin/core-server check:lint
 pnpm --filter @ruguin/core-server build             # prisma generate + nest build + fix-esm-imports
