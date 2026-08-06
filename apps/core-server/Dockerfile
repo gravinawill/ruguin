@@ -49,16 +49,24 @@ RUN pnpm exec turbo run build --filter=@ruguin/core-server \
 # igual a `runner` abaixo, pro buildx resolver a arquitetura certa por plataforma alvo — o mesmo
 # padrão que o `apk add` do tini em `runner` já usa com sucesso em build multi-arch.
 FROM node:26.5.1-alpine AS migrator
-RUN apk add --no-cache openssl=3.5.7-r0
+# Mesmo par UID/GID 1001 do `runner` abaixo — não porque precisa bater (são imagens diferentes,
+# sem volume compartilhado), mas porque o Job (migration-job.yaml) roda com runAsNonRoot: true, que
+# exige um USER numérico de verdade na imagem ou o pod não sobe (CreateContainerConfigError).
+RUN apk add --no-cache openssl=3.5.7-r0 \
+  && addgroup -g 1001 -S nodejs \
+  && adduser -u 1001 -S nestjs -G nodejs
 WORKDIR /app
 # Install isolado (sem copiar o package.json do core-server) pra não resolver as ~60 dependências
 # não relacionadas (@nestjs/* etc.) que estão lá — só a CLI e sua dependência nativa
 # (@prisma/engines, baixada pelo postinstall do próprio pacote). Versão travada manualmente, mesmo
 # padrão que este Dockerfile já usa pra openssl/tini acima: atualizar esse número junto de qualquer
 # bump de prisma/@prisma/client em apps/core-server/package.json.
-RUN npm install prisma@7.9.1
-COPY --from=builder /repo/apps/core-server/prisma ./prisma
-COPY --from=builder /repo/apps/core-server/prisma.config.ts ./prisma.config.ts
+# npm install roda como root (node_modules ainda não existe pro WORKDIR ser dono de ninguém); o
+# chown devolve a árvore pro usuário não-root antes do COPY --chown abaixo e do USER no final.
+RUN npm install prisma@7.9.1 && chown -R nestjs:nodejs /app
+COPY --from=builder --chown=nestjs:nodejs /repo/apps/core-server/prisma ./prisma
+COPY --from=builder --chown=nestjs:nodejs /repo/apps/core-server/prisma.config.ts ./prisma.config.ts
+USER 1001:1001
 ENTRYPOINT ["node_modules/.bin/prisma"]
 CMD ["migrate", "deploy"]
 
