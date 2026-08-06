@@ -19,8 +19,9 @@ const STATUS_EVENT_TIMEOUT_MS = 20_000
 const TEST_TIMEOUT_MS = 60_000
 /*
  * Vitest's hookTimeout default (10_000ms) is too short here: afterAll closes a real Kafka
- * consumer, then SIGTERMs two real child process groups — each with its own 5000ms force-kill
- * grace period (killApp) — sequentially. 20s leaves comfortable headroom over that worst case.
+ * consumer, then SIGTERMs two real child process groups concurrently (Promise.all) — each with
+ * its own 5000ms force-kill grace period (killApp). 20s leaves comfortable headroom over that
+ * worst case.
  */
 const SHUTDOWN_TIMEOUT_MS = 20_000
 
@@ -92,8 +93,12 @@ async function waitForHealthy(app: SpawnedApp, port: number): Promise<void> {
  * Signals the negative pid — the whole process group spawnApp's detached: true created — not
  * app.process.kill(signal), which only reaches the single top pid (see spawnApp's comment on why
  * that leaves the real server process orphaned, still bound to its port, for core-server).
+ * Accepts undefined so afterAll can call it unconditionally even when beforeAll threw before
+ * spawnApp ran (coreServer/dispatchWorker never assigned) — a no-op then, nothing to kill.
  */
-function killApp(app: SpawnedApp): Promise<void> {
+function killApp(app: SpawnedApp | undefined): Promise<void> {
+  if (app === undefined) return Promise.resolve()
+
   return new Promise((resolve) => {
     const pid = app.process.pid
     if (pid === undefined) {
@@ -113,9 +118,16 @@ function killApp(app: SpawnedApp): Promise<void> {
 }
 
 describe('Email send pipeline end to end (core-server + dispatch-worker as real processes)', () => {
-  let coreServer: SpawnedApp
-  let dispatchWorker: SpawnedApp
-  let moduleReference: TestingModule
+  /*
+   * All three start undefined and are only assigned partway through beforeAll (SES verify, then
+   * spawnApp x2, then Test.createTestingModule().compile()/.init()) — afterAll must tolerate
+   * beforeAll throwing at any point in that sequence, or a real spawned process (coreServer/
+   * dispatchWorker) is left orphaned, still bound to its port, exactly like the bug spawnApp's
+   * detached:true / killApp's process-group kill already fixes for the happy-path shutdown.
+   */
+  let coreServer: SpawnedApp | undefined
+  let dispatchWorker: SpawnedApp | undefined
+  let moduleReference: TestingModule | undefined
   let consumer: MessageConsumerPort
 
   beforeAll(async () => {
@@ -159,8 +171,11 @@ describe('Email send pipeline end to end (core-server + dispatch-worker as real 
   }, BOOT_TIMEOUT_MS)
 
   afterAll(async () => {
-    await moduleReference.close()
-    await Promise.all([killApp(coreServer), killApp(dispatchWorker)])
+    try {
+      await moduleReference?.close()
+    } finally {
+      await Promise.all([killApp(coreServer), killApp(dispatchWorker)])
+    }
   }, SHUTDOWN_TIMEOUT_MS)
 
   it(
