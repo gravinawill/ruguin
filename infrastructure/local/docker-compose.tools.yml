@@ -80,7 +80,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - '5540:5540'
+      - '127.0.0.1:5540:5540'
     volumes:
       - redisinsight_data:/data
     logging: *loki-logging

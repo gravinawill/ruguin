@@ -40,7 +40,9 @@ Se os antigos `kubernetes_secret` (`core_server_secrets`, `ghcr_pull`, de uma ve
 
 ```bash
 kubectl -n core-server get externalsecret core-server-secrets
-kubectl -n core-server get secret core-server-secrets -o yaml
+kubectl -n core-server get externalsecret core-server-secrets -o jsonpath='{.status.conditions}'
 ```
+
+Evite `kubectl get secret ... -o yaml` para verificar — o `data` de um `Secret` é só base64 (não criptografado), então o comando imprime o material sensível decodificável no terminal/histórico. O status do `ExternalSecret` já diz se o sync está `SecretSynced` sem expor o conteúdo.
 
 **Gap conhecido:** a AWS rotaciona a senha master gerenciada do RDS a cada 7 dias por padrão, mas os pods do core-server consomem `DATABASE_URL` via `envFrom.secretRef` — env var lida uma vez no start do pod, nunca recarregada a quente. Um pod rodando continua usando a senha antiga após cada rotação até ser reiniciado manualmente. Rastreado como risco conhecido, não fechado ainda (precisa de um reloader controller ou trocar `envFrom` por leitura em runtime).
