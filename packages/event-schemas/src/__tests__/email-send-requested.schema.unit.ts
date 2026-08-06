@@ -16,7 +16,8 @@ describe('EmailSendRequestedPayloadSchema', () => {
     from: 'sender@ruguin.dev',
     to: 'recipient@ruguin.dev',
     subject: 'Welcome',
-    html: '<p>Hi</p>'
+    html: '<p>Hi</p>',
+    text: 'Hi'
   }
 
   it('accepts a valid payload', () => {
@@ -42,6 +43,15 @@ describe('EmailSendRequestedPayloadSchema', () => {
     const { subject: _subject, ...withoutSubject } = validPayload
 
     const result = EmailSendRequestedPayloadSchema.safeParse(withoutSubject)
+
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a payload missing text', () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars,sonarjs/no-unused-vars -- intentionally destructure text to test exclusion
+    const { text: _text, ...withoutText } = validPayload
+
+    const result = EmailSendRequestedPayloadSchema.safeParse(withoutText)
 
     expect(result.success).toBe(false)
   })

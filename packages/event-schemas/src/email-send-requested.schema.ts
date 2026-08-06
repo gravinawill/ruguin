@@ -13,6 +13,7 @@ export const EmailSendRequestedPayloadSchema = z.object({
   to: z.email(),
   subject: z.string().min(1),
   html: z.string().min(1),
+  text: z.string().min(1),
   idempotencyKey: z.string().min(1).optional()
 })
 

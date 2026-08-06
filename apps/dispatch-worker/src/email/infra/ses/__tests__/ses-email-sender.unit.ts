@@ -12,7 +12,13 @@ describe('SesEmailSender', () => {
     const send = vi.fn().mockResolvedValue({ MessageId: 'ses-msg-1' })
     const sender = new SesEmailSender(fakeSesClient(send))
 
-    const result = await sender.send({ from: 'a@ruguin.dev', to: 'b@ruguin.dev', subject: 'Hi', html: '<p>Hi</p>' })
+    const result = await sender.send({
+      from: 'a@ruguin.dev',
+      to: 'b@ruguin.dev',
+      subject: 'Hi',
+      html: '<p>Hi</p>',
+      text: 'Hi'
+    })
 
     expect(result.isSuccess()).toBe(true)
     if (result.isSuccess()) {
@@ -26,7 +32,7 @@ describe('SesEmailSender', () => {
       Destination: { ToAddresses: ['b@ruguin.dev'] },
       Message: {
         Subject: { Data: 'Hi' },
-        Body: { Html: { Data: '<p>Hi</p>' } }
+        Body: { Html: { Data: '<p>Hi</p>' }, Text: { Data: 'Hi' } }
       }
     })
   })
@@ -40,7 +46,8 @@ describe('SesEmailSender', () => {
       fromName: 'Will Gravina',
       to: 'b@ruguin.dev',
       subject: 'Hi',
-      html: '<p>Hi</p>'
+      html: '<p>Hi</p>',
+      text: 'Hi'
     })
 
     const command = send.mock.calls[0]?.[0] as SendEmailCommand
@@ -51,7 +58,13 @@ describe('SesEmailSender', () => {
     const send = vi.fn().mockRejectedValue(new Error('Throttled'))
     const sender = new SesEmailSender(fakeSesClient(send))
 
-    const result = await sender.send({ from: 'a@ruguin.dev', to: 'b@ruguin.dev', subject: 'Hi', html: '<p>Hi</p>' })
+    const result = await sender.send({
+      from: 'a@ruguin.dev',
+      to: 'b@ruguin.dev',
+      subject: 'Hi',
+      html: '<p>Hi</p>',
+      text: 'Hi'
+    })
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) {
@@ -63,7 +76,13 @@ describe('SesEmailSender', () => {
     const send = vi.fn().mockResolvedValue({})
     const sender = new SesEmailSender(fakeSesClient(send))
 
-    const result = await sender.send({ from: 'a@ruguin.dev', to: 'b@ruguin.dev', subject: 'Hi', html: '<p>Hi</p>' })
+    const result = await sender.send({
+      from: 'a@ruguin.dev',
+      to: 'b@ruguin.dev',
+      subject: 'Hi',
+      html: '<p>Hi</p>',
+      text: 'Hi'
+    })
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) {

@@ -29,6 +29,7 @@ const BASE_INPUT = {
   to: 'b@ruguin.dev',
   subject: 'Hi',
   html: '<p>Hi</p>',
+  text: 'Hi',
   attempt: 0
 }
 

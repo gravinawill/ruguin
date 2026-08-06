@@ -22,7 +22,7 @@ export class SesEmailSender implements EmailSenderPort {
           Destination: { ToAddresses: [input.to] },
           Message: {
             Subject: { Data: input.subject },
-            Body: { Html: { Data: input.html } }
+            Body: { Html: { Data: input.html }, Text: { Data: input.text } }
           }
         })
       )

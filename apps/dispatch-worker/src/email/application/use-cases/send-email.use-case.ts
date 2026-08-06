@@ -35,6 +35,7 @@ export type SendEmailUseCaseInput = Readonly<{
   to: string
   subject: string
   html: string
+  text: string
   /*
    * Zod-optional fields infer as `T | undefined`, not just optional — match that spelling for
    * exactOptionalPropertyTypes compatibility when consumers spread parsed payloads in directly.
@@ -113,7 +114,8 @@ export class SendEmailUseCase {
       ...(input.fromName !== undefined && { fromName: input.fromName }),
       to: input.to,
       subject: input.subject,
-      html: input.html
+      html: input.html,
+      text: input.text
     })
 
     if (sent.isSuccess()) {
