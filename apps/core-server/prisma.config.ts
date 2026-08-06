@@ -13,16 +13,17 @@ const databaseUrl = process.env.DATABASE_URL
 let datasource = {}
 if (databaseUrl !== undefined && databaseUrl !== '') {
   const url = new URL(databaseUrl)
-  url.searchParams.set('options', '-c lock_timeout=5s')
   /*
-   * URLSearchParams serializes spaces as "+" (application/x-www-form-urlencoded), but Postgres's
-   * own URI parser follows RFC 3986 and never decodes "+" back to a space — verified against a
-   * real instance: psql read "-c+lock_timeout=5s" as the literal GUC name "+lock_timeout" and
-   * rejected the connection. Any "+" already in the serialized string is safe to rewrite as %20:
-   * `.href` would have escaped a literal "+" in an input value to "%2B", so every "+" left over
-   * here can only be a space `.href` introduced.
+   * Built by hand instead of via `url.searchParams.set(...)` + a global "+"→"%20" replace: that
+   * approach (previously used here) rewrote every "+" in the ENTIRE serialized URL, not just the
+   * one it introduced — corrupting a literal "+" in the userinfo (e.g. a password) or path, which
+   * use percent-encode sets that don't escape "+" the way `URLSearchParams` does. `encodeURIComponent`
+   * percent-encodes the space directly (%20, never "+"), so the options value is safe to append as
+   * a plain string without touching anything the URL constructor already produced.
    */
-  datasource = { url: url.href.replaceAll('+', '%20') }
+  const optionsParameter = `options=${encodeURIComponent('-c lock_timeout=5s')}`
+  const separator = url.search === '' ? '?' : '&'
+  datasource = { url: `${url.href}${separator}${optionsParameter}` }
 }
 
 export default defineConfig({
