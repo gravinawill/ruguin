@@ -24,10 +24,10 @@ function validId(modelName: string): ID {
   return generated.value.idGenerated
 }
 
-function buildSenderIdentity(overrides: Partial<{ verifiedAt: Date | null }> = {}) {
+function buildSenderIdentity(overrides: Partial<{ verifiedAt: Date | null; projectId: string }> = {}) {
   const result = SenderIdentity.create({
     id: validId('SenderIdentity'),
-    projectId: '01900000-0000-7000-8000-000000000001',
+    projectId: overrides.projectId ?? '01900000-0000-7000-8000-000000000001',
     name: 'Sender',
     email: 'sender@example.com',
     verifiedAt: overrides.verifiedAt === undefined ? new Date() : overrides.verifiedAt,
@@ -322,6 +322,39 @@ describe('SendEmailUseCase', () => {
 
     expect(result.isFailure()).toBe(true)
     if (result.isFailure()) expect(result.value).toBeInstanceOf(SenderIdentityNotVerifiedError)
+  })
+
+  it('fails with SenderIdentityNotVerifiedError and never persists when the resolved sender identity belongs to another project', async () => {
+    const senderIdentity = buildSenderIdentity({ projectId: '01900000-0000-7000-8000-000000000099' })
+    const template = buildTemplate(senderIdentity.id.toString())
+    const findByIdAndProjectId = vi.fn().mockResolvedValue(success({ template }))
+    const templateLookup: TemplateLookupProvider = { findByIdAndProjectId }
+    const createIfNotExists = vi.fn()
+    const emailRepository: EmailRepository = { createIfNotExists }
+    const outbox: OutboxPort = { enqueue: vi.fn() }
+    const senderIdentityCache: SenderIdentityCacheProvider = {
+      get: vi.fn().mockResolvedValue(success(senderIdentity)),
+      invalidate: vi.fn()
+    }
+    const useCase = new SendEmailUseCase(
+      createTransactionManagerStub(),
+      emailRepository,
+      templateLookup,
+      senderIdentityCache,
+      outbox
+    )
+
+    const result = await useCase.execute({
+      projectId: '01900000-0000-7000-8000-000000000001',
+      organizationId: '01900000-0000-7000-8000-000000000002',
+      to: 'recipient@example.com',
+      templateId: template.id.toString(),
+      variables: { name: 'Ada' }
+    })
+
+    expect(result.isFailure()).toBe(true)
+    if (result.isFailure()) expect(result.value).toBeInstanceOf(SenderIdentityNotVerifiedError)
+    expect(createIfNotExists).not.toHaveBeenCalled()
   })
 
   it('propagates a repository failure without enqueueing', async () => {

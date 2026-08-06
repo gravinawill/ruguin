@@ -62,7 +62,7 @@ export class SendEmailUseCase {
     const senderIdentityResult = await this.senderIdentityCache.get({ senderIdentityId: template.senderIdentityId })
     if (senderIdentityResult.isFailure()) return failure(senderIdentityResult.value)
     const senderIdentity = senderIdentityResult.value
-    if (!senderIdentity?.isVerified()) {
+    if (senderIdentity?.projectId !== input.projectId || !senderIdentity.isVerified()) {
       return failure(new SenderIdentityNotVerifiedError({ senderIdentityId: template.senderIdentityId }))
     }
 
