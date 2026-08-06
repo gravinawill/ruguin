@@ -73,13 +73,20 @@ describe('POST /v1/emails (e2e)', () => {
     expect(body).toMatchObject({ status: 'queued' })
 
     /*
-     * The seeded template (prisma/seed.ts) is subject 'Hi {{name}}' / html '<p>Hi {{name}}</p>' —
+     * The seeded template (prisma/seed.ts) now comes from packages/email-templates's
+     * WelcomeEmail component — subject 'Hi {{name}}', html/text both containing '{{name}}' —
      * asserting the persisted row, not just the 202, is what actually proves rendering happened.
+     * html/text are checked for the substituted name rather than an exact string match: the
+     * React Email component's markup (Step 7, Task 1 of this plan) is an implementation detail
+     * this test should not need to know byte-for-byte.
      */
     const prisma = app.get(PrismaService)
     const row = await prisma.email.findUnique({ where: { id: body.id } })
     expect(row?.subject).toBe('Hi Ada')
-    expect(row?.html).toBe('<p>Hi Ada</p>')
+    expect(row?.html).toContain('Ada')
+    expect(row?.html).not.toContain('{{name}}')
+    expect(row?.text).toContain('Ada')
+    expect(row?.text).not.toContain('{{name}}')
   })
 
   it('returns 400 when the body is missing templateId', async () => {
