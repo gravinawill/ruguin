@@ -9,3 +9,5 @@ resources:
 images:
   - name: ghcr.io/gravinawill/ruguin/core-server
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  - name: ghcr.io/gravinawill/ruguin/core-server-migrator
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

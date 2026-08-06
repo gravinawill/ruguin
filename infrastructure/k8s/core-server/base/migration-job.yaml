@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: core-server-migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    # HookSucceeded alone REMOVES ArgoCD's default (BeforeHookCreation) instead of adding to it.
+    # The Job's name is fixed and spec.template is immutable, so a failed run would wedge every
+    # subsequent sync — ArgoCD can neither replace nor recreate the existing failed Job. Keeping
+    # BeforeHookCreation restores delete-before-recreate; HookSucceeded still cleans up on success.
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 300
+  template:
+    spec:
+      restartPolicy: Never
+      # core-server-migrate never calls the Kubernetes API, so the default token has nothing to do here.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: migrate
+          image: ghcr.io/gravinawill/ruguin/core-server-migrator
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+          envFrom:
+            - secretRef:
+                name: core-server-secrets
+          # 256Mi is free on Fargate: EKS Fargate adds a fixed ~256MB overhead when sizing the pod's
+          # microVM, so this still rounds to the same 0.5GB tier that 128Mi already provisioned.
+          # Empirically, prisma migrate deploy OOMKills below 128Mi — even the idempotent no-op
+          # re-run (the common case) OOMKills at 96Mi — and the schema is growing to eight modules.
+          resources:
+            requests: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
+            limits: { cpu: 100m, memory: 256Mi, ephemeral-storage: 128Mi }
