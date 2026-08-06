@@ -3,8 +3,10 @@
 Docker Compose para desenvolvimento e testes de integração. Três arquivos:
 
 - `docker-compose.yml` — dependências de runtime que o produto realmente usa: Postgres, Valkey (compatível com o protocolo Redis, com uma replica de leitura), Kafka (KRaft, sem ZooKeeper) e LocalStack (simula a API SES da AWS). Isso é o que qualquer task/serviço precisa rodando para funcionar.
-- `docker-compose.tools.yml` — ferramentas de desenvolvimento, opcionais: Conduktor (UI para o Kafka), SonarQube (análise estática de qualidade/segurança), Adminer (UI para o Postgres) e k6 (teste de carga, script em TypeScript). Cada uma delas soma memória/CPU e tempo de boot, por isso ficam separadas — só sobem quando você pede. Conduktor e SonarQube reaproveitam o mesmo container Postgres do runtime (`postgres`, ver `postgres-init/`) em vez de subir um Postgres dedicado por ferramenta — só criam um database próprio nele.
+- `docker-compose.tools.yml` — ferramentas de desenvolvimento, opcionais: Conduktor (UI para o Kafka), SonarQube (análise estática de qualidade/segurança), Adminer (UI para o Postgres), RedisInsight (UI para o Valkey/Redis) e k6 (teste de carga, script em TypeScript). Cada uma delas soma memória/CPU e tempo de boot, por isso ficam separadas — só sobem quando você pede. Conduktor e SonarQube reaproveitam o mesmo container Postgres do runtime (`postgres`, ver `postgres-init/`) em vez de subir um Postgres dedicado por ferramenta — só criam um database próprio nele. RedisInsight aponta para o service `redis` já existente no runtime — não sobe um Valkey próprio.
 - `docker-compose.observability.yml` — Grafana + Prometheus + OTel Collector + Tempo + Loki + infra exporters (Postgres/Kafka/host/containers). Separado do `docker-compose.tools.yml` porque observabilidade é sua própria categoria, e do `docker-compose.yml` porque nenhum desses componentes é uma dependência de runtime do produto.
+
+Documentação detalhada de cada service (como funciona, para que serve, como usar) fica em `docs/`, um `.md` por ferramenta.
 
 ## Comandos
 
@@ -16,7 +18,7 @@ pnpm infra:down        # derruba o runtime, mantendo os volumes (dados persistem
 pnpm infra:reset       # derruba o runtime E apaga os volumes (estado limpo)
 pnpm infra:logs        # segue os logs do runtime
 
-pnpm infra:tools:up    # sobe runtime + ferramentas (conduktor, sonarqube, adminer)
+pnpm infra:tools:up    # sobe runtime + ferramentas (conduktor, sonarqube, adminer, redisinsight)
 pnpm infra:tools:down  # derruba runtime + ferramentas
 
 pnpm infra:observability:up    # runtime + observabilidade (grafana, prometheus, otel-collector, tempo, loki, exporters)
@@ -48,22 +50,23 @@ docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all
 
 ## Endereços e credenciais (todas de desenvolvimento, nunca usar em produção)
 
-| Serviço               | Endereço                                                                                                      | Credenciais                                                                                                        |
-| --------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Postgres              | `localhost:5432`                                                                                              | `ruguin` / `ruguin`, db `ruguin`                                                                                   |
-| Valkey (Redis)        | `localhost:6379`                                                                                              | sem senha                                                                                                          |
-| Valkey replica        | `localhost:6380`                                                                                              | somente leitura; replica de `redis`                                                                                |
-| Kafka                 | `localhost:9092` (host) / `kafka:29092` (outros containers)                                                   | —                                                                                                                  |
-| LocalStack (SES)      | `localhost:4566`                                                                                              | `DEFAULT_REGION=us-east-1`                                                                                         |
-| Conduktor (Kafka UI)  | http://localhost:8080                                                                                         | login `admin@ruguin.local` / `Ruguin#Dev1`; banco: database `conduktor-console` no Postgres acima                  |
-| SonarQube             | http://localhost:9000                                                                                         | login `admin` / `admin` (padrão da imagem, troca no primeiro login); banco: database `sonarqube` no Postgres acima |
-| Adminer (Postgres UI) | http://localhost:8081                                                                                         | sistema `PostgreSQL`, servidor `postgres`, mesmas credenciais do Postgres acima                                    |
-| k6 (load test)        | — (CLI, `pnpm infra:load-test`)                                                                               | alvo default: LocalStack; ajuste com `K6_TARGET_URL`                                                               |
-| Grafana               | http://localhost:3000                                                                                         | `admin` / `admin`                                                                                                  |
-| Prometheus            | http://localhost:9090                                                                                         | —                                                                                                                  |
-| Tempo                 | http://localhost:3200                                                                                         | —                                                                                                                  |
-| Loki                  | http://localhost:3100                                                                                         | — (consultado via Grafana, não diretamente)                                                                        |
-| OTel Collector        | `localhost:4317` (gRPC) / `localhost:4318` (HTTP) do host, `otel-collector:4317`/`:4318` de outros containers | aponte o exporter OpenTelemetry das apps para cá                                                                   |
+| Serviço                 | Endereço                                                                                                      | Credenciais                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Postgres                | `localhost:5432`                                                                                              | `ruguin` / `ruguin`, db `ruguin`                                                                                   |
+| Valkey (Redis)          | `localhost:6379`                                                                                              | sem senha                                                                                                          |
+| Valkey replica          | `localhost:6380`                                                                                              | somente leitura; replica de `redis`                                                                                |
+| Kafka                   | `localhost:9092` (host) / `kafka:29092` (outros containers)                                                   | —                                                                                                                  |
+| LocalStack (SES)        | `localhost:4566`                                                                                              | `DEFAULT_REGION=us-east-1`                                                                                         |
+| Conduktor (Kafka UI)    | http://localhost:8080                                                                                         | login `admin@ruguin.local` / `Ruguin#Dev1`; banco: database `conduktor-console` no Postgres acima                  |
+| SonarQube               | http://localhost:9000                                                                                         | login `admin` / `admin` (padrão da imagem, troca no primeiro login); banco: database `sonarqube` no Postgres acima |
+| Adminer (Postgres UI)   | http://localhost:8081                                                                                         | sistema `PostgreSQL`, servidor `postgres`, mesmas credenciais do Postgres acima                                    |
+| RedisInsight (Redis UI) | http://localhost:5540                                                                                         | ao adicionar uma database, host `redis`, porta `6379`, sem senha (ou `redis-replica`:`6379` para a réplica)        |
+| k6 (load test)          | — (CLI, `pnpm infra:load-test`)                                                                               | alvo default: LocalStack; ajuste com `K6_TARGET_URL`                                                               |
+| Grafana                 | http://localhost:3000                                                                                         | `admin` / `admin`                                                                                                  |
+| Prometheus              | http://localhost:9090                                                                                         | —                                                                                                                  |
+| Tempo                   | http://localhost:3200                                                                                         | —                                                                                                                  |
+| Loki                    | http://localhost:3100                                                                                         | — (consultado via Grafana, não diretamente)                                                                        |
+| OTel Collector          | `localhost:4317` (gRPC) / `localhost:4318` (HTTP) do host, `otel-collector:4317`/`:4318` de outros containers | aponte o exporter OpenTelemetry das apps para cá                                                                   |
 
 **Por que o Kafka tem dois endereços:** o listener `PLAINTEXT` (`localhost:9092`) é para processos rodando na máquina host — é o que as apps deste monorepo (`pnpm dev`) e os testes de integração usam. O listener `INTERNAL` (`kafka:29092`) existe porque o Conduktor roda como outro container nessa mesma rede Docker, e um container não consegue alcançar outro via `localhost` — precisa do nome do serviço.
 

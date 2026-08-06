@@ -73,6 +73,18 @@ services:
       - '8081:8080'
     logging: *loki-logging
 
+  redisinsight:
+    image: redis/redisinsight:latest
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - '5540:5540'
+    volumes:
+      - redisinsight_data:/data
+    logging: *loki-logging
+
   # Load testing (k6, scripts in TypeScript — native support since k6 v0.57, no build step).
   # Not a long-running service — doesn't start with `up`; invoke on demand:
   #   pnpm infra:load-test
@@ -90,3 +102,4 @@ volumes:
   sonarqube_data:
   sonarqube_extensions:
   sonarqube_logs:
+  redisinsight_data:
