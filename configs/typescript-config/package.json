@@ -13,8 +13,8 @@
     "update:deps": "ncu -u"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
-    "npm-check-updates": "23.0.0"
+    "@types/node": "^26.2.0",
+    "npm-check-updates": "23.0.2"
   },
   "publishConfig": {
     "access": "public"
