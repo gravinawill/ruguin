@@ -29,9 +29,9 @@
     "iovalkey": "^0.4.0"
   },
   "devDependencies": {
-    "@nestjs/common": "^11.1.28",
-    "@nestjs/core": "^11.1.28",
-    "@nestjs/terminus": "^11.1.1",
+    "@nestjs/common": "^12.0.3",
+    "@nestjs/core": "^12.0.3",
+    "@nestjs/terminus": "^12.0.0",
     "@nestjs/testing": "^11.1.28",
     "@ruguin/eslint-config": "workspace:*",
     "@ruguin/typescript-config": "workspace:*",
@@ -45,7 +45,7 @@
   },
   "peerDependencies": {
     "@nestjs/common": "^11.0.1",
-    "@nestjs/terminus": "^11.1.1"
+    "@nestjs/terminus": "^12.0.0"
   },
   "peerDependenciesMeta": {
     "@nestjs/common": {
